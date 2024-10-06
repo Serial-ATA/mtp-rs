@@ -19,7 +19,6 @@ macro_rules! define_operation {
 		pub struct $name:ident {
 			code: $code:literal,
 			parameters: ($($param:ident: $ty:ty),* $(,)?),
-			$(returns: $ret:ty,)?
 			valid_reponse_codes: [$($error:expr),* $(,)?] $(,)?
 		}
 	) => {
@@ -57,7 +56,6 @@ define_operation! {
 	pub struct GetDeviceInfo {
 		code: 0x1001,
 		parameters: (),
-		returns: DeviceInfo,
 		valid_reponse_codes: [ErrorCode::ParameterNotSupported]
 	}
 }
@@ -103,7 +101,6 @@ define_operation! {
 	pub struct GetStorageIDs {
 		code: 0x1004,
 		parameters: (),
-		returns: Vec<StorageId>,
 		valid_reponse_codes: [
 			ErrorCode::OperationNotSupported,
 			ErrorCode::SessionNotOpen,

@@ -8,3 +8,6 @@ repository.workspace = true
 
 [dependencies]
 mtp_spec = { path = "../mtp_spec" }
+
+bitflags = "2.6.0"
+rusb = "0.9.4"

@@ -1,4 +1,15 @@
 use crate::error::{err, MtpError, Result};
+use alloc::borrow::Cow;
+
+use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+
+use deku::ctx::Endian;
+use deku::no_std_io::{Read, Seek, Write};
+use deku::reader::Reader;
+use deku::writer::Writer;
+use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 
 /// The string type of PTP (and thus MTP)
 ///
@@ -10,14 +21,28 @@ use crate::error::{err, MtpError, Result};
 ///
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
-pub struct PtpString(Vec<u16>);
+#[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
+pub struct PtpString(
+	#[deku(
+		reader = "ptp_string_read(deku::reader, endian)",
+		writer = "ptp_string_write(&self.0, deku::writer, endian)"
+	)]
+	Vec<u16>,
+);
+
+impl Default for PtpString {
+	fn default() -> Self {
+		Self(Vec::new())
+	}
+}
 
 impl TryFrom<String> for PtpString {
 	type Error = MtpError;
 
 	fn try_from(value: String) -> core::result::Result<Self, Self::Error> {
 		if value.is_empty() {
-			return Ok(Self(Vec::new()));
+			return Ok(Self::default());
 		}
 
 		// We need to validate the string's contents.
@@ -26,18 +51,18 @@ impl TryFrom<String> for PtpString {
 		}
 
 		// We need to validate the string's length (in characters, NOT bytes).
-		let mut bytes = value
+		let mut chars = value
 			.encode_utf16()
 			.take(Self::MAX_LENGTH - 1)
 			.collect::<Vec<u16>>();
 
 		// The strings ended with a codepoint that needs another unit.
 		// We just have to trim it off.
-		if (0xD8_00..=0xDB_FF).contains(bytes.last().unwrap()) {
-			bytes.pop();
+		if (0xD8_00..=0xDB_FF).contains(chars.last().unwrap()) {
+			chars.pop();
 		}
 
-		Ok(Self(bytes))
+		Ok(Self(chars))
 	}
 }
 
@@ -108,9 +133,60 @@ impl PtpString {
 	}
 }
 
+/// String Definition
+///
+/// | Dataset field     | Size (bytes) | Datatype                       |
+/// |-------------------|--------------|--------------------------------|
+/// | NumChars          | 1            | UINT8                          |
+/// | String Characters | Variable     | Unicode null-terminated string |
+fn ptp_string_read<R: Read + Seek>(
+	reader: &mut Reader<R>,
+	endian: Endian,
+) -> core::result::Result<Vec<u16>, deku::DekuError> {
+	let num_chars = u8::from_reader_with_ctx(reader, ())?;
+	if num_chars == 0 {
+		return Ok(Vec::new());
+	}
+
+	let mut string_characters = Vec::with_capacity(num_chars as usize);
+
+	for _ in 0..(num_chars - 1) {
+		string_characters.push(u16::from_reader_with_ctx(reader, endian)?);
+	}
+
+	let terminator = u16::from_reader_with_ctx(reader, endian)?;
+	if terminator != 0 {
+		return Err(deku::DekuError::Assertion(Cow::Owned(format!(
+			"Expected null terminator, got 0x{:04X} (is the string the correct length?)",
+			terminator
+		))));
+	}
+
+	Ok(string_characters)
+}
+
+fn ptp_string_write<W: Write + Seek>(
+	elements: &[u16],
+	writer: &mut Writer<W>,
+	endian: Endian,
+) -> core::result::Result<(), deku::DekuError> {
+	let num_chars = elements.len() as u8;
+	num_chars.to_writer(writer, ())?;
+
+	for c in elements {
+		c.to_writer(writer, endian)?;
+	}
+
+	0x0000.to_writer(writer, endian)?;
+
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	use alloc::string::ToString;
 
 	#[test]
 	fn string_truncation() {

@@ -1,7 +1,15 @@
-const fn counter<const N: usize>(_: [(); N]) -> usize { N }
+use crate::device::info::DeviceInfo;
+use crate::device::storage::id::StorageId;
+use crate::object::types::Array;
+
+const fn counter<const N: usize>(_: [(); N]) -> usize {
+	N
+}
 
 macro_rules! replace_expr {
-    ($_t:tt $sub:expr) => { $sub }
+	($_t:tt $sub:expr) => {
+		$sub
+	};
 }
 
 const MAX_PARAMETERS: usize = 5;
@@ -10,31 +18,40 @@ macro_rules! define_response {
 	(
 		$(#[$meta:meta])*
 		pub struct $name:ident {
-			code: $code:expr,
-			parameters: ($($param:ident: $ty:ty),* $(,)?),
+			$(data: $data:ty,)?
+			$(parameters: ($($param:ident: $ty:ty),* $(,)?),)?
 		}
 	) => {
-		const _: usize = {
-			if count_helper([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
-				panic!("Too many parameters");
-			}
-		}
-
-		$(#[$meta])*
-		pub struct $name {
-			parameters: [Option<Parameter>; count_helper([$(replace_expr!($param ())),*])],
-		}
-
-		impl $name {
-			const OPCODE: u16 = $code;
-
-			paste::paste! {
-				pub fn new($($param: $ty),*) -> Self {
-					Self {
-						parameters: [$($param),*],
-					}
+		$(
+			const _: usize = {
+				if count_helper([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
+					panic!("Too many parameters");
 				}
 			}
+		)?
+
+		paste::paste! {
+			$(#[$meta])*
+			pub struct [<$name Response>] {
+				$(pub data: $data,)?
+				$(
+					$(pub $param: $ty),*
+				)?
+			}
 		}
+	}
+}
+
+define_response! {
+	/// Response to the [`GetDeviceInfo`] operation.
+	pub struct GetDeviceInfo {
+		data: DeviceInfo,
+	}
+}
+
+define_response! {
+	/// Response to the [`GetStorageIDs`] operation.
+	pub struct GetStorageIDs {
+		data: Array<StorageId>,
 	}
 }

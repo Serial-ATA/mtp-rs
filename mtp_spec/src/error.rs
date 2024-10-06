@@ -26,12 +26,14 @@ pub(crate) use err;
 #[non_exhaustive]
 pub enum MtpErrorKind {
 	StringContainsNull,
+	BadDateTime(&'static str),
 }
 
 impl Display for MtpErrorKind {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
 		match self {
 			MtpErrorKind::StringContainsNull => write!(f, "String contains null bytes"),
+			MtpErrorKind::BadDateTime(reason) => write!(f, "Bad DateTime string: {}", reason),
 		}
 	}
 }
@@ -58,4 +60,4 @@ impl Display for MtpError {
 	}
 }
 
-impl std::error::Error for MtpError {}
+impl core::error::Error for MtpError {}

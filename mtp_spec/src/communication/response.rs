@@ -1,6 +1,7 @@
-use crate::communication::Parameter;
+pub mod impls;
 
-use core::fmt::Debug;
+use core::error::Error;
+use core::fmt::{self, Debug, Display};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u16)]
@@ -170,45 +171,123 @@ pub enum ErrorCode {
 	/// work with Object Property group codes identified as supported by the responder, so this
 	/// response should not normally be returned.
 	ObjectPropGroupNotSupported = 0x202A,
+
+	/// **NOT PART OF THE SPEC**
+	///
+	/// This indicates that the responder sent an invalid error code in response to an operation.
+	UnknownResponse(u16),
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ResponseState<T>
-where
-	T: Copy + Clone + Debug + Eq + PartialEq,
-{
-	Ok(T),
-	Err(ErrorCode),
-}
+impl Display for ErrorCode {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Undefined => write!(f, "An undefined error occurred"),
+			Self::GeneralError => write!(f, "The operation failed for an unknown reason"),
+			Self::SessionNotOpen => write!(f, "The session is not open"),
+			Self::InvalidTransactionID => write!(f, "The transaction ID is invalid"),
+			Self::OperationNotSupported => write!(f, "This operation is not supported"),
+			Self::ParameterNotSupported => {
+				write!(f, "One of the provided parameters is not supported")
+			},
+			Self::IncompleteTransfer => write!(f, "The transfer did not complete successfully"),
+			Self::InvalidStorageID => write!(f, "One or more storage IDs are invalid"),
+			Self::InvalidObjectHandle => write!(f, "One or more object handles are invalid"),
+			Self::DevicePropNotSupported => {
+				write!(f, "The provided device property is not supported")
+			},
+			Self::InvalidObjectFormatCode => {
+				write!(f, "The provided object format code is not supported")
+			},
+			Self::StoreFull => write!(f, "The storage is full"),
+			Self::ObjectWriteProtected => write!(f, "Attempted to write to write-protected object"),
+			Self::StoreReadOnly => write!(f, "The storage is read-only"),
+			Self::AccessDenied => write!(f, "Access to data is denied"),
+			Self::NoThumbnailPresent => write!(f, "No thumbnail is present for the object"),
+			Self::SelfTestFailed => write!(f, "The device failed a self test"),
+			Self::PartialDeletion => write!(
+				f,
+				"Only a subset of objects were deleted, possibly due to write-protection"
+			),
+			Self::StoreNotAvailable => write!(f, "The store is not available"),
+			Self::SpecificationByFormatUnsupported => {
+				write!(f, "The operation does not support specifying by format")
+			},
+			Self::NoValidObjectInfo => write!(f, "No valid object info was provided"),
+			Self::InvalidCodeFormat => write!(f, "A provided data code has an invalid format"),
+			Self::UnknownVendorCode => write!(f, "The vendor code is not recognized by the device"),
+			Self::CaptureAlreadyTerminated => {
+				write!(f, "The capture session has already been terminated")
+			},
+			Self::DeviceBusy => write!(f, "The device is busy"),
+			Self::InvalidParentObject => write!(f, "The parent object is invalid"),
+			Self::InvalidDevicePropFormat => write!(f, "The device property format is invalid"),
+			Self::InvalidDevicePropValue => write!(f, "The device property value is invalid"),
+			Self::InvalidParameter => {
+				write!(f, "One of the provided parameters has an invalid value")
+			},
+			Self::SessionAlreadyOpen => write!(f, "A session is already open"),
+			Self::TransactionCancelled => {
+				write!(f, "The transaction was cancelled by the initiator")
+			},
+			Self::SpecificationOfDestinationUnsupported => {
+				write!(f, "The destination specification is not supported")
+			},
+			Self::InvalidObjectPropCode => {
+				write!(f, "The object property code is invalid in this context")
+			},
+			Self::InvalidObjectPropFormat => write!(f, "The object property format is invalid"),
+			Self::InvalidObjectPropValue => write!(f, "The object property value is invalid"),
+			Self::InvalidObjectReference => write!(f, "The object reference is invalid"),
+			Self::InvalidDataset => write!(f, "The dataset is invalid"),
+			Self::SpecificationByGroupUnsupported => {
+				write!(f, "Group specification is not supported")
+			},
+			Self::SpecificationByDepthUnsupported => {
+				write!(f, "Depth specification is not supported")
+			},
+			Self::ObjectTooLarge => write!(f, "The object is too large to be stored"),
+			Self::ObjectPropNotSupported => write!(f, "The object property is not supported"),
+			Self::ObjectPropGroupNotSupported => {
+				write!(f, "The object property group is not supported")
+			},
 
-impl<T> ResponseState<T>
-where
-	T: Copy + Clone + Debug + Eq + PartialEq,
-{
-	pub fn is_ok(&self) -> bool {
-		matches!(self, Self::Ok(_))
+			// **NOT PART OF THE SPEC**
+			Self::UnknownResponse(code) => write!(
+				f,
+				"The responder provided an unknown response code: 0x{:04X}",
+				code
+			),
+		}
 	}
 }
 
+pub type Response<T> = Result<SuccessResponse<T>, ErrorResponse>;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Response<T>
+pub struct SuccessResponse<T>
 where
 	T: Copy + Clone + Debug + Eq + PartialEq,
 {
-	pub code: ResponseState<T>,
+	pub data: T,
 	pub session_id: u32,
 	pub transaction_id: u32,
-	pub parameters: [Option<Parameter>; 5],
 }
 
-impl<T> Response<T>
-where
-	T: Copy + Clone + Debug + Eq + PartialEq,
-{
-	/// Whether the operation has completed successfully.
-	///
-	/// This is equivalent to [`ReponseState::is_ok()`].
-	pub fn is_ok(self) -> bool {
-		self.code.is_ok()
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ErrorResponse {
+	pub code: ErrorCode,
+	pub session_id: u32,
+	pub transaction_id: u32,
+}
+
+impl Display for ErrorResponse {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(
+			f,
+			"Error response: code = {}, session_id = {}, transaction_id = {}",
+			self.code, self.session_id, self.transaction_id
+		)
 	}
 }
+
+impl Error for ErrorResponse {}

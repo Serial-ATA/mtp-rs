@@ -1,18 +1,33 @@
+use alloc::format;
+
+use deku::{DekuRead, DekuWrite};
+
 /// The type of the collection to which an object is associated.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u16)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
+#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub enum AssociationType {
+	#[deku(id = "0x0000")]
 	Undefined = 0x0000,
+	#[deku(id = "0x0001")]
 	GenericFolder = 0x0001,
+	#[deku(id = "0x0002")]
 	Album = 0x0002,
+	#[deku(id = "0x0003")]
 	TimeSequence = 0x0003,
+	#[deku(id = "0x0004")]
 	HorizontalPanoramic = 0x0004,
+	#[deku(id = "0x0005")]
 	VerticalPanoramic = 0x0005,
+	#[deku(id = "0x0006")]
 	Panoramic2d = 0x0006,
+	#[deku(id = "0x0007")]
 	AncillaryData = 0x0007,
 	/// All other values with bit 15 set to 0
+	#[deku(id_pat = "t if t & 0x8000 == 0")]
 	Reserved,
 	/// All other values with bit 15 set to 1 and bit 14 set to 0
+	#[deku(id_pat = "t if t & 0xC000 == 0x8000")]
 	VendorDefined,
 	/// All other values with bit 15 set to 1 and bit 14 set to 1
 	Mtp,
@@ -36,7 +51,8 @@ impl From<u16> for AssociationType {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub struct Association {
 	/// The type of the collection to which the object is associated.
 	pub ty: AssociationType,

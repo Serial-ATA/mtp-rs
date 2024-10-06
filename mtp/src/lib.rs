@@ -1,14 +1,10 @@
-pub fn add(left: u64, right: u64) -> u64 {
-	left + right
-}
+use crate::usb::{UsbDeviceDescriptor, UsbDeviceFlags};
 
-#[cfg(test)]
-mod tests {
-	use super::*;
+use std::collections::HashSet;
+use std::sync::LazyLock;
 
-	#[test]
-	fn it_works() {
-		let result = add(2, 2);
-		assert_eq!(result, 4);
-	}
-}
+mod error;
+mod usb;
+
+static DEVICE_DESCRIPTORS: LazyLock<HashSet<UsbDeviceDescriptor>> =
+	LazyLock::new(|| HashSet::from_iter(include!("../generated/devices.rs")));

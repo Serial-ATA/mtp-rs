@@ -1,8 +1,13 @@
+use alloc::vec::Vec;
+
+use deku::{DekuRead, DekuWrite};
+
+pub mod event;
 pub mod operation;
 pub mod response;
-pub mod event;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
 #[repr(transparent)]
 pub struct Parameter(u32);
 
@@ -22,7 +27,8 @@ impl Parameter {
 ///
 /// Operations can exist outside of an active session, in which case
 /// [`SessionId::NONE`] is valid.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
 #[repr(transparent)]
 pub struct SessionId(u32);
 
@@ -69,7 +75,8 @@ impl From<SessionId> for Parameter {
 ///
 /// Operations can exist outside of an active session, in which case
 /// [`TransactionId::NONE`] is valid.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "big")]
 #[repr(transparent)]
 pub struct TransactionId(u32);
 

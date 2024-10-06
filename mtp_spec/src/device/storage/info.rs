@@ -1,3 +1,5 @@
+use crate::object::types::PtpString;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u16)]
 pub enum StorageType {
@@ -76,10 +78,10 @@ pub struct StorageInfo {
 	pub free_space: u64,
 	pub free_space_in_objects: Option<u32>,
 	/// A human-readable string identifying this storage, such as "256Mb SD Card" or "20Gb HDD"
-	pub storage_description: Option<String>,
+	pub storage_description: Option<PtpString>,
 	/// A unique, programmatically relevant volume identifier, such as a serial
 	/// number. This field may be up to 255 characters long, however, only the first 128
 	/// characters will be used to identify the device, and these first 128 characters must be
 	/// unique for all storages.
-	pub volume_identifier: String,
+	pub volume_identifier: PtpString,
 }

@@ -1,21 +1,28 @@
 use crate::communication::Parameter;
+use crate::object::types::ArrayEncodable;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct StorageId(u16, u16);
+use deku::{DekuRead, DekuWrite};
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
+#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
+pub struct StorageId(u32);
 
 impl StorageId {
-	pub const ALL_STORAGES: Self = StorageId(0xFFFF, 0xFFFF);
-	pub const DEFAULT_STORE: Self = StorageId(0x0000, 0x0000);
+	pub const ALL_STORAGES: Self = StorageId(0xFFFF_FFFF);
+	pub const DEFAULT_STORE: Self = StorageId(0x0000_0000);
 }
 
 impl From<u32> for StorageId {
 	fn from(value: u32) -> Self {
-		StorageId((value >> 16) as u16, value as u16)
+		StorageId(value)
 	}
 }
 
 impl From<StorageId> for Parameter {
 	fn from(value: StorageId) -> Self {
-		Parameter::new((value.0 as u32) << 16 | value.1 as u32)
+		Parameter::new(value.0)
 	}
 }
+
+// `StorageId` is simply a `u32` wrapper
+impl ArrayEncodable for StorageId {}

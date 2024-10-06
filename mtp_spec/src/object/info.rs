@@ -3,23 +3,33 @@ use crate::object::types::association::Association;
 use crate::object::types::datetime::DateTime;
 use crate::object::types::format_code::ObjectFormatCode;
 use crate::object::types::object_handle::ObjectHandle;
+use crate::object::types::PtpString;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+use alloc::format;
+
+use deku::{DekuRead, DekuWrite};
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[repr(u16)]
+#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub enum ProtectionStatus {
 	/// This object has no protection; it may be modified or deleted arbitrarily and its properties may be modified freely.
+	#[deku(id = "0x0000")]
 	NoProtection = 0x0000,
 	/// This object cannot be deleted or modified; none of the properties of
 	/// this object can be modified by the initiator. (However, properties can be modified
 	/// by the device that contains the object.)
+	#[deku(id = "0x0001")]
 	ReadOnly = 0x0001,
 	/// This object’s binary component cannot be deleted or modified;
 	/// however; any object properties may be modified if allowed by the object property
 	/// constraints.
+	#[deku(id = "0x8002")]
 	ReadOnlyData = 0x8002,
 	/// This object’s properties may be read and modified, and it
 	/// may be moved or deleted on the device, but this object’s binary data may not be
 	/// retrieved from the device using a GetObject operation.
+	#[deku(id = "0x8003")]
 	NonTransferableData = 0x8003,
 	Reserved,
 }
@@ -36,7 +46,8 @@ impl From<u16> for ProtectionStatus {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub struct Thumbnail {
 	pub format: ObjectFormatCode,
 	pub compressed_size: u32,
@@ -44,6 +55,8 @@ pub struct Thumbnail {
 	pub height: u32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
+#[deku(endian = "big")]
 pub struct ObjectInfo {
 	pub storage_id: StorageId,
 	pub object_format: ObjectFormatCode,
@@ -62,8 +75,8 @@ pub struct ObjectInfo {
 	/// information. This string is also accessible and defined via an Object Property, and
 	/// restrictions on its format may be identified in the Object Property Description for this
 	/// object property.
-	pub filename: String,
+	pub filename: PtpString,
 	pub date_created: DateTime,
 	pub date_modified: DateTime,
-	pub keywords: String,
+	pub keywords: PtpString,
 }
