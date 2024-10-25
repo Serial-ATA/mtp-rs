@@ -140,6 +140,10 @@ impl FromStr for DateTime {
 			datetime.decisecond = deciseconds.to_digit(10).map(|d| d as u8);
 		}
 
+		// TODO: This string can optionally be appended with a constant character “Z” to indicate UTC, or
+		//       +/-hhmm to indicate that the time is relative to a time zone. Appending neither indicates
+		//       that the time zone is unspecified.
+
 		if !datetime.validate() {
 			return Err(MtpError::new(MtpErrorKind::BadDateTime(
 				"DateTime string contains invalid segments",
@@ -262,6 +266,42 @@ mod tests {
 	#[test]
 	fn datetime_parse_fromstr_no_time() {
 		let datetime = DateTime::from_str("20240101").unwrap();
+		assert_eq!(datetime.year, 2024);
+		assert_eq!(datetime.month, Some(1));
+		assert_eq!(datetime.day, Some(1));
+		assert_eq!(datetime.hour, None);
+		assert_eq!(datetime.minute, None);
+		assert_eq!(datetime.second, None);
+		assert_eq!(datetime.decisecond, None);
+	}
+
+	#[test]
+	fn datetime_parse_fromstr_utc() {
+		let datetime = DateTime::from_str("20240101T123456.7Z").unwrap();
+		assert_eq!(datetime.year, 2024);
+		assert_eq!(datetime.month, Some(1));
+		assert_eq!(datetime.day, Some(1));
+		assert_eq!(datetime.hour, None);
+		assert_eq!(datetime.minute, None);
+		assert_eq!(datetime.second, None);
+		assert_eq!(datetime.decisecond, None);
+	}
+
+	#[test]
+	fn datetime_parse_fromstr_relative_positive() {
+		let datetime = DateTime::from_str("20240101T123456.7+1234").unwrap();
+		assert_eq!(datetime.year, 2024);
+		assert_eq!(datetime.month, Some(1));
+		assert_eq!(datetime.day, Some(1));
+		assert_eq!(datetime.hour, None);
+		assert_eq!(datetime.minute, None);
+		assert_eq!(datetime.second, None);
+		assert_eq!(datetime.decisecond, None);
+	}
+
+	#[test]
+	fn datetime_parse_fromstr_relative_negative() {
+		let datetime = DateTime::from_str("20240101T123456.7-1234").unwrap();
 		assert_eq!(datetime.year, 2024);
 		assert_eq!(datetime.month, Some(1));
 		assert_eq!(datetime.day, Some(1));

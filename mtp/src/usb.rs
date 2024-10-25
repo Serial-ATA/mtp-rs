@@ -1,9 +1,16 @@
 use crate::error::Result;
-use bitflags::bitflags;
 
-pub use rusb;
-use rusb::constants::LIBUSB_DT_HUB;
-use rusb::UsbContext;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use bitflags::bitflags;
+pub use nusb;
+use nusb::descriptors::language_id::US_ENGLISH;
+
+static WELL_KNOWN_DEVICE_DESCRIPTORS: LazyLock<HashSet<UsbDeviceDescriptor>> =
+	LazyLock::new(|| HashSet::from_iter(include!("../generated/devices.rs")));
 
 bitflags! {
 	#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -49,29 +56,127 @@ pub struct UsbDeviceDescriptor {
 	pub flags: UsbDeviceFlags,
 }
 
-/// Returns a list of MTP eligible devices.
+enum MtpEligibility {
+	Eligible,
+	Ineligible,
+}
+
+#[derive(Clone)]
+pub struct Device {
+	info: nusb::DeviceInfo,
+	handle: Option<nusb::Device>,
+}
+
+impl Debug for Device {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Device").field("info", &self.info).finish()
+	}
+}
+
+impl From<nusb::DeviceInfo> for Device {
+	fn from(info: nusb::DeviceInfo) -> Self {
+		Self { info, handle: None }
+	}
+}
+
+impl Device {
+	pub fn open(&mut self) -> Result<()> {
+		if self.handle.is_none() {
+			self.handle = Some(self.info.open()?);
+		}
+
+		Ok(())
+	}
+}
+
+impl Device {
+	fn check_mtp_eligibility(&mut self) -> Result<MtpEligibility> {
+		let is_well_known = WELL_KNOWN_DEVICE_DESCRIPTORS.iter().any(|d| {
+			d.vendor_id == self.info.vendor_id() && d.product_id == self.info.product_id()
+		});
+
+		if is_well_known {
+			return Ok(MtpEligibility::Eligible);
+		}
+
+		if self.check_for_mtp_descriptor()? {
+			return Ok(MtpEligibility::Eligible);
+		}
+
+		Ok(MtpEligibility::Ineligible)
+	}
+
+	fn check_for_mtp_descriptor(&mut self) -> Result<bool> {
+		const CLASS_PER_INTERFACE: u8 = 0;
+		const CLASS_COMM: u8 = 2;
+		const CLASS_PTP: u8 = 6;
+		const CLASS_VENDOR_SPECIFIC: u8 = 255;
+
+		const LIKELY_DEVICE_CLASSES: &[u8] = &[
+			CLASS_PER_INTERFACE,
+			CLASS_COMM,
+			CLASS_PTP,
+			0xEF,
+			CLASS_VENDOR_SPECIFIC,
+		];
+
+		if !LIKELY_DEVICE_CLASSES.contains(&self.info.class()) {
+			return Ok(false);
+		}
+
+		let Ok(handle) = self.info.open() else {
+			return Ok(false);
+		};
+
+		self.handle = Some(handle);
+
+		let handle = self.handle.as_ref().unwrap();
+		for config in handle.configurations() {
+			for interface in config.interfaces() {
+				for alt_settings in interface.alt_settings() {
+					if alt_settings.num_endpoints() != 3 {
+						continue;
+					}
+
+					if alt_settings.class() == CLASS_VENDOR_SPECIFIC {
+						todo!()
+					}
+
+					let Some(string_index) = alt_settings.string_index() else {
+						continue;
+					};
+
+					let timeout = Duration::from_secs(1);
+
+					let Ok(interface_name) =
+						handle.get_string_descriptor(string_index, US_ENGLISH, timeout)
+					else {
+						continue;
+					};
+
+					if interface_name.contains("MTP") {
+						return Ok(true);
+					}
+				}
+			}
+		}
+
+		Ok(false)
+	}
+}
+
+/// Returns a list of connected devices that are MTP eligible.
 ///
 /// # Errors
 ///
-/// See [`rusb::devices`].
-pub fn device_list() -> Result<()> {
-	for device in rusb::devices()?.iter() {
-		if is_mtp_eligible(&device)? {
-			println!("Found MTP device: {:?}", device);
+/// See [`nusb::list_devices`].
+pub fn device_list() -> Result<impl Iterator<Item = Result<Device>>> {
+	Ok(nusb::list_devices()?.filter_map(|info| {
+		let mut device = Device::from(info);
+		match device.check_mtp_eligibility() {
+			Ok(MtpEligibility::Eligible) => Some(Ok(device)),
+			Ok(MtpEligibility::Ineligible) => None,
+			Err(e) => Some(Err(e)),
 		}
-	}
-
-	Ok(())
-}
-
-fn is_mtp_eligible<T: UsbContext>(device: &rusb::Device<T>) -> Result<bool> {
-	let descriptor = device.device_descriptor()?;
-	if descriptor.descriptor_type() == LIBUSB_DT_HUB {
-		return Ok(false);
-	}
-
-	descriptor.vendor_id();
-	descriptor.product_id();
-
-	Ok(false)
+	}))
 }

@@ -10,4 +10,4 @@ repository.workspace = true
 mtp_spec = { path = "../mtp_spec" }
 
 bitflags = "2.6.0"
-rusb = "0.9.4"
+nusb = "0.1.10"

@@ -36,6 +36,9 @@ impl SessionId {
 	/// A session identifier that represents no active session.
 	pub const NONE: Self = SessionId(0);
 
+	/// A session identifier representing all current sessions.
+	pub const ALL: Self = SessionId(0xFFFFFF);
+
 	/// Create a new session identifier.
 	///
 	/// # Examples

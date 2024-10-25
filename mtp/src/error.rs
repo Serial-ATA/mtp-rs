@@ -4,9 +4,9 @@ use core::fmt::Display;
 /// A specialized `Result` type for MTP operations.
 pub type Result<T> = core::result::Result<T, MtpError>;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum MtpError {
-	Usb(rusb::Error),
+	Usb(nusb::Error),
 }
 
 impl Display for MtpError {
@@ -19,8 +19,8 @@ impl Display for MtpError {
 
 impl Error for MtpError {}
 
-impl From<rusb::Error> for MtpError {
-	fn from(error: rusb::Error) -> Self {
+impl From<nusb::Error> for MtpError {
+	fn from(error: nusb::Error) -> Self {
 		Self::Usb(error)
 	}
 }
