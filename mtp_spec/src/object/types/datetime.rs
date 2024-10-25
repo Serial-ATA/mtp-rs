@@ -50,7 +50,6 @@ impl FromStr for DateTime {
 			*s = &s[2..];
 
 			let ret = segment.parse::<u8>().map_err(|_| {
-				panic!("Failed to parse segment: {:?}", segment);
 				MtpError::new(MtpErrorKind::BadDateTime(
 					"A DateTime string must contain only digits",
 				))

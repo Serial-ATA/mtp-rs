@@ -47,7 +47,7 @@ macro_rules! define_operation {
 		pub struct $name {
 			parameters: [$crate::communication::Parameter; counter([$(replace_expr!($param ())),*])],
 			session_id: Option<$crate::communication::SessionId>,
-			transaction_id: session_id: $crate::communication::TransactionId,
+			transaction_id: $crate::communication::TransactionId,
 		}
 
 		impl $name {
@@ -55,10 +55,10 @@ macro_rules! define_operation {
 			const VALID_ERRORS: &[$crate::communication::response::ErrorCode] = &[$($error),*];
 
 			paste::paste! {
-				pub fn new(transaction_id: TransactionId, $($param: $ty),*) -> Self {
+				pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
 					Self {
 						parameters: [$(Into::<$crate::communication::Parameter>::into($param)),*],
-						session_id: session_id!(@FIELD $($session_id)?),
+						session_id: session_id!($($session_id)?),
 						transaction_id,
 					}
 				}
@@ -67,13 +67,13 @@ macro_rules! define_operation {
 
 		impl From<$name> for $crate::communication::operation::Operation {
 			fn from(value: $name) -> $crate::communication::operation::Operation {
-				let mut parameters = [None::<Parameter>; 5];
-				::seq_macro::seq!(i in 0..=$parameter_count {
-					parameters[i] = Some(value.parameters[i])
-				})
+				let mut parameters = [None::<$crate::communication::Parameter>; 5];
+				::seq_macro::seq!(i in 0..$parameter_count {
+					parameters[i] = Some(value.parameters[i]);
+				});
 
 				Self {
-					code: Self::OPCODE,
+					code: <$name>::OPCODE,
 					session_id: session_id!($($session_id)?),
 					transaction_id: value.transaction_id,
 					parameters,
