@@ -1,10 +1,13 @@
-mod error;
+use mtp_spec::device::Device;
+
+pub mod error;
+/// USB backend for MTP.
 pub mod usb;
 
-#[test]
-fn foo() {
+#[test_log::test(tokio::test)]
+async fn foo() {
 	for d in usb::device_list().unwrap() {
-		println!("{:#?}", d);
-		d.unwrap().open().unwrap()
+		let mut handle = d.unwrap().open().unwrap();
+		dbg!(handle.get_device_info(None).await.unwrap());
 	}
 }

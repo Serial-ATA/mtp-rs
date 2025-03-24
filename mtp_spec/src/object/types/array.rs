@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use alloc::format;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::ops::{Index, IndexMut};

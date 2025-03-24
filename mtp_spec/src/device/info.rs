@@ -4,6 +4,40 @@ use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
+/// Modes allow the device to express different states with different capabilities. If the device
+/// supports only one mode, this field shall contain the value `0x00000000`.
+///
+/// The following values are defined:
+///
+/// | Value                                                     | Description             |
+/// |-----------------------------------------------------------|-------------------------|
+/// | `0x0000`                                                  | Standard mode           |
+/// | `0x0001`                                                  | Sleep state             |
+/// | All other values with bit 15 set to 0                     | Reserved                |
+/// | `0xC001`                                                  | Non-responsive playback |
+/// | `0xC002`                                                  | Responsive playback     |
+/// | All other values with bit 15 set to 1 and bit 14 set to 0 | MTP vendor extension    |
+/// | All other values with bit 15 set to 1 and bit 14 set to 1 | MTP-defined             |
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[repr(u16)]
+pub enum FunctionalMode {
+	#[deku(id = 0x0000)]
+	Standard = 0x0000,
+	#[deku(id = 0x0001)]
+	SleepState = 0x0001,
+	#[deku(id_pat = "t if t & 0x8000 == 0")]
+	Reserved(u16),
+	#[deku(id = 0xC001)]
+	NonResponsivePlayback = 0xC001,
+	#[deku(id = 0xC002)]
+	ResponsivePlayback = 0xC002,
+	#[deku(id_pat = "t if t & 0xC000 == 0x8000")]
+	MtpVendorExtension(u16),
+	#[deku(id_pat = "t if t & 0xC000 == 0xC000")]
+	MtpDefined(u16),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(endian = "big")]
 pub struct DeviceInfo {
@@ -19,21 +53,7 @@ pub struct DeviceInfo {
 	pub mtp_version: u16,
 	/// This string is used to identify any extension sets applied to MTP
 	pub mtp_extensions: PtpString,
-	/// Modes allow the device to express different states with different capabilities. If the device
-	/// supports only one mode, this field shall contain the value `0x00000000`.
-	///
-	/// The following values are defined:
-	///
-	/// | Value                                                     | Description             |
-	/// |-----------------------------------------------------------|-------------------------|
-	/// | `0x0000`                                                  | Standard mode           |
-	/// | `0x0001`                                                  | Sleep state             |
-	/// | All other values with bit 15 set to 0                     | Reserved                |
-	/// | `0xC001`                                                  | Non-responsive playback |
-	/// | `0xC002`                                                  | Responsive playback     |
-	/// | All other values with bit 15 set to 1 and bit 14 set to 0 | MTP vendor extension    |
-	/// | All other values with bit 15 set to 1 and bit 14 set to 1 | MTP-defined             |
-	pub functional_mode: u16,
+	pub functional_mode: FunctionalMode,
 	pub operations_supported: Array<u16>,
 	pub events_supported: Array<u16>,
 	pub device_properties_supported: Array<u16>,

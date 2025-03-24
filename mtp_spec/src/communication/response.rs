@@ -1,4 +1,5 @@
-pub mod impls;
+mod impls;
+pub use impls::*;
 
 use core::error::Error;
 use core::fmt::{self, Debug, Display};

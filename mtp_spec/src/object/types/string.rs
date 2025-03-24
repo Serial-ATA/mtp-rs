@@ -21,7 +21,7 @@ use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
-#[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[derive(Default, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub struct PtpString(
 	#[deku(
@@ -30,12 +30,6 @@ pub struct PtpString(
 	)]
 	Vec<u16>,
 );
-
-impl Default for PtpString {
-	fn default() -> Self {
-		Self(Vec::new())
-	}
-}
 
 impl TryFrom<String> for PtpString {
 	type Error = MtpError;

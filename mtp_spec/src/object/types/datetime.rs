@@ -186,10 +186,7 @@ impl Display for DateTime {
 }
 
 impl DekuReader<'_, Endian> for DateTime {
-	fn from_reader_with_ctx<R>(
-		reader: &mut Reader<'_, R>,
-		endian: Endian,
-	) -> Result<Self, DekuError>
+	fn from_reader_with_ctx<R>(reader: &mut Reader<R>, endian: Endian) -> Result<Self, DekuError>
 	where
 		R: Read + Seek,
 	{

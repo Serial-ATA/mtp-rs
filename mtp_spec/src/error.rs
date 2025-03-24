@@ -27,6 +27,7 @@ pub(crate) use err;
 pub enum MtpErrorKind {
 	StringContainsNull,
 	BadDateTime(&'static str),
+	Serialization(deku::DekuError),
 }
 
 impl Display for MtpErrorKind {
@@ -34,6 +35,7 @@ impl Display for MtpErrorKind {
 		match self {
 			MtpErrorKind::StringContainsNull => write!(f, "String contains null bytes"),
 			MtpErrorKind::BadDateTime(reason) => write!(f, "Bad DateTime string: {}", reason),
+			MtpErrorKind::Serialization(error) => write!(f, "Serialization error: {}", error),
 		}
 	}
 }
@@ -61,3 +63,9 @@ impl Display for MtpError {
 }
 
 impl core::error::Error for MtpError {}
+
+impl From<deku::DekuError> for MtpError {
+	fn from(error: deku::DekuError) -> Self {
+		MtpError::new(MtpErrorKind::Serialization(error))
+	}
+}

@@ -2,6 +2,8 @@ use crate::device::info::DeviceInfo;
 use crate::device::storage::id::StorageId;
 use crate::object::types::Array;
 
+use deku::DekuRead;
+
 const fn counter<const N: usize>(_: [(); N]) -> usize {
 	N
 }
@@ -32,6 +34,7 @@ macro_rules! define_response {
 
 		paste::paste! {
 			$(#[$meta])*
+			#[derive(Clone, Debug, PartialEq, Eq, DekuRead)]
 			pub struct [<$name Response>] {
 				$(pub data: $data,)?
 				$(
@@ -40,6 +43,11 @@ macro_rules! define_response {
 			}
 		}
 	}
+}
+
+define_response! {
+	/// Empty response, device has nothing to provide
+	pub struct Empty {}
 }
 
 define_response! {
