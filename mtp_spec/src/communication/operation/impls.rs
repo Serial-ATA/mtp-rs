@@ -25,16 +25,38 @@ macro_rules! define_operation {
 			code: $code:literal,
 			parameters: ($($param:ident: $ty:ty),* $(,)?),
 			response: $response:ty,
-			valid_error_codes: [$($error:expr),* $(,)?] $(,)?
+			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 		}
 	) => {
 		define_operation!(
 			$(#[$meta])* $name, code: $code, $(session_id: $session_id)?, [$($param: $ty),*], $response, [$($error),*]
 		);
 
+		paste::paste! {
+			#[derive(Debug, deku::DekuRead)]
+			#[deku(ctx = "error_code: u16", id = "error_code")]
+			pub enum [<$name Error>] {
+				$(
+				#[deku(id = crate::communication::response::$error::CODE)]
+				$error($crate::communication::response::$error)
+				),*
+			}
+
+			impl core::fmt::Display for [<$name Error>] {
+				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+					match self {
+						$(
+							Self::$error(error) => write!(f, "{error}"),
+						)*
+					}
+				}
+			}
+
+			impl core::error::Error for [<$name Error>] {}
+		}
+
 		impl $name {
 			const OPCODE: u16 = $code;
-			const VALID_ERRORS: &[$crate::communication::response::ErrorCode] = &[$($error),*];
 		}
 
 		define_operation!(
@@ -96,7 +118,7 @@ macro_rules! define_operation {
 		}
 
 		impl<'a> From<&'a $name> for $crate::communication::operation::SerializedOperation<'a> {
-			fn from(value: &'a $name) -> $crate::communication::operation::SerializedOperation {
+			fn from(value: &'a $name) -> $crate::communication::operation::SerializedOperation<'a> {
 				Self {
 					code: <$name>::OPCODE,
 					session_id: value.session_id.unwrap_or(SessionId::NONE),
@@ -106,8 +128,11 @@ macro_rules! define_operation {
 			}
 		}
 
-		impl $crate::communication::operation::Operation for $name {
-			type Response = $response;
+		paste::paste! {
+			impl $crate::communication::operation::Operation for $name {
+				type Response = $response;
+				type Error = [<$name Error>];
+			}
 		}
 	}
 }
@@ -120,8 +145,8 @@ define_operation! {
 	pub struct GetDeviceInfo {
 		code: 0x1001,
 		parameters: (),
-		response: response::GetDeviceInfoResponse,
-		valid_error_codes: [ErrorCode::ParameterNotSupported]
+		response: response::GetDeviceInfo,
+		valid_error_codes: [ParameterNotSupported]
 	}
 }
 
@@ -136,12 +161,12 @@ define_operation! {
 	pub struct OpenSession {
 		code: 0x1002,
 		parameters: (session_id: SessionId),
-		response: response::EmptyResponse,
+		response: response::Empty,
 		valid_error_codes: [
-			ErrorCode::ParameterNotSupported,
-			ErrorCode::InvalidParameter,
-			ErrorCode::SessionAlreadyOpen,
-			ErrorCode::DeviceBusy,
+			ParameterNotSupported,
+			InvalidParameter,
+			SessionAlreadyOpen,
+			DeviceBusy,
 		]
 	}
 }
@@ -155,11 +180,11 @@ define_operation! {
 	pub struct CloseSession {
 		code: 0x1003,
 		parameters: (),
-		response: response::EmptyResponse,
+		response: response::Empty,
 		valid_error_codes: [
-			ErrorCode::SessionNotOpen,
-			ErrorCode::InvalidTransactionID,
-			ErrorCode::ParameterNotSupported,
+			SessionNotOpen,
+			InvalidTransactionID,
+			ParameterNotSupported,
 		]
 	}
 }
@@ -169,12 +194,12 @@ define_operation! {
 	pub struct GetStorageIDs {
 		code: 0x1004,
 		parameters: (),
-		response: response::GetStorageIDsResponse,
+		response: response::GetStorageIDs,
 		valid_error_codes: [
-			ErrorCode::OperationNotSupported,
-			ErrorCode::SessionNotOpen,
-			ErrorCode::InvalidTransactionID,
-			ErrorCode::ParameterNotSupported,
+			OperationNotSupported,
+			SessionNotOpen,
+			InvalidTransactionID,
+			ParameterNotSupported,
 		]
 	}
 }

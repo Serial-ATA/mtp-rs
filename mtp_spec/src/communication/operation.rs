@@ -1,11 +1,14 @@
-use crate::communication::{Parameter, SessionId, TransactionId};
+use crate::communication::response::{Response, ResponseFlags};
+use crate::communication::{response, Parameter, SessionId, TransactionId};
 use crate::error::Result;
 
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
+use deku::no_std_io::Cursor;
+use deku::reader::Reader;
 use deku::writer::Writer;
-use deku::{DekuContainerRead, DekuWrite, DekuWriter};
+use deku::{DekuContainerRead, DekuReader, DekuWrite, DekuWriter};
 
 mod impls;
 pub use impls::*;
@@ -46,16 +49,22 @@ pub trait Operation
 where
 	for<'a> SerializedOperation<'a>: From<&'a Self>,
 {
-	type Response: Clone + Debug + Eq + PartialEq + for<'b> DekuContainerRead<'b>;
+	type Response: Clone + Debug + Eq + PartialEq + ResponseFlags + for<'b> DekuContainerRead<'b>;
+	type Error: for<'b> DekuReader<'b, u16>;
 
 	fn encode(&self) -> SerializedOperation<'_> {
 		self.into()
 	}
 
-	fn decode_response(bytes: &[u8]) -> Result<Self::Response> {
+	fn decode_data(bytes: &[u8]) -> Result<Self::Response> {
 		match DekuContainerRead::from_bytes((bytes, 0)) {
 			Ok((_remaining, response)) => Ok(response),
 			Err(err) => Err(err.into()),
 		}
+	}
+
+	fn decode_err(bytes: &[u8], code: u16) -> Result<Self::Error> {
+		Self::Error::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), code)
+			.map_err(Into::into)
 	}
 }

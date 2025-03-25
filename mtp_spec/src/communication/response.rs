@@ -1,8 +1,16 @@
+mod error_impls;
 mod impls;
+
+pub use error_impls::*;
 pub use impls::*;
 
+use crate::communication::{SessionId, TransactionId};
+
+use crate::communication::operation::Operation;
 use core::error::Error;
 use core::fmt::{self, Debug, Display};
+
+pub const CODE_OK: u16 = 0x2001;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u16)]
@@ -179,6 +187,56 @@ pub enum ErrorCode {
 	UnknownResponse(u16),
 }
 
+impl From<u16> for ErrorCode {
+	fn from(code: u16) -> Self {
+		match code {
+			0x2000 => ErrorCode::Undefined,
+			0x2002 => ErrorCode::GeneralError,
+			0x2003 => ErrorCode::SessionNotOpen,
+			0x2004 => ErrorCode::InvalidTransactionID,
+			0x2005 => ErrorCode::OperationNotSupported,
+			0x2006 => ErrorCode::ParameterNotSupported,
+			0x2007 => ErrorCode::IncompleteTransfer,
+			0x2008 => ErrorCode::InvalidStorageID,
+			0x2009 => ErrorCode::InvalidObjectHandle,
+			0x200A => ErrorCode::DevicePropNotSupported,
+			0x200B => ErrorCode::InvalidObjectFormatCode,
+			0x200C => ErrorCode::StoreFull,
+			0x200D => ErrorCode::ObjectWriteProtected,
+			0x200E => ErrorCode::StoreReadOnly,
+			0x200F => ErrorCode::AccessDenied,
+			0x2010 => ErrorCode::NoThumbnailPresent,
+			0x2011 => ErrorCode::SelfTestFailed,
+			0x2012 => ErrorCode::PartialDeletion,
+			0x2013 => ErrorCode::StoreNotAvailable,
+			0x2014 => ErrorCode::SpecificationByFormatUnsupported,
+			0x2015 => ErrorCode::NoValidObjectInfo,
+			0x2016 => ErrorCode::InvalidCodeFormat,
+			0x2017 => ErrorCode::UnknownVendorCode,
+			0x2018 => ErrorCode::CaptureAlreadyTerminated,
+			0x2019 => ErrorCode::DeviceBusy,
+			0x201A => ErrorCode::InvalidParentObject,
+			0x201B => ErrorCode::InvalidDevicePropFormat,
+			0x201C => ErrorCode::InvalidDevicePropValue,
+			0x201D => ErrorCode::InvalidParameter,
+			0x201E => ErrorCode::SessionAlreadyOpen,
+			0x201F => ErrorCode::TransactionCancelled,
+			0x2020 => ErrorCode::SpecificationOfDestinationUnsupported,
+			0x2021 => ErrorCode::InvalidObjectPropCode,
+			0x2022 => ErrorCode::InvalidObjectPropFormat,
+			0x2023 => ErrorCode::InvalidObjectPropValue,
+			0x2024 => ErrorCode::InvalidObjectReference,
+			0x2025 => ErrorCode::InvalidDataset,
+			0x2026 => ErrorCode::SpecificationByGroupUnsupported,
+			0x2027 => ErrorCode::SpecificationByDepthUnsupported,
+			0x2028 => ErrorCode::ObjectTooLarge,
+			0x2029 => ErrorCode::ObjectPropNotSupported,
+			0x202A => ErrorCode::ObjectPropGroupNotSupported,
+			unknown => ErrorCode::UnknownResponse(unknown),
+		}
+	}
+}
+
 impl Display for ErrorCode {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
@@ -262,33 +320,43 @@ impl Display for ErrorCode {
 	}
 }
 
-pub type Response<T> = Result<SuccessResponse<T>, ErrorResponse>;
+pub type Response<O: Operation> =
+	Result<SuccessResponse<<O as Operation>::Response>, <O as Operation>::Error>;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SuccessResponse<T>
 where
-	T: Copy + Clone + Debug + Eq + PartialEq,
+	T: Clone + Debug + Eq + PartialEq,
 {
 	pub data: T,
-	pub session_id: u32,
-	pub transaction_id: u32,
+	pub transaction_id: TransactionId,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ErrorResponse {
 	pub code: ErrorCode,
-	pub session_id: u32,
-	pub transaction_id: u32,
+	pub transaction_id: TransactionId,
 }
 
 impl Display for ErrorResponse {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(
 			f,
-			"Error response: code = {}, session_id = {}, transaction_id = {}",
-			self.code, self.session_id, self.transaction_id
+			"Error response: code = {}, transaction_id = {}",
+			self.code, self.transaction_id
 		)
 	}
 }
 
 impl Error for ErrorResponse {}
+
+pub trait ResponseFlags: sealed::Sealed {
+	/// Hint to the decoder whether to expect data with this response.
+	const EXPECTS_DATA: bool = true;
+}
+
+mod sealed {
+	pub trait Sealed {}
+
+	impl Sealed for super::impls::Empty {}
+}

@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 paste = "1.0.15"
-deku = { path = "../../../Dependencies/deku", default-features = false, features = ["alloc"] }
+deku = { path = "../../../Dependencies/deku", default-features = false, features = ["alloc", "logging"] }
 log = "0.4.22"
 seq-macro = "0.3.5"
 

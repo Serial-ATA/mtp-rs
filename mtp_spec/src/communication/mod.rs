@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-
+use core::fmt::Display;
 use deku::{DekuRead, DekuWrite};
 
 pub mod event;
@@ -68,6 +68,12 @@ impl SessionId {
 	}
 }
 
+impl Display for SessionId {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "0x{:06x}", self.0)
+	}
+}
+
 impl From<SessionId> for Parameter {
 	fn from(value: SessionId) -> Self {
 		Parameter::new(value.0)
@@ -113,6 +119,17 @@ impl TransactionId {
 	/// ```
 	pub fn value(self) -> u32 {
 		self.0
+	}
+
+	/// Get the next transaction identifier.
+	pub fn next(self) -> Self {
+		Self(self.0.saturating_add(1))
+	}
+}
+
+impl Display for TransactionId {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "0x{:06x}", self.0)
 	}
 }
 

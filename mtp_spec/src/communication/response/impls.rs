@@ -1,10 +1,9 @@
+use super::ResponseFlags;
 use crate::device::info::DeviceInfo;
 use crate::device::storage::id::StorageId;
 use crate::object::types::Array;
 
-use deku::DekuRead;
-
-const fn counter<const N: usize>(_: [(); N]) -> usize {
+pub(super) const fn counter<const N: usize>(_: [(); N]) -> usize {
 	N
 }
 
@@ -14,7 +13,7 @@ macro_rules! replace_expr {
 	};
 }
 
-const MAX_PARAMETERS: usize = 5;
+pub(super) const MAX_PARAMETERS: usize = 5;
 
 macro_rules! define_response {
 	(
@@ -25,29 +24,38 @@ macro_rules! define_response {
 		}
 	) => {
 		$(
-			const _: usize = {
-				if count_helper([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
+			const _: () = {
+				if $crate::communication::response::impls::counter(
+					[$($crate::communication::response::impls::replace_expr!($param ())),*]
+				) > MAX_PARAMETERS {
 					panic!("Too many parameters");
 				}
-			}
+			};
 		)?
 
-		paste::paste! {
-			$(#[$meta])*
-			#[derive(Clone, Debug, PartialEq, Eq, DekuRead)]
-			pub struct [<$name Response>] {
-				$(pub data: $data,)?
-				$(
-					$(pub $param: $ty),*
-				)?
-			}
+		$(#[$meta])*
+		#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
+		pub struct $name {
+			$(pub data: $data,)?
+			$(
+				$(pub $param: $ty),*
+			)?
 		}
+
+		impl $crate::communication::response::ResponseFlags for $name {}
+
+		impl super::sealed::Sealed for $name {}
 	}
 }
 
-define_response! {
-	/// Empty response, device has nothing to provide
-	pub struct Empty {}
+pub(super) use {define_response, replace_expr};
+
+/// Empty response, device has nothing to provide
+#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
+pub struct Empty;
+
+impl ResponseFlags for Empty {
+	const EXPECTS_DATA: bool = false;
 }
 
 define_response! {
