@@ -4,9 +4,9 @@ mod impls;
 pub use error_impls::*;
 pub use impls::*;
 
-use crate::communication::{SessionId, TransactionId};
+use crate::communication::operation::{DynOperation, Operation};
+use crate::communication::TransactionId;
 
-use crate::communication::operation::Operation;
 use core::error::Error;
 use core::fmt::{self, Debug, Display};
 
@@ -320,8 +320,8 @@ impl Display for ErrorCode {
 	}
 }
 
-pub type Response<O: Operation> =
-	Result<SuccessResponse<<O as Operation>::Response>, <O as Operation>::Error>;
+pub type Response<O: DynOperation> =
+	Result<SuccessResponse<<O as DynOperation>::Response>, <O as DynOperation>::Error>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SuccessResponse<T>

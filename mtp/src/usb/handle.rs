@@ -2,7 +2,7 @@ use super::error::UsbError;
 use crate::usb::UsbDeviceFlags;
 
 use deku::{DekuContainerRead, DekuRead};
-use mtp_spec::communication::operation::{Operation, SerializedOperation};
+use mtp_spec::communication::operation::{DynOperation, Operation, SerializedOperation};
 use mtp_spec::communication::response::{Response, ResponseFlags, SuccessResponse, CODE_OK};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::Device;
@@ -94,7 +94,7 @@ impl PtpIo for DeviceHandle {
 
 	async fn send_operation<O>(&mut self, operation: O) -> Result<Response<O>, Self::Error>
 	where
-		O: Operation,
+		O: DynOperation,
 		for<'a> SerializedOperation<'a>: From<&'a O>,
 	{
 		let buf;
@@ -114,7 +114,7 @@ impl PtpIo for DeviceHandle {
 		let completion = tokio::time::timeout(self.timeout, self.out_queue.next_complete()).await?;
 		completion.status.map_err(UsbError::from)?;
 
-		let phases = get_response::<<O as Operation>::Response>(self).await?;
+		let phases = get_response::<<O as DynOperation>::Response>(self).await?;
 
 		if phases.response.code != CODE_OK {
 			let err = O::decode_err(&phases.response.data, phases.response.code)?;

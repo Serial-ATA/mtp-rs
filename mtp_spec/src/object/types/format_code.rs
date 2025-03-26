@@ -1,4 +1,7 @@
+use crate::communication::Parameter;
+
 use alloc::format;
+use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
@@ -10,7 +13,7 @@ use deku::{DekuRead, DekuWrite};
 /// requested for transfer by the Initiator.
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
-#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(id_type = "u16", endian = "big")]
 pub enum ObjectFormatCode {
 	/// Undefined object
 	#[deku(id = "0x3000")]
@@ -257,4 +260,10 @@ pub enum ObjectFormatCode {
 	VCard2 = 0xBB82,
 	#[deku(id = "0xBB83")]
 	VCard3 = 0xBB83,
+}
+
+impl From<ObjectFormatCode> for Parameter {
+	fn from(value: ObjectFormatCode) -> Self {
+		Parameter::new(value as u32)
+	}
 }

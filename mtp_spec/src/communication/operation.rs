@@ -1,11 +1,12 @@
-use crate::communication::response::{Response, ResponseFlags};
-use crate::communication::{response, Parameter, SessionId, TransactionId};
+use crate::communication::response::ResponseFlags;
+use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::Result;
+use crate::object::types::ArrayEncodable;
 
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use deku::no_std_io::Cursor;
+use deku::no_std_io::{Cursor, Read, Seek};
 use deku::reader::Reader;
 use deku::writer::Writer;
 use deku::{DekuContainerRead, DekuReader, DekuWrite, DekuWriter};
@@ -45,7 +46,7 @@ impl SerializedOperation<'_> {
 	}
 }
 
-pub trait Operation
+pub trait DynOperation
 where
 	for<'a> SerializedOperation<'a>: From<&'a Self>,
 {
@@ -68,3 +69,5 @@ where
 			.map_err(Into::into)
 	}
 }
+
+impl ArrayEncodable for Operation {}

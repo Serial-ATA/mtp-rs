@@ -1,3 +1,4 @@
+use crate::communication::operation::Operation;
 use crate::object::types::{Array, PtpString};
 
 use alloc::vec::Vec;
@@ -19,7 +20,7 @@ use deku::{DekuRead, DekuWrite};
 /// | All other values with bit 15 set to 1 and bit 14 set to 0 | MTP vendor extension    |
 /// | All other values with bit 15 set to 1 and bit 14 set to 1 | MTP-defined             |
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(id_type = "u16", endian = "big")]
 #[repr(u16)]
 pub enum FunctionalMode {
 	#[deku(id = 0x0000)]
@@ -39,7 +40,6 @@ pub enum FunctionalMode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
 pub struct DeviceInfo {
 	/// This identifies the PTP version this device can support in hundredths. For MTP devices
 	/// implemented under this specification, this shall contain the value `100` (representing 1.00).
@@ -54,7 +54,7 @@ pub struct DeviceInfo {
 	/// This string is used to identify any extension sets applied to MTP
 	pub mtp_extensions: PtpString,
 	pub functional_mode: FunctionalMode,
-	pub operations_supported: Array<u16>,
+	pub operations_supported: Array<Operation>,
 	pub events_supported: Array<u16>,
 	pub device_properties_supported: Array<u16>,
 	pub capture_formats: Array<u16>,

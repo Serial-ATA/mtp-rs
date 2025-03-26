@@ -4,7 +4,7 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{format, vec};
-
+use core::fmt::{Display, Formatter};
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::reader::Reader;
@@ -22,11 +22,11 @@ use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
 #[derive(Default, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(endian = "endian")]
 pub struct PtpString(
 	#[deku(
-		reader = "ptp_string_read(deku::reader, endian)",
-		writer = "ptp_string_write(&self.0, deku::writer, endian)"
+		reader = "ptp_string_read(deku::reader)",
+		writer = "ptp_string_write(&self.0, deku::writer)"
 	)]
 	Vec<u16>,
 );
@@ -84,20 +84,23 @@ impl PtpString {
 		self.0.len() + 1
 	}
 
-	/// Returns the `PtrString` as a `String`.
+	/// Whether the string is empty.
 	///
 	/// # Examples
 	///
 	/// ```rust
 	/// use mtp_spec::object::types::PtpString;
 	///
-	/// let some_message = String::from("Hello, world!");
-	/// let string = PtpString::try_from(some_message).unwrap();
+	/// let message = String::new();
+	/// let ptp_string = PtpString::try_from(message).unwrap();
+	/// assert!(ptp_string.is_empty());
 	///
-	/// assert_eq!(string.to_string(), "Hello, world!");
+	/// let filled_message = String::from("Hello, world!");
+	/// let ptp_string = PtpString::try_from(filled_message).unwrap();
+	/// assert!(!ptp_string.is_empty());
 	/// ```
-	pub fn to_string(&self) -> String {
-		String::from_utf16_lossy(&self.0)
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
 	}
 
 	pub fn as_bytes(&self) -> Result<Vec<u8>> {
@@ -127,6 +130,12 @@ impl PtpString {
 	}
 }
 
+impl Display for PtpString {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{}", String::from_utf16_lossy(&self.0))
+	}
+}
+
 /// String Definition
 ///
 /// | Dataset field     | Size (bytes) | Datatype                       |
@@ -135,7 +144,6 @@ impl PtpString {
 /// | String Characters | Variable     | Unicode null-terminated string |
 fn ptp_string_read<R: Read + Seek>(
 	reader: &mut Reader<R>,
-	endian: Endian,
 ) -> core::result::Result<Vec<u16>, deku::DekuError> {
 	let num_chars = u8::from_reader_with_ctx(reader, ())?;
 	if num_chars == 0 {
@@ -145,10 +153,10 @@ fn ptp_string_read<R: Read + Seek>(
 	let mut string_characters = Vec::with_capacity(num_chars as usize);
 
 	for _ in 0..(num_chars - 1) {
-		string_characters.push(u16::from_reader_with_ctx(reader, endian)?);
+		string_characters.push(u16::from_reader_with_ctx(reader, Endian::Little)?);
 	}
 
-	let terminator = u16::from_reader_with_ctx(reader, endian)?;
+	let terminator = u16::from_reader_with_ctx(reader, Endian::Little)?;
 	if terminator != 0 {
 		return Err(deku::DekuError::Assertion(Cow::Owned(format!(
 			"Expected null terminator, got 0x{:04X} (is the string the correct length?)",
@@ -162,16 +170,15 @@ fn ptp_string_read<R: Read + Seek>(
 fn ptp_string_write<W: Write + Seek>(
 	elements: &[u16],
 	writer: &mut Writer<W>,
-	endian: Endian,
 ) -> core::result::Result<(), deku::DekuError> {
 	let num_chars = elements.len() as u8;
 	num_chars.to_writer(writer, ())?;
 
 	for c in elements {
-		c.to_writer(writer, endian)?;
+		c.to_writer(writer, Endian::Little)?;
 	}
 
-	0x0000.to_writer(writer, endian)?;
+	0_u16.to_writer(writer, Endian::Little)?;
 
 	Ok(())
 }
@@ -210,5 +217,13 @@ mod tests {
 		let ptp_string = PtpString::try_from(string);
 
 		assert!(ptp_string.is_err());
+	}
+
+	#[test]
+	fn round_trip() {
+		let message = String::from("Hello, world!");
+		let ptp_string = PtpString::try_from(message).unwrap();
+
+		assert_eq!(ptp_string.to_string(), "Hello, world!");
 	}
 }

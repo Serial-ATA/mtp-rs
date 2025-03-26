@@ -1,7 +1,7 @@
 use super::io::PtpIo;
 use crate::communication::operation::{CloseSession, GetDeviceInfo, OpenSession};
 use crate::communication::response::Response;
-use crate::communication::{operation, SessionId, TransactionId};
+use crate::communication::{SessionId, TransactionId};
 
 pub mod info;
 pub mod property_describing;

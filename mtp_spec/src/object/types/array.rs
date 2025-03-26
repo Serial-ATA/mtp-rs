@@ -14,11 +14,6 @@ use deku::{deku_derive, DekuReader, DekuWriter};
 /// See [`ArrayEncodable`] for a list of types that can be used in an `Array`.
 #[deku_derive(DekuRead, DekuWrite)]
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[deku(
-	endian = "endian",
-	ctx = "endian: deku::ctx::Endian",
-	ctx_default = "Endian::Big"
-)]
 pub struct Array<T: ArrayEncodable>(
 	// Array Definition
 	//
@@ -29,8 +24,8 @@ pub struct Array<T: ArrayEncodable>(
 	// | ArrayEntry[1]             | Element Size | Special |
 	// | ...                       | ...          | ...     |
 	// | ArrayEntry[NumElements-1] | Element Size | Special |
-	#[deku(temp, temp_value = "field_1.len() as u32")] u32,
-	#[deku(count = "field_0")] Box<[T]>,
+	#[deku(temp, temp_value = "field_1.len() as u32", endian = "little")] u32,
+	#[deku(count = "field_0", endian = "big")] Box<[T]>,
 );
 
 impl<T> FromIterator<T> for Array<T>
@@ -175,7 +170,7 @@ mod tests {
 					};
 					assert_eq!(serialized, {
 						let mut bytes = Vec::new();
-						bytes.extend_from_slice(&3u32.to_be_bytes());
+						bytes.extend_from_slice(&3u32.to_le_bytes());
 						$(
 							let elem_bytes = $v.to_be_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());
@@ -205,7 +200,7 @@ mod tests {
 				{
 					let serialized = {
 						let mut bytes = Vec::new();
-						bytes.extend_from_slice(&3u32.to_be_bytes());
+						bytes.extend_from_slice(&3u32.to_le_bytes());
 						$(
 							let elem_bytes = $v.to_be_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());

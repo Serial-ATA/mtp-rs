@@ -1,4 +1,5 @@
 use alloc::format;
+use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
@@ -52,7 +53,7 @@ impl From<u16> for AssociationType {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(endian = "big")]
 pub struct Association {
 	/// The type of the collection to which the object is associated.
 	pub ty: AssociationType,

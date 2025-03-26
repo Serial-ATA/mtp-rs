@@ -1,3 +1,4 @@
+use crate::communication::Parameter;
 use crate::device::storage::id::StorageId;
 use crate::object::types::association::Association;
 use crate::object::types::datetime::DateTime;
@@ -6,12 +7,13 @@ use crate::object::types::object_handle::ObjectHandle;
 use crate::object::types::PtpString;
 
 use alloc::format;
+use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[repr(u16)]
-#[deku(id_type = "u16", endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(id_type = "u16", endian = "big")]
 pub enum ProtectionStatus {
 	/// This object has no protection; it may be modified or deleted arbitrarily and its properties may be modified freely.
 	#[deku(id = "0x0000")]
@@ -46,30 +48,42 @@ impl From<u16> for ProtectionStatus {
 	}
 }
 
+impl From<ProtectionStatus> for Parameter {
+	fn from(value: ProtectionStatus) -> Self {
+		Parameter::new(value as u32)
+	}
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub struct Thumbnail {
 	pub format: ObjectFormatCode,
+	#[deku(endian = "big")]
 	pub compressed_size: u32,
+	#[deku(endian = "big")]
 	pub width: u32,
+	#[deku(endian = "big")]
 	pub height: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
-#[deku(endian = "big")]
 pub struct ObjectInfo {
 	pub storage_id: StorageId,
 	pub object_format: ObjectFormatCode,
 	pub protection_status: ProtectionStatus,
 	/// The size of the data component of the object in bytes. If the object is larger than `2^32`
 	/// bytes in size (4GB), this field shall contain a value of `0xFFFFFFFF`.
+	#[deku(endian = "big")]
 	pub compressed_size: u32,
 	pub thumbnail: Option<Thumbnail>,
+	#[deku(endian = "big")]
 	pub image_pix_width: u32,
+	#[deku(endian = "big")]
 	pub image_pix_height: u32,
+	#[deku(endian = "big")]
 	pub image_bit_depth: u32,
 	pub parent_object: ObjectHandle,
 	pub association: Association,
+	#[deku(endian = "big")]
 	pub sequence_number: u32,
 	/// The file name of this object, without any directory or file system
 	/// information. This string is also accessible and defined via an Object Property, and

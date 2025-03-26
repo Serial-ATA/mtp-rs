@@ -1,4 +1,4 @@
-use crate::communication::operation::{Operation, SerializedOperation};
+use crate::communication::operation::{DynOperation, Operation, SerializedOperation};
 use crate::communication::{SessionId, TransactionId};
 
 use crate::communication::response::Response;
@@ -22,6 +22,6 @@ pub trait PtpIo {
 	/// Send the operation to the device and wait for a response
 	async fn send_operation<O>(&mut self, operation: O) -> Result<Response<O>, Self::Error>
 	where
-		O: Operation,
+		O: DynOperation,
 		for<'a> SerializedOperation<'a>: From<&'a O>;
 }

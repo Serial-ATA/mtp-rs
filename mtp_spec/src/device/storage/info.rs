@@ -1,7 +1,11 @@
+use crate::communication::Parameter;
 use crate::object::types::PtpString;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+use deku::DekuRead;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
+#[deku(id_type = "u16", id_endian = "big")]
 pub enum StorageType {
 	Undefined = 0x0000,
 	FixedRom = 0x0001,
@@ -24,8 +28,9 @@ impl From<u16> for StorageType {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
+#[deku(id_type = "u16", id_endian = "big")]
 pub enum FilesystemType {
 	Undefined = 0x0000,
 	GenericFlat = 0x0001,
@@ -48,8 +53,15 @@ impl From<u16> for FilesystemType {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+impl From<FilesystemType> for Parameter {
+	fn from(value: FilesystemType) -> Self {
+		Parameter::new(value as u32)
+	}
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
+#[deku(id_type = "u16", id_endian = "big")]
 pub enum AccessCapability {
 	ReadWrite = 0x0000,
 	ReadOnlyNoObjectDeletion = 0x0001,
@@ -68,14 +80,17 @@ impl From<u16> for AccessCapability {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
 pub struct StorageInfo {
 	pub storage_type: StorageType,
 	pub filesystem_type: FilesystemType,
 	pub access_capability: AccessCapability,
+	#[deku(endian = "big")]
 	pub max_capacity: u64,
 	/// How much space remains to be written to on the drive (**in bytes**).
+	#[deku(endian = "big")]
 	pub free_space: u64,
+	#[deku(endian = "big")]
 	pub free_space_in_objects: Option<u32>,
 	/// A human-readable string identifying this storage, such as "256Mb SD Card" or "20Gb HDD"
 	pub storage_description: Option<PtpString>,

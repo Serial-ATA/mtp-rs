@@ -1,4 +1,12 @@
-use deku::{DekuRead, DekuWrite};
+use crate::communication::Parameter;
+use crate::object::types::ArrayEncodable;
+
+use alloc::vec::Vec;
+
+use deku::ctx::Endian;
+use deku::no_std_io::{Read, Seek, Write};
+use deku::prelude::{Reader, Writer};
+use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 
 /// Identifiers that provide a device- and session-unique consistent reference to a
 /// logical object on a device.
@@ -11,5 +19,42 @@ use deku::{DekuRead, DekuWrite};
 /// re-enumerated if object handles are needed
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
-#[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
+#[deku(endian = "big")]
 pub struct ObjectHandle(u32);
+
+impl From<u32> for ObjectHandle {
+	fn from(value: u32) -> Self {
+		ObjectHandle(value)
+	}
+}
+
+impl From<ObjectHandle> for Parameter {
+	fn from(value: ObjectHandle) -> Self {
+		Parameter::new(value.0)
+	}
+}
+
+impl<'a> DekuReader<'a, Endian> for ObjectHandle {
+	fn from_reader_with_ctx<R: Read + Seek>(
+		reader: &mut Reader<R>,
+		ctx: Endian,
+	) -> Result<Self, DekuError>
+	where
+		Self: Sized,
+	{
+		u32::from_reader_with_ctx(reader, ctx).map(ObjectHandle)
+	}
+}
+
+impl DekuWriter<Endian> for ObjectHandle {
+	fn to_writer<W: Write + Seek>(
+		&self,
+		writer: &mut Writer<W>,
+		ctx: Endian,
+	) -> Result<(), DekuError> {
+		self.0.to_writer(writer, ctx)
+	}
+}
+
+// `ObjectHandle` is simply a `u32` wrapper
+impl ArrayEncodable for ObjectHandle {}

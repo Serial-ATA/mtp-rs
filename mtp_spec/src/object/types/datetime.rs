@@ -6,7 +6,6 @@ use alloc::string::ToString;
 use core::fmt::Display;
 use core::str::FromStr;
 
-use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::reader::Reader;
 use deku::writer::Writer;
@@ -185,25 +184,25 @@ impl Display for DateTime {
 	}
 }
 
-impl DekuReader<'_, Endian> for DateTime {
-	fn from_reader_with_ctx<R>(reader: &mut Reader<R>, endian: Endian) -> Result<Self, DekuError>
+impl DekuReader<'_, ()> for DateTime {
+	fn from_reader_with_ctx<R>(reader: &mut Reader<R>, _: ()) -> Result<Self, DekuError>
 	where
 		R: Read + Seek,
 	{
-		PtpString::from_reader_with_ctx(reader, endian).and_then(|s| {
+		PtpString::from_reader_with_ctx(reader, ()).and_then(|s| {
 			DateTime::try_from(s).map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))
 		})
 	}
 }
 
-impl DekuWriter<Endian> for DateTime {
-	fn to_writer<W>(&self, writer: &mut Writer<W>, endian: Endian) -> Result<(), DekuError>
+impl DekuWriter for DateTime {
+	fn to_writer<W>(&self, writer: &mut Writer<W>, _: ()) -> Result<(), DekuError>
 	where
 		W: Write + Seek,
 	{
 		let ptp_str = PtpString::try_from(self.to_string())
 			.map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))?;
-		ptp_str.to_writer(writer, endian)
+		ptp_str.to_writer(writer, ())
 	}
 }
 
