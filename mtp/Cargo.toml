@@ -6,8 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+#[lints]
+#workspace = true
+
 [dependencies]
-mtp_spec = { path = "../mtp_spec" }
+mtp_spec.workspace = true
 
 bitflags = "2"
 nusb = "0.1"

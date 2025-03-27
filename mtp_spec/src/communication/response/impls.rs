@@ -233,3 +233,43 @@ define_response! {
 		data: Array<ObjectHandle>,
 	}
 }
+
+// Enhanced Operations
+//
+// Defined in Appendix E
+
+define_response! {
+	/// Response to the [`GetObjectPropList`] operation.
+	pub struct GetObjectPropList {
+		// TODO: Determine what this even is
+		#[deku(read_all)]
+		data: Vec<u8>,
+	}
+}
+
+define_response! {
+	/// Response to the [`SetObjectPropList`] operation.
+	pub struct SetObjectPropList {
+		// TODO: Determine what this even is
+		#[deku(read_all)]
+		data: Vec<u8>,
+	}
+}
+
+define_response! {
+	/// Response to the [`GetInterdependentPropDesc`] operation.
+	pub struct GetInterdependentPropDesc {
+		// TODO: Determine what this even is
+		#[deku(read_all)]
+		data: Vec<u8>,
+	}
+}
+
+define_response! {
+	/// Response to the [`SendObjectPropList`] operation.
+	pub struct SendObjectPropList {
+		// TODO: Determine what this even is
+		#[deku(read_all)]
+		data: Vec<u8>,
+	}
+}

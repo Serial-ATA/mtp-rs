@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+#[lints]
+#workspace = true
+
 [dependencies]
 paste = "1.0.15"
 deku = { path = "../../../Dependencies/deku", default-features = false, features = ["alloc", "logging"] }

@@ -31,7 +31,7 @@ pub enum MtpErrorKind {
 }
 
 impl Display for MtpErrorKind {
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
 			MtpErrorKind::StringContainsNull => write!(f, "String contains null bytes"),
 			MtpErrorKind::BadDateTime(reason) => write!(f, "Bad DateTime string: {}", reason),

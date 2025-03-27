@@ -4,6 +4,7 @@ use crate::device::storage::info::FilesystemType;
 use crate::object::info::ProtectionStatus;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
+// TODO: fix this, DekuWrite doesnt handle the import
 use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
@@ -42,7 +43,12 @@ macro_rules! define_operations {
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
 		pub enum Operation {
-			$($name = $code),*
+			$(
+			#[deku(id = $code)]
+			$name = $code,
+			)*
+			#[deku(id_pat = "o if (0x9000_u16..=0x97FF_u16).contains(&o)")]
+			VenderSpecific(u16),
 		}
 
 		$(
@@ -55,6 +61,7 @@ macro_rules! define_operations {
 			#[deku(ctx = "error_code: u16", id = "error_code")]
 			pub enum [<$name Error>] {
 				$(
+				// TODO: Ask if this should be supported
 				#[deku(id = crate::communication::response::$error::CODE)]
 				$error($crate::communication::response::$error)
 				),*
@@ -781,6 +788,89 @@ define_operations! {
 	// == Enhanced Operations ==
 	//
 	// Defined in Appendix E
+
+	// TODO: Optional parameters
+	// TODO: group and depth
+	/// Get a list containing all specified object properties
+	///
+	/// This is a more optimized way of accessing object properties without needing to individually
+	/// query each {object, property} pair.
+	pub struct GetObjectPropList {
+		code: 0x9805,
+		parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropCode),
+		response: response::GetObjectPropList,
+		valid_error_codes: [
+			OperationNotSupported,
+			SessionNotOpen,
+			InvalidTransactionId,
+			ObjectPropNotSupported,
+			InvalidObjectHandle,
+			GroupNotSupported,
+			DeviceBusy,
+			ParameterNotSupported,
+			SpecificationByFormatUnsupported,
+			SpecificationByGroupUnsupported,
+			SpecificationByDepthUnsupported,
+			InvalidCodeFormat,
+			InvalidObjectPropCode,
+			InvalidStorageId,
+			StoreNotAvailable,
+		]
+	}
+
+	/// Set object properties container in the given dataset
+	pub struct SetObjectPropList {
+		code: 0x9806,
+		parameters: (),
+		response: response::SetObjectPropList,
+		valid_error_codes: [
+			OperationNotSupported,
+			SessionNotOpen,
+			InvalidTransactionId,
+			AccessDenied,
+			ObjectPropNotSupported,
+			InvalidObjectPropFormat,
+			InvalidObjectPropValue,
+			InvalidObjectHandle,
+			DeviceBusy,
+			StoreNotAvailable,
+			StoreFull,
+		]
+	}
+
+	pub struct GetInterdependentPropDesc {
+		code: 0x9807,
+		parameters: (format: ObjectFormatCode),
+		response: response::GetInterdependentPropDesc,
+		valid_error_codes: [
+			OperationNotSupported,
+			SessionNotOpen,
+			InvalidTransactionId,
+			DeviceBusy,
+			InvalidCodeFormat,
+		]
+	}
+
+	// TODO: Optional parameters
+	// TODO: object size
+	pub struct SendObjectPropList {
+		code: 0x9808,
+		parameters: (destination: StorageId, parent: ObjectHandle, format: ObjectFormatCode),
+		response: response::SendObjectPropList,
+		valid_error_codes: [
+			OperationNotSupported,
+			SessionNotOpen,
+			InvalidTransactionId,
+			AccessDenied,
+			ObjectPropNotSupported,
+			InvalidObjectPropFormat,
+			InvalidObjectPropValue,
+			InvalidObjectHandle,
+			DeviceBusy,
+			StoreNotAvailable,
+			StoreFull,
+		]
+	}
 }
 
 /// |                        Value                        |          Description         |

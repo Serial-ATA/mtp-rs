@@ -1,5 +1,5 @@
 use crate::communication::operation::Operation;
-use crate::object::types::{Array, PtpString};
+use crate::object::types::{Array, ObjectFormatCode, PtpString};
 
 use alloc::vec::Vec;
 
@@ -57,8 +57,8 @@ pub struct DeviceInfo {
 	pub operations_supported: Array<Operation>,
 	pub events_supported: Array<u16>,
 	pub device_properties_supported: Array<u16>,
-	pub capture_formats: Array<u16>,
-	pub playback_formats: Array<u16>,
+	pub capture_formats: Array<ObjectFormatCode>,
+	pub playback_formats: Array<ObjectFormatCode>,
 	/// Optional human-readable string that identifies the manufacturer of the device.
 	pub manufacturer: Option<PtpString>,
 	/// Optional human-readable string that identifies the model of the device.

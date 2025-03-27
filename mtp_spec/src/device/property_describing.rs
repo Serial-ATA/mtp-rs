@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 use deku::{deku_derive, DekuRead, DekuWrite};
 
+// TODO: Ask if this is necessary
 /// Wrapper around a [`PropertyValue`], used for standalone decoding
 #[deku_derive(DekuRead)]
 #[derive(Clone, Debug, Eq, PartialEq)]

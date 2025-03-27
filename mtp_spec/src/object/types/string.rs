@@ -4,7 +4,8 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{format, vec};
-use core::fmt::{Display, Formatter};
+use core::fmt::{Debug, Display, Formatter};
+
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::reader::Reader;
@@ -21,7 +22,7 @@ use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
-#[derive(Default, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[derive(Default, Clone, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(endian = "endian")]
 pub struct PtpString(
 	#[deku(
@@ -133,6 +134,12 @@ impl PtpString {
 impl Display for PtpString {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		write!(f, "{}", String::from_utf16_lossy(&self.0))
+	}
+}
+
+impl Debug for PtpString {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{:?}", String::from_utf16_lossy(&self.0))
 	}
 }
 

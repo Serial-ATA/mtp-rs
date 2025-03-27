@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "mtp",
-    "mtp_spec",
+	"mtp",
+	"mtp_spec",
 ]
 
 [workspace.package]
@@ -59,3 +59,6 @@ struct_excessive_bools = "allow" # I have yet to find one case of this being use
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
+
+[workspace.dependencies]
+mtp_spec = { path = "mtp_spec" }
