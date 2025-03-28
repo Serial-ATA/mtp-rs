@@ -1,11 +1,13 @@
 use alloc::vec::Vec;
 use core::fmt::Display;
+
 use deku::{DekuRead, DekuWrite};
 
 pub mod event;
 pub mod operation;
 pub mod response;
 
+/// An encoded operation parameter
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(endian = "big")]
 #[repr(transparent)]
@@ -20,6 +22,19 @@ impl From<Parameter> for u32 {
 impl Parameter {
 	pub(crate) fn new(value: u32) -> Self {
 		Self(value)
+	}
+}
+
+/// Private parameter constructor, to disallow raw `u32` values
+struct ParameterPriv(Parameter);
+
+impl ParameterPriv {
+	fn new<T: Into<Parameter>>(value: T) -> Self {
+		Self(value.into())
+	}
+
+	fn new_raw(value: u32) -> Self {
+		Self(Parameter::new(value))
 	}
 }
 

@@ -21,5 +21,6 @@ async fn foo() {
 		}
 		let info = dbg!(handle.get_device_info(Some(session_id)).await.unwrap()).unwrap();
 		println!("{}", info.data.data.mtp_extensions);
+		dbg!(handle.get_storage_ids(session_id).await.unwrap()).unwrap();
 	}
 }

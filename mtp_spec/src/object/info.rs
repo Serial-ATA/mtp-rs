@@ -65,7 +65,7 @@ pub struct Thumbnail {
 	pub height: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
+#[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 pub struct ObjectInfo {
 	pub storage_id: StorageId,
 	pub object_format: ObjectFormatCode,

@@ -9,7 +9,7 @@ use core::fmt::Debug;
 use deku::no_std_io::{Cursor, Read, Seek};
 use deku::reader::Reader;
 use deku::writer::Writer;
-use deku::{DekuContainerRead, DekuReader, DekuWrite, DekuWriter};
+use deku::{DekuContainerRead, DekuContainerWrite, DekuReader, DekuWrite, DekuWriter};
 
 mod impls;
 pub use impls::*;
@@ -19,30 +19,19 @@ pub use impls::*;
 /// Every operation type can be converted into this. It cannot be constructed directly.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuWrite)]
 pub struct SerializedOperation<'a> {
-	code: u16,
-	session_id: SessionId,
-	transaction_id: TransactionId,
-	parameters: &'a [Parameter],
+	pub code: u16,
+	pub session_id: SessionId,
+	pub transaction_id: TransactionId,
+	pub parameters: &'a [Parameter],
 }
 
 impl SerializedOperation<'_> {
-	const HEADER_SIZE: usize =
-		size_of::<u16>() + size_of::<SessionId>() + size_of::<TransactionId>();
-
-	pub fn size(&self) -> usize {
-		Self::HEADER_SIZE + size_of_val(self.parameters)
-	}
-
-	pub fn to_bytes(&self) -> Result<Vec<u8>> {
-		deku::DekuContainerWrite::to_bytes(self).map_err(Into::into)
-	}
-
-	pub fn write_to<W: deku::no_std_io::Write + deku::no_std_io::Seek>(
-		&self,
-		writer: &mut W,
-	) -> Result<()> {
-		self.to_writer(&mut Writer::new(writer), ())
-			.map_err(Into::into)
+	pub fn encode_parameters(&self) -> Result<Vec<u8>> {
+		let mut buf = Vec::with_capacity(size_of_val(self.parameters));
+		for param in self.parameters.iter() {
+			buf.extend(param.to_bytes()?);
+		}
+		Ok(buf)
 	}
 }
 

@@ -1,8 +1,6 @@
 mod impls;
+pub use impls::*;
 
-pub struct Event {
-	code: u16,
-	session_id: u32,
-	transaction_id: u32,
-	parameters: [Option<u32>; 3],
-}
+use crate::object::types::ArrayEncodable;
+
+impl ArrayEncodable for Event {}

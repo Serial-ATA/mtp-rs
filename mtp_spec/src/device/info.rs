@@ -1,5 +1,6 @@
 use crate::communication::operation::Operation;
 use crate::object::types::{Array, ObjectFormatCode, PtpString};
+use crate::communication::event::Event;
 
 use alloc::vec::Vec;
 
@@ -55,7 +56,7 @@ pub struct DeviceInfo {
 	pub mtp_extensions: PtpString,
 	pub functional_mode: FunctionalMode,
 	pub operations_supported: Array<Operation>,
-	pub events_supported: Array<u16>,
+	pub events_supported: Array<Event>,
 	pub device_properties_supported: Array<u16>,
 	pub capture_formats: Array<ObjectFormatCode>,
 	pub playback_formats: Array<ObjectFormatCode>,

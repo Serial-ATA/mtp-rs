@@ -1,7 +1,10 @@
 use super::error::UsbError;
 use crate::usb::UsbDeviceFlags;
 
-use deku::{DekuContainerRead, DekuRead};
+use std::io::{Cursor, Write};
+use std::time::Duration;
+
+use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
 use mtp_spec::communication::operation::{DynOperation, Operation, SerializedOperation};
 use mtp_spec::communication::response::{Response, ResponseFlags, SuccessResponse, CODE_OK};
 use mtp_spec::communication::{SessionId, TransactionId};
@@ -9,8 +12,6 @@ use mtp_spec::device::Device;
 use mtp_spec::error::MtpError;
 use mtp_spec::io::PtpIo;
 use nusb::transfer::{Queue, RequestBuffer};
-use std::io::{Cursor, Write};
-use std::time::Duration;
 
 pub(super) struct Endpoints {
 	pub(super) bulk_in: u8,
@@ -59,26 +60,6 @@ impl DeviceHandle {
 	}
 }
 
-struct OperationSerializer<'a>(SerializedOperation<'a>);
-
-impl OperationSerializer<'_> {
-	fn to_bytes(&self) -> Result<Vec<u8>, crate::error::MtpError> {
-		const CONTAINER_TYPE: u16 = 0x0001; // Command
-		const HEADER_SIZE: u32 = (size_of::<u32>() + size_of::<u16>()) as u32;
-
-		let container_length = HEADER_SIZE + self.0.size() as u32;
-
-		let buf = vec![0; container_length as usize];
-		let mut cursor = Cursor::new(buf);
-
-		cursor.write_all(&container_length.to_le_bytes())?;
-		cursor.write_all(&CONTAINER_TYPE.to_le_bytes())?;
-		cursor.write_all(&self.0.to_bytes()?)?;
-
-		Ok(cursor.into_inner())
-	}
-}
-
 impl PtpIo for DeviceHandle {
 	type Error = crate::error::MtpError;
 
@@ -92,20 +73,32 @@ impl PtpIo for DeviceHandle {
 		SessionId::new(1)
 	}
 
-	async fn send_operation<O>(&mut self, operation: O) -> Result<Response<O>, Self::Error>
+	async fn send_operation<O>(
+		&mut self,
+		operation: O,
+		_data: Option<Vec<u8>>,
+	) -> Result<Response<O>, Self::Error>
 	where
 		O: DynOperation,
 		for<'a> SerializedOperation<'a>: From<&'a O>,
 	{
-		let buf;
+		let command_buf;
 		{
-			let op = OperationSerializer(operation.encode());
-			buf = op.to_bytes()?;
+			let op = operation.encode();
+			let command_container = UsbContainer::new(
+				ContainerType::Command,
+				op.code,
+				op.transaction_id,
+				op.encode_parameters()?,
+			);
+			command_buf = command_container
+				.to_bytes()
+				.map_err(Into::<MtpError>::into)?;
 		}
 
-		let buf_len = buf.len();
+		let buf_len = command_buf.len();
 
-		self.out_queue.submit(buf);
+		self.out_queue.submit(command_buf);
 
 		if buf_len % self.endpoints.bulk_out_buffer_size == 0 {
 			self.out_queue.submit(Vec::new());
@@ -117,13 +110,13 @@ impl PtpIo for DeviceHandle {
 		let phases = get_response::<<O as DynOperation>::Response>(self).await?;
 
 		if phases.response.code != CODE_OK {
-			let err = O::decode_err(&phases.response.data, phases.response.code)?;
+			let err = O::decode_err(&phases.response.payload, phases.response.code)?;
 			return Ok(Response::Err(err));
 		}
 
 		match phases.data {
 			Some(data) => {
-				let data = O::decode_data(&data.data)?;
+				let data = O::decode_data(&data.payload)?;
 				Ok(Response::Ok(SuccessResponse {
 					data,
 					transaction_id: phases.response.transaction_id,
@@ -144,7 +137,7 @@ impl PtpIo for DeviceHandle {
 
 impl Device for DeviceHandle {}
 
-#[derive(DekuRead, PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, DekuRead, DekuWrite)]
 #[repr(u16)]
 #[deku(id_type = "u16", endian = "little")]
 enum ContainerType {
@@ -158,7 +151,7 @@ enum ContainerType {
 const USB_CONTAINER_HEADER_SIZE: u32 =
 	(size_of::<u32>() + size_of::<u16>() + size_of::<u16>() + size_of::<TransactionId>()) as u32;
 
-#[derive(DekuRead)]
+#[derive(DekuRead, DekuWrite)]
 struct UsbContainer {
 	#[deku(assert = "*length >= USB_CONTAINER_HEADER_SIZE", endian = "little")]
 	length: u32,
@@ -167,7 +160,19 @@ struct UsbContainer {
 	code: u16,
 	transaction_id: TransactionId,
 	#[deku(read_all)]
-	data: Vec<u8>,
+	payload: Vec<u8>,
+}
+
+impl UsbContainer {
+	fn new(ty: ContainerType, code: u16, transaction_id: TransactionId, payload: Vec<u8>) -> Self {
+		Self {
+			length: payload.len() as u32,
+			type_: ty,
+			code,
+			transaction_id,
+			payload,
+		}
+	}
 }
 
 struct Phases {
@@ -190,7 +195,9 @@ async fn get_response<T: ResponseFlags>(
 	// packet."
 	//
 	// In short, we may get a single header packet before the real data.
-	if T::EXPECTS_DATA && next_phase.data.is_empty() && next_phase.type_ == ContainerType::Response
+	if T::EXPECTS_DATA
+		&& next_phase.payload.is_empty()
+		&& next_phase.type_ == ContainerType::Response
 	{
 		let data_container = next_packet(handle).await?;
 

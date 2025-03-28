@@ -1,4 +1,4 @@
-use crate::communication::{response, Parameter, SessionId, TransactionId};
+use crate::communication::{response, Parameter, ParameterPriv, SessionId, TransactionId};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::ProtectionStatus;
@@ -28,7 +28,13 @@ macro_rules! define_operations {
 			$([[session_id($session_id:ident)]])?
 			pub struct $name:ident {
 				code: $code:literal,
-				parameters: ($($param:ident: $ty:ty),* $(,)?),
+				parameters: (
+					$(
+						$(@DEFAULT($default:expr))?
+						$(@RAW($bool:literal))?
+						$param:ident: $ty:ty
+					),* $(,)?
+				),
 				response: $response:ty,
 				valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 			}
@@ -39,7 +45,7 @@ macro_rules! define_operations {
 		#[deku(
 			id_type = "u16",
 			id_endian = "little",
-			ctx = "endian: deku::ctx::Endian",
+			ctx = "_endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
 		pub enum Operation {
@@ -85,7 +91,7 @@ macro_rules! define_operations {
 		}
 
 		define_operations!(
-			@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)? ($($param: $ty),*), [$($error),*]
+			@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)? ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*), [$($error),*]
 		);
 		)*
 	};
@@ -95,13 +101,17 @@ macro_rules! define_operations {
 		$name:ident,
 		$code:literal,
 		SESSION_ID: false,
-		($($param:ident: $ty:ty),* $(,)?),
+		($(
+			$(@DEFAULT($default:expr))?
+			$(@RAW($bool:literal))?
+			$param:ident: $ty:ty),* $(,)?
+		),
 		[$($error:expr),* $(,)?]
 	) => {
 		impl $name {
 			pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
 				Self {
-					parameters: [$(Into::<$crate::communication::Parameter>::into($param)),*],
+					parameters: [$(define_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
 					session_id: None,
 					transaction_id,
 				}
@@ -113,18 +123,45 @@ macro_rules! define_operations {
 		@CONSTRUCTOR
 		$name:ident,
 		$code:literal,
-		($($param:ident: $ty:ty),* $(,)?),
+		($(
+			$(@DEFAULT($default:expr))?
+			$(@RAW($bool:literal))?
+			$param:ident: $ty:ty
+		),* $(,)?),
 		[$($error:expr),* $(,)?]
 	) => {
 		impl $name {
 			pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
 				Self {
-					parameters: [$(Into::<$crate::communication::Parameter>::into($param)),*],
+					parameters: [$(define_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
 					session_id: Some(session_id),
 					transaction_id,
 				}
 			}
 		}
+	};
+
+	(
+		@PARAM_CONVERT
+		@DEFAULT($default:expr)
+		$param:ident: $_ty:ty
+	) => {
+		ParameterPriv::new($param.unwrap_or($default)).0
+	};
+
+	(
+		@PARAM_CONVERT
+		@RAW($_bool:literal)
+		$param:ident: $_ty:ty
+	) => {
+		ParameterPriv::new_raw($param).0
+	};
+
+	(
+		@PARAM_CONVERT
+		$param:ident: $_ty:ty
+	) => {
+		ParameterPriv::new($param).0
 	};
 
 	(
@@ -226,7 +263,7 @@ define_operations! {
 	/// Get the [`StorageInfo`] of the given [`StorageId`].
 	pub struct GetStorageInfo {
 		code: 0x1005,
-		parameters: (storage_id: StorageId),
+		parameters: (storage: StorageId),
 		response: response::GetStorageInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -242,7 +279,13 @@ define_operations! {
 	/// Get the number of objects on the device
 	pub struct GetNumObjects {
 		code: 0x1006,
-		parameters: (storage_id: StorageId, format_code: ObjectFormatCode, handle: ObjectHandle),
+		parameters: (
+			storage: StorageId,
+			@DEFAULT(ObjectFormatCode::from(0))
+			format: Option<ObjectFormatCode>,
+			@DEFAULT(ObjectHandle::from(0))
+			parent: Option<ObjectHandle>
+		),
 		response: response::GetNumObjects,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -263,7 +306,13 @@ define_operations! {
 	/// Get the [`ObjectHandle`]s of the contents on the device
 	pub struct GetObjectHandles {
 		code: 0x1007,
-		parameters: (storage_id: StorageId, format_code: ObjectFormatCode, handle: ObjectHandle),
+		parameters: (
+			storage: StorageId,
+			@DEFAULT(ObjectFormatCode::from(0))
+			format: Option<ObjectFormatCode>,
+			@DEFAULT(ObjectHandle::from(0))
+			object: Option<ObjectHandle>
+		),
 		response: response::GetObjectHandles,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -283,7 +332,7 @@ define_operations! {
 	/// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
 	pub struct GetObjectInfo {
 		code: 0x1008,
-		parameters: (handle: ObjectHandle),
+		parameters: (object: ObjectHandle),
 		response: response::GetObjectInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -298,7 +347,7 @@ define_operations! {
 	/// Get the binary contents of the given [`ObjectHandle`].
 	pub struct GetObject {
 		code: 0x1009,
-		parameters: (handle: ObjectHandle),
+		parameters: (object: ObjectHandle),
 		response: response::GetObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -316,7 +365,7 @@ define_operations! {
 	/// Get the thumbnail of an image object at the given [`ObjectHandle`].
 	pub struct GetThumb {
 		code: 0x100a,
-		parameters: (handle: ObjectHandle),
+		parameters: (object: ObjectHandle),
 		response: response::GetThumb,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -333,7 +382,7 @@ define_operations! {
 	/// Delete the object at the given [`ObjectHandle`].
 	pub struct DeleteObject {
 		code: 0x100b,
-		parameters: (handle: ObjectHandle, format_code: ObjectFormatCode),
+		parameters: (object: ObjectHandle, format: ObjectFormatCode),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -352,11 +401,16 @@ define_operations! {
 		]
 	}
 
-	// TODO: optional parameters
+	// TODO: explain optional parameters
 	/// Received from the device, indicating it wishes to send a new object
 	pub struct SendObjectInfo {
 		code: 0x100c,
-		parameters: (destination: StorageId, parent: ObjectHandle),
+		parameters: (
+			@DEFAULT(StorageId::from(0))
+			destination: Option<StorageId>,
+			@DEFAULT(ObjectHandle::from(0))
+			parent: Option<ObjectHandle>
+		),
 		response: response::SendObjectInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -401,7 +455,12 @@ define_operations! {
 	/// Produce a new data object using an object capture mechanism
 	pub struct InitiateCapture {
 		code: 0x100e,
-		parameters: (storage: StorageId, format: ObjectFormatCode),
+		parameters: (
+			@DEFAULT(StorageId::from(0))
+			storage: Option<StorageId>,
+			@DEFAULT(ObjectFormatCode::Unknown(0))
+			format: Option<ObjectFormatCode>
+		),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -419,11 +478,14 @@ define_operations! {
 		]
 	}
 
-	// TODO: optional parameters
+	// TODO: Explain optional parameters
 	/// Format the media indicated by the given [`StorageId`]
 	pub struct FormatStore {
 		code: 0x100f,
-		parameters: (storage: StorageId, format: FilesystemType),
+		parameters: (
+			storage: StorageId,
+			format: FilesystemType
+		),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -622,11 +684,10 @@ define_operations! {
 		]
 	}
 
-	// TODO: bad newtypes, need to support u32
 	/// Get a partial object from the device, may be used in place of [`GetObject`]
 	pub struct GetPartialObject {
 		code: 0x101B,
-		parameters: (object: ObjectHandle, offset: ObjectOffset, len: ObjectLength),
+		parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
 		response: response::GetPartialObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -641,11 +702,15 @@ define_operations! {
 		]
 	}
 
-	// TODO: optional parameters
 	/// Initiate the capture of multiple new objects
 	pub struct InitiateOpenCapture {
 		code: 0x101C,
-		parameters: (storage: StorageId, format: ObjectFormatCode),
+		parameters: (
+			@DEFAULT(StorageId::from(0))
+			storage: Option<StorageId>,
+			@DEFAULT(ObjectFormatCode::Unknown(0))
+			format: Option<ObjectFormatCode>
+		),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -676,7 +741,6 @@ define_operations! {
 		]
 	}
 
-	// TODO: bad newtypes, need to support u32
 	/// Get the property description for the given object property code
 	pub struct GetObjectPropDesc {
 		code: 0x9802,
@@ -693,7 +757,6 @@ define_operations! {
 		]
 	}
 
-	// TODO: bad newtypes, need to support u32
 	/// Get the value for the given object property code
 	pub struct GetObjectPropValue {
 		code: 0x9803,
@@ -709,7 +772,6 @@ define_operations! {
 		]
 	}
 
-	// TODO: bad newtypes, need to support u32
 	/// Set the value for the given object property code
 	pub struct SetObjectPropValue {
 		code: 0x9804,
@@ -769,7 +831,7 @@ define_operations! {
 	/// device should skip back one media object.
 	pub struct Skip {
 		code: 0x9820,
-		parameters: (skip: SkipIndex),
+		parameters: (@RAW(true) skip: u32),
 		response: response::SetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -913,40 +975,7 @@ impl From<DevicePropCode> for Parameter {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
-#[repr(transparent)]
-pub struct ObjectOffset(u32);
-
-impl From<u32> for ObjectOffset {
-	fn from(value: u32) -> Self {
-		Self(value)
-	}
-}
-
-impl From<ObjectOffset> for Parameter {
-	fn from(value: ObjectOffset) -> Self {
-		Parameter::new(value.0)
-	}
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
-#[repr(transparent)]
-pub struct ObjectLength(u32);
-
-impl From<u32> for ObjectLength {
-	fn from(value: u32) -> Self {
-		Self(value)
-	}
-}
-
-impl From<ObjectLength> for Parameter {
-	fn from(value: ObjectLength) -> Self {
-		Parameter::new(value.0)
-	}
-}
-
+// TODO: Need a real impl of this
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(endian = "big")]
 #[repr(transparent)]
@@ -961,22 +990,5 @@ impl From<u32> for ObjectPropCode {
 impl From<ObjectPropCode> for Parameter {
 	fn from(value: ObjectPropCode) -> Self {
 		Parameter::new(value.0)
-	}
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
-#[repr(transparent)]
-pub struct SkipIndex(i32);
-
-impl From<i32> for SkipIndex {
-	fn from(value: i32) -> Self {
-		Self(value)
-	}
-}
-
-impl From<SkipIndex> for Parameter {
-	fn from(value: SkipIndex) -> Self {
-		Parameter::new(value.0 as u32)
 	}
 }

@@ -1,7 +1,8 @@
 use crate::communication::operation::{DynOperation, Operation, SerializedOperation};
+use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 
-use crate::communication::response::Response;
+use alloc::vec::Vec;
 
 pub trait PtpIo {
 	type Error: core::error::Error;
@@ -20,7 +21,11 @@ pub trait PtpIo {
 	fn next_session_id(&mut self) -> SessionId;
 
 	/// Send the operation to the device and wait for a response
-	async fn send_operation<O>(&mut self, operation: O) -> Result<Response<O>, Self::Error>
+	async fn send_operation<O>(
+		&mut self,
+		operation: O,
+		data: Option<Vec<u8>>,
+	) -> Result<Response<O>, Self::Error>
 	where
 		O: DynOperation,
 		for<'a> SerializedOperation<'a>: From<&'a O>;
