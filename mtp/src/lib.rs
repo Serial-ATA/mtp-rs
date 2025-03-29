@@ -24,6 +24,13 @@ async fn foo() {
 		let storages = dbg!(handle.get_storage_ids(session_id).await.unwrap()).unwrap();
 		for storage in storages.data.data {
 			dbg!(handle.get_storage_info(session_id, storage).await.unwrap()).unwrap();
+			dbg!(
+				handle
+					.get_object_handles(session_id, storage, None, None)
+					.await
+					.unwrap()
+			)
+			.unwrap();
 		}
 	}
 }

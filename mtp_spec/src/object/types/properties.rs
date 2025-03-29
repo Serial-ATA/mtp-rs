@@ -12,7 +12,9 @@ use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
 
 /// Marker trait for object properties
-pub trait ObjectProperty: sealed::Sealed {
+pub trait ObjectProperty:
+	sealed::Sealed + Eq + core::fmt::Debug + Clone + for<'a> DekuReader<'a>
+{
 	/// The raw datacode for this property
 	const CODE: u16;
 }

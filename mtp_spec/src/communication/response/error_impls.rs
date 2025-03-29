@@ -1,5 +1,7 @@
 use crate::communication::SessionId;
-use crate::communication::response::impls::{MAX_PARAMETERS, define_response, replace_expr};
+use crate::communication::response::impls::{MAX_PARAMETERS, define_response};
+use crate::device::storage::id::StorageId;
+use crate::object::types::properties::ObjectPropertyCode;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
 macro_rules! define_error_response {
@@ -109,7 +111,7 @@ define_error_response! {
 	[[error("The storage ID is not valid")]]
 	pub struct InvalidStorageId {
 		code: 0x2008,
-		parameters: (storage_id: u32),
+		parameters: (storage_id: StorageId),
 	}
 }
 
@@ -120,7 +122,7 @@ define_error_response! {
 	[[error("The object handle is not valid")]]
 	pub struct InvalidObjectHandle {
 		code: 0x2009,
-		parameters: (object_handle: u32),
+		parameters: (object_handle: ObjectHandle),
 	}
 }
 
@@ -132,7 +134,7 @@ define_error_response! {
 	[[error("The device property is not supported")]]
 	pub struct DevicePropNotSupported {
 		code: 0x200A,
-		parameters: (device_prop_code: u32),
+		parameters: (device_prop_code: ObjectPropertyCode),
 	}
 }
 
@@ -141,7 +143,7 @@ define_error_response! {
 	[[error("The object format code is not supported")]]
 	pub struct InvalidObjectFormatCode {
 		code: 0x200B,
-		parameters: (object_format_code: u32),
+		parameters: (object_format_code: ObjectFormatCode),
 	}
 }
 
@@ -151,7 +153,7 @@ define_error_response! {
 	[[error("The store is full")]]
 	pub struct StoreFull {
 		code: 0x200C,
-		parameters: (storage_id: u32),
+		parameters: (storage_id: StorageId),
 	}
 }
 
@@ -160,7 +162,7 @@ define_error_response! {
 	[[error("The object is write-protected")]]
 	pub struct ObjectWriteProtected {
 		code: 0x200D,
-		parameters: (object_handle: u32),
+		parameters: (object_handle: ObjectHandle),
 	}
 }
 
@@ -169,7 +171,7 @@ define_error_response! {
 	[[error("The store is read-only")]]
 	pub struct StoreReadOnly {
 		code: 0x200E,
-		parameters: (storage_id: u32),
+		parameters: (storage_id: StorageId),
 	}
 }
 
@@ -178,7 +180,7 @@ define_error_response! {
 	[[error("The device does not have permission to access the storage")]]
 	pub struct AccessDenied {
 		code: 0x200F,
-		parameters: (storage_id: u32),
+		parameters: (storage_id: StorageId),
 	}
 }
 

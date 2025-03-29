@@ -1,11 +1,10 @@
 use super::error::UsbError;
 use crate::usb::UsbDeviceFlags;
 
-use std::io::{Cursor, Write};
 use std::time::Duration;
 
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
-use mtp_spec::communication::operation::{DynOperation, Operation, SerializedOperation};
+use mtp_spec::communication::operation::{DynOperation, SerializedOperation};
 use mtp_spec::communication::response::{CODE_OK, Response, ResponseFlags, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::Device;

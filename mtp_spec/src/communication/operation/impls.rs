@@ -61,13 +61,20 @@ macro_rules! parse_operations {
 		$([[session_id($session_id:ident)]])?
 		pub struct $name:ident {
 			code: $code:literal,
-			parameters: (
+			visible_parameters: (
 				$(
 					$(@DEFAULT($default:expr))?
 					$(@RAW($bool:literal))?
 					$param:ident: $ty:ty
 				),* $(,)?
 			),
+			$(
+				operation_parameters: (
+					$(
+						$operation_param_expr:expr
+					),* $(,)?
+				),
+			)?
 			response: $response:ty,
 			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 		}
@@ -83,7 +90,11 @@ macro_rules! parse_operations {
 
 		impl $name {
 			parse_operations!(
-				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)? ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*), [$($error),*]
+				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)?
+
+				visible_parameters: ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*),
+				operation_parameters: ($($($operation_param_expr),*)?),
+				[$($error),*]
 			);
 		}
 
@@ -95,7 +106,7 @@ macro_rules! parse_operations {
 		NAME_WITH_GENERIC: [$name],
 		WHERE_CLAUSE: [],
 
-		$code, $response, parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
+		$code, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
 		);
 	};
 
@@ -109,13 +120,20 @@ macro_rules! parse_operations {
 			where T: [$($where_clause:tt)*]
 		{
 			code: $code:literal,
-			parameters: (
+			visible_parameters: (
 				$(
 					$(@DEFAULT($default:expr))?
 					$(@RAW($bool:literal))?
 					$param:ident: $ty:ty
 				),* $(,)?
 			),
+			$(
+				operation_parameters: (
+					$(
+						$operation_param_expr:expr
+					),* $(,)?
+				),
+			)?
 			response: $response:ty,
 			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 		}
@@ -135,14 +153,13 @@ macro_rules! parse_operations {
 		impl<T> $name<T>
 			where T: $($where_clause)*
 		{
-			pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
-				Self {
-					parameters: [ParameterPriv::new_raw(T::CODE as u32).0, $(parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
-					session_id: Some(session_id),
-					transaction_id,
-					_phantom: Default::default(),
-				}
-			}
+			parse_operations!(
+				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)?
+
+				visible_parameters: ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*),
+				operation_parameters: ($($($operation_param_expr),*)?),
+				[$($error),*]
+			);
 		}
 
 		parse_operations!(@COMMON_OPERATIONS
@@ -153,7 +170,7 @@ macro_rules! parse_operations {
 		NAME_WITH_GENERIC: [$name<T>],
 		WHERE_CLAUSE: [where T: $($where_clause)*],
 
-		$code, $response, parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
+		$code, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
 		);
 	};
 
@@ -171,7 +188,7 @@ macro_rules! parse_operations {
 		WHERE_CLAUSE: [$($where_clause:tt)*],
 		$code:literal,
 		$response:ty,
-		parameters: ($($param:ident),*),
+		visible_parameters: ($($param:ident),*),
 		valid_error_codes: [$($error:ident),*]
 		$($rest:tt)*
 	) => {
@@ -241,16 +258,18 @@ macro_rules! parse_operations {
 		);
 	};
 
+	// Constructor with no implicit session ID, and no hidden parameters
 	(
 		@CONSTRUCTOR
 		$name:ident,
 		$code:literal,
 		SESSION_ID: false,
-		($(
+		visible_parameters: ($(
 			$(@DEFAULT($default:expr))?
 			$(@RAW($bool:literal))?
 			$param:ident: $ty:ty),* $(,)?
 		),
+		operation_parameters: (),
 		[$($error:expr),* $(,)?]
 	) => {
 		pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
@@ -262,15 +281,17 @@ macro_rules! parse_operations {
 		}
 	};
 
+	// Constructor with implicit session ID and no hidden parameters
 	(
 		@CONSTRUCTOR
 		$name:ident,
 		$code:literal,
-		($(
+		visible_parameters:  ($(
 			$(@DEFAULT($default:expr))?
 			$(@RAW($bool:literal))?
 			$param:ident: $ty:ty
 		),* $(,)?),
+		operation_parameters: (),
 		[$($error:expr),* $(,)?]
 	) => {
 		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
@@ -278,6 +299,33 @@ macro_rules! parse_operations {
 				parameters: [$(parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
 				session_id: Some(session_id),
 				transaction_id,
+			}
+		}
+	};
+
+	// Constructor with implicit session ID and hidden parameters
+	(
+		@CONSTRUCTOR
+		$name:ident,
+		$code:literal,
+		visible_parameters:  ($(
+			$(@DEFAULT($_default:expr))?
+			$(@RAW($_bool:literal))?
+			$param:ident: $ty:ty
+		),* $(,)?),
+		operation_parameters: (
+			$(
+				$operation_param_expr:expr
+			),*
+		),
+		[$($error:expr),* $(,)?]
+	) => {
+		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
+			Self {
+				parameters: [$(ParameterPriv::new($operation_param_expr).0),*],
+				session_id: Some(session_id),
+				transaction_id,
+				_phantom: core::marker::PhantomData
 			}
 		}
 	};
@@ -313,7 +361,7 @@ define_operations! {
 	/// connecting to a responder for the first time.
 	pub struct GetDeviceInfo {
 		code: 0x1001,
-		parameters: (),
+		visible_parameters: (),
 		response: response::GetDeviceInfo,
 		valid_error_codes: [ParameterNotSupported]
 	}
@@ -327,7 +375,7 @@ define_operations! {
 	[[session_id(false)]]
 	pub struct OpenSession {
 		code: 0x1002,
-		parameters: (session_id: SessionId),
+		visible_parameters: (session_id: SessionId),
 		response: response::Empty,
 		valid_error_codes: [
 			ParameterNotSupported,
@@ -344,7 +392,7 @@ define_operations! {
 	/// If no session is currently open, a response of [`ResponseCode::SessionNotOpen`] will be returned.
 	pub struct CloseSession {
 		code: 0x1003,
-		parameters: (),
+		visible_parameters: (),
 		response: response::Empty,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -356,7 +404,7 @@ define_operations! {
 	/// Get the storage IDs of all storages on the device.
 	pub struct GetStorageIDs {
 		code: 0x1004,
-		parameters: (),
+		visible_parameters: (),
 		response: response::GetStorageIDs,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -369,7 +417,7 @@ define_operations! {
 	/// Get the [`StorageInfo`] of the given [`StorageId`].
 	pub struct GetStorageInfo {
 		code: 0x1005,
-		parameters: (storage: StorageId),
+		visible_parameters: (storage: StorageId),
 		response: response::GetStorageInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -385,7 +433,7 @@ define_operations! {
 	/// Get the number of objects on the device
 	pub struct GetNumObjects {
 		code: 0x1006,
-		parameters: (
+		visible_parameters: (
 			storage: StorageId,
 			@DEFAULT(ObjectFormatCode::from(0))
 			format: Option<ObjectFormatCode>,
@@ -412,7 +460,7 @@ define_operations! {
 	/// Get the [`ObjectHandle`]s of the contents on the device
 	pub struct GetObjectHandles {
 		code: 0x1007,
-		parameters: (
+		visible_parameters: (
 			storage: StorageId,
 			@DEFAULT(ObjectFormatCode::from(0))
 			format: Option<ObjectFormatCode>,
@@ -438,7 +486,7 @@ define_operations! {
 	/// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
 	pub struct GetObjectInfo {
 		code: 0x1008,
-		parameters: (object: ObjectHandle),
+		visible_parameters: (object: ObjectHandle),
 		response: response::GetObjectInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -453,7 +501,7 @@ define_operations! {
 	/// Get the binary contents of the given [`ObjectHandle`].
 	pub struct GetObject {
 		code: 0x1009,
-		parameters: (object: ObjectHandle),
+		visible_parameters: (object: ObjectHandle),
 		response: response::GetObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -471,7 +519,7 @@ define_operations! {
 	/// Get the thumbnail of an image object at the given [`ObjectHandle`].
 	pub struct GetThumb {
 		code: 0x100a,
-		parameters: (object: ObjectHandle),
+		visible_parameters: (object: ObjectHandle),
 		response: response::GetThumb,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -488,7 +536,7 @@ define_operations! {
 	/// Delete the object at the given [`ObjectHandle`].
 	pub struct DeleteObject {
 		code: 0x100b,
-		parameters: (object: ObjectHandle, format: ObjectFormatCode),
+		visible_parameters: (object: ObjectHandle, format: ObjectFormatCode),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -511,7 +559,7 @@ define_operations! {
 	/// Received from the device, indicating it wishes to send a new object
 	pub struct SendObjectInfo {
 		code: 0x100c,
-		parameters: (
+		visible_parameters: (
 			@DEFAULT(StorageId::from(0))
 			destination: Option<StorageId>,
 			@DEFAULT(ObjectHandle::from(0))
@@ -539,7 +587,7 @@ define_operations! {
 	/// Received from the device after a successful [`SendObjectInfo`], contains the binary data of the new object
 	pub struct SendObject {
 		code: 0x100d,
-		parameters: (),
+		visible_parameters: (),
 		response: response::SendObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -561,7 +609,7 @@ define_operations! {
 	/// Produce a new data object using an object capture mechanism
 	pub struct InitiateCapture {
 		code: 0x100e,
-		parameters: (
+		visible_parameters: (
 			@DEFAULT(StorageId::from(0))
 			storage: Option<StorageId>,
 			@DEFAULT(ObjectFormatCode::Unknown(0))
@@ -588,9 +636,9 @@ define_operations! {
 	/// Format the media indicated by the given [`StorageId`]
 	pub struct FormatStore {
 		code: 0x100f,
-		parameters: (
+		visible_parameters: (
 			storage: StorageId,
-			format: FilesystemType
+			fs: FilesystemType
 		),
 		response: response::Empty,
 		valid_error_codes: [
@@ -609,7 +657,7 @@ define_operations! {
 	/// Return the device to a default state
 	pub struct ResetDevice {
 		code: 0x1010,
-		parameters: (),
+		visible_parameters: (),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -624,7 +672,7 @@ define_operations! {
 	/// See [`SelfTestType`]
 	pub struct SelfTest {
 		code: 0x1011,
-		parameters: (test_type: SelfTestType),
+		visible_parameters: (test_type: SelfTestType),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -637,7 +685,7 @@ define_operations! {
 	/// Set the write-protection status of an object
 	pub struct SetObjectProtection {
 		code: 0x1012,
-		parameters: (object: ObjectHandle, status: ProtectionStatus),
+		visible_parameters: (object: ObjectHandle, status: ProtectionStatus),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -655,7 +703,7 @@ define_operations! {
 	/// Instruct the device to close all active sessions and power down
 	pub struct PowerDown {
 		code: 0x1013,
-		parameters: (),
+		visible_parameters: (),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -669,7 +717,7 @@ define_operations! {
 	/// Get the property descriptor for the given property code
 	pub struct GetDevicePropDesc {
 		code: 0x1014,
-		parameters: (code: DevicePropCode),
+		visible_parameters: (code: DevicePropCode),
 		response: response::GetDevicePropDesc,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -688,7 +736,7 @@ define_operations! {
 	///       [`GetDevicePropDesc`] operation.
 	pub struct GetDevicePropValue {
 		code: 0x1015,
-		parameters: (code: DevicePropCode),
+		visible_parameters: (code: DevicePropCode),
 		response: response::GetDevicePropValue,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -704,7 +752,7 @@ define_operations! {
 	/// Set the value of the given property code
 	pub struct SetDevicePropValue {
 		code: 0x1016,
-		parameters: (code: DevicePropCode),
+		visible_parameters: (code: DevicePropCode),
 		response: response::SetDevicePropValue,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -722,7 +770,7 @@ define_operations! {
 	/// Factory reset the device property value
 	pub struct ResetDevicePropValue {
 		code: 0x1017,
-		parameters: (code: DevicePropCode),
+		visible_parameters: (code: DevicePropCode),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -738,7 +786,7 @@ define_operations! {
 	/// End an [`InitiateOpenCapture`] operation
 	pub struct TerminateOpenCapture {
 		code: 0x1018,
-		parameters: (transaction: TransactionId),
+		visible_parameters: (transaction: TransactionId),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -751,9 +799,16 @@ define_operations! {
 	}
 
 	/// Change the location of an object
+	///
+	/// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
 	pub struct MoveObject {
 		code: 0x1019,
-		parameters: (object: ObjectHandle, storage: StorageId, parent: ObjectHandle),
+		visible_parameters: (
+			object: ObjectHandle,
+			storage: StorageId,
+			@DEFAULT(ObjectHandle::NONE)
+			parent: Option<ObjectHandle>
+		),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -772,9 +827,16 @@ define_operations! {
 	}
 
 	/// Create a copy of an object and place it in a new location
+	///
+	/// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
 	pub struct CopyObject {
 		code: 0x101A,
-		parameters: (object: ObjectHandle, storage: StorageId, parent: ObjectHandle),
+		visible_parameters: (
+			object: ObjectHandle,
+			storage: StorageId,
+			@DEFAULT(ObjectHandle::NONE)
+			parent: Option<ObjectHandle>
+		),
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -791,9 +853,11 @@ define_operations! {
 	}
 
 	/// Get a partial object from the device, may be used in place of [`GetObject`]
+	///
+	/// If the entire object is desired, `len` can be set to [`u32::MAX`].
 	pub struct GetPartialObject {
 		code: 0x101B,
-		parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
+		visible_parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
 		response: response::GetPartialObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -809,9 +873,14 @@ define_operations! {
 	}
 
 	/// Initiate the capture of multiple new objects
+	///
+	/// NOTES:
+	///
+	/// * If `storage` is not specified, the responder determines the location
+	/// * If `format` is not specified, the responder determines the format
 	pub struct InitiateOpenCapture {
 		code: 0x101C,
-		parameters: (
+		visible_parameters: (
 			@DEFAULT(StorageId::from(0))
 			storage: Option<StorageId>,
 			@DEFAULT(ObjectFormatCode::Unknown(0))
@@ -837,7 +906,7 @@ define_operations! {
 	/// Get all supported object property codes for the given format
 	pub struct GetObjectPropsSupported {
 		code: 0x9801,
-		parameters: (format: ObjectFormatCode),
+		visible_parameters: (format: ObjectFormatCode),
 		response: response::GetObjectPropsSupported,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -848,11 +917,15 @@ define_operations! {
 	}
 
 	/// Get the property description for the given object property code
+	///
+	/// The parameter `T` specifies the object property to be returned.
+	/// See [`crate::object::types::properties`] for a list of properties.
 	pub partial struct GetObjectPropDesc<T>
-		where T: [ObjectProperty + core::cmp::Eq + core::fmt::Debug + Clone + for<'b> deku::DekuReader<'b>]
+		where T: [ObjectProperty]
 	{
 		code: 0x9802,
-		parameters: (format: ObjectFormatCode),
+		visible_parameters: (format: ObjectFormatCode),
+		operation_parameters: (format, Parameter::new(T::CODE as u32)),
 		response: response::GetObjectPropDesc<T>,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -868,7 +941,7 @@ define_operations! {
 	/// Get the value for the given object property code
 	pub struct GetObjectPropValue {
 		code: 0x9803,
-		parameters: (object: ObjectHandle, code: ObjectPropertyCode),
+		visible_parameters: (object: ObjectHandle, code: ObjectPropertyCode),
 		response: response::GetObjectPropValue,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -883,7 +956,7 @@ define_operations! {
 	/// Set the value for the given object property code
 	pub struct SetObjectPropValue {
 		code: 0x9804,
-		parameters: (object: ObjectHandle, code: ObjectPropertyCode),
+		visible_parameters: (object: ObjectHandle, code: ObjectPropertyCode),
 		response: response::SetObjectPropValue,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -900,7 +973,7 @@ define_operations! {
 	/// Get an array of all active [`ObjectHandle`]s
 	pub struct GetObjectReferences {
 		code: 0x9810,
-		parameters: (object: ObjectHandle),
+		visible_parameters: (object: ObjectHandle),
 		response: response::GetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -915,7 +988,7 @@ define_operations! {
 	/// Replace the references on an object
 	pub struct SetObjectReferences {
 		code: 0x9811,
-		parameters: (object: ObjectHandle),
+		visible_parameters: (object: ObjectHandle),
 		response: response::SetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -939,7 +1012,7 @@ define_operations! {
 	/// device should skip back one media object.
 	pub struct Skip {
 		code: 0x9820,
-		parameters: (@RAW(true) skip: u32),
+		visible_parameters: (@RAW(true) skip: u32),
 		response: response::SetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -967,7 +1040,7 @@ define_operations! {
 	/// query each {object, property} pair.
 	pub struct GetObjectPropList {
 		code: 0x9805,
-		parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropertyCode),
+		visible_parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropertyCode),
 		response: response::GetObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -991,7 +1064,7 @@ define_operations! {
 	/// Set object properties container in the given dataset
 	pub struct SetObjectPropList {
 		code: 0x9806,
-		parameters: (),
+		visible_parameters: (),
 		response: response::SetObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1010,7 +1083,7 @@ define_operations! {
 
 	pub struct GetInterdependentPropDesc {
 		code: 0x9807,
-		parameters: (format: ObjectFormatCode),
+		visible_parameters: (format: ObjectFormatCode),
 		response: response::GetInterdependentPropDesc,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1025,7 +1098,7 @@ define_operations! {
 	// TODO: object size
 	pub struct SendObjectPropList {
 		code: 0x9808,
-		parameters: (destination: StorageId, parent: ObjectHandle, format: ObjectFormatCode),
+		visible_parameters: (destination: StorageId, parent: ObjectHandle, format: ObjectFormatCode),
 		response: response::SendObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
