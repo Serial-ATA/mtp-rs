@@ -1,19 +1,17 @@
 use crate::communication::Parameter;
 use crate::device::storage::id::StorageId;
-use crate::object::types::association::Association;
-use crate::object::types::datetime::DateTime;
-use crate::object::types::format_code::ObjectFormatCode;
-use crate::object::types::object_handle::ObjectHandle;
-use crate::object::types::PtpString;
-
-use alloc::format;
-use alloc::vec::Vec;
+use crate::object::types::{Association, DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
 use deku::{DekuRead, DekuWrite};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[repr(u16)]
-#[deku(id_type = "u16", endian = "big")]
+#[deku(
+	id_type = "u16",
+	endian = "big",
+	ctx = "_endian: deku::ctx::Endian",
+	ctx_default = "deku::ctx::Endian::Little"
+)]
 pub enum ProtectionStatus {
 	/// This object has no protection; it may be modified or deleted arbitrarily and its properties may be modified freely.
 	#[deku(id = "0x0000")]
@@ -33,6 +31,7 @@ pub enum ProtectionStatus {
 	/// retrieved from the device using a GetObject operation.
 	#[deku(id = "0x8003")]
 	NonTransferableData = 0x8003,
+	#[deku(id_pat = "_", default)]
 	Reserved,
 }
 
@@ -71,7 +70,7 @@ pub struct ObjectInfo {
 	pub object_format: ObjectFormatCode,
 	pub protection_status: ProtectionStatus,
 	/// The size of the data component of the object in bytes. If the object is larger than `2^32`
-	/// bytes in size (4GB), this field shall contain a value of `0xFFFFFFFF`.
+	/// bytes in size (4GB), this field shall contain a value of [`u32::MAX`].
 	#[deku(endian = "big")]
 	pub compressed_size: u32,
 	pub thumbnail: Option<Thumbnail>,
@@ -85,10 +84,7 @@ pub struct ObjectInfo {
 	pub association: Association,
 	#[deku(endian = "big")]
 	pub sequence_number: u32,
-	/// The file name of this object, without any directory or file system
-	/// information. This string is also accessible and defined via an Object Property, and
-	/// restrictions on its format may be identified in the Object Property Description for this
-	/// object property.
+	/// The file name of this object, without any directory or file system information.
 	pub filename: PtpString,
 	pub date_created: DateTime,
 	pub date_modified: DateTime,

@@ -1,4 +1,4 @@
-use crate::communication::operation::{DynOperation, Operation, SerializedOperation};
+use crate::communication::operation::{DynOperation, SerializedOperation};
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 

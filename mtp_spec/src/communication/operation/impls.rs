@@ -1,11 +1,9 @@
-use crate::communication::{response, Parameter, ParameterPriv, SessionId, TransactionId};
+use crate::communication::{Parameter, ParameterPriv, SessionId, TransactionId, response};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::ProtectionStatus;
+use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
-
-// TODO: fix this, DekuWrite doesnt handle the import
-use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
@@ -22,24 +20,24 @@ macro_rules! replace_expr {
 const MAX_PARAMETERS: usize = 5;
 
 macro_rules! define_operations {
-	(
-		$(
-			$(#[$meta:meta])*
-			$([[session_id($session_id:ident)]])?
-			pub struct $name:ident {
-				code: $code:literal,
-				parameters: (
-					$(
-						$(@DEFAULT($default:expr))?
-						$(@RAW($bool:literal))?
-						$param:ident: $ty:ty
-					),* $(,)?
-				),
-				response: $response:ty,
-				valid_error_codes: [$($error:ident),* $(,)?] $(,)?
-			}
-		)*
-	) => {
+	($($tt:tt)*) => {
+		parse_operations!(@ON_STRUCT
+			OPERATIONS_ENUM: [
+				pub enum Operation {}
+			]
+
+			$($tt)*
+		);
+	};
+}
+
+macro_rules! parse_operations {
+	// Base case, done parsing
+	(@ON_STRUCT OPERATIONS_ENUM: [
+		pub enum Operation {
+			$($variants:tt)*
+		}
+	]) => {
 		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, DekuRead, DekuWrite)]
 		#[repr(u16)]
 		#[deku(
@@ -49,20 +47,164 @@ macro_rules! define_operations {
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
 		pub enum Operation {
-			$(
-			#[deku(id = $code)]
-			$name = $code,
-			)*
+			$($variants)*
 			#[deku(id_pat = "o if (0x9000_u16..=0x97FF_u16).contains(&o)")]
 			VenderSpecific(u16),
 		}
+	};
 
-		$(
-		define_operations!(
-			$(#[$meta])* $name, code: $code, $(session_id: $session_id)?, [$($param: $ty),*], $response, [$($error),*]
+	// Normal, non-generic structs
+	(@ON_STRUCT
+		OPERATIONS_ENUM: [$($operations_enum:tt)*]
+
+		$(#[$meta:meta])*
+		$([[session_id($session_id:ident)]])?
+		pub struct $name:ident {
+			code: $code:literal,
+			parameters: (
+				$(
+					$(@DEFAULT($default:expr))?
+					$(@RAW($bool:literal))?
+					$param:ident: $ty:ty
+				),* $(,)?
+			),
+			response: $response:ty,
+			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		$(#[$meta])*
+		pub struct $name {
+			parameters: [$crate::communication::Parameter; counter([$(replace_expr!($param ())),*])],
+			session_id: Option<$crate::communication::SessionId>,
+			transaction_id: $crate::communication::TransactionId,
+		}
+
+		impl $name {
+			parse_operations!(
+				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)? ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*), [$($error),*]
+			);
+		}
+
+		parse_operations!(@COMMON_OPERATIONS
+		OPERATIONS_ENUM: [$($operations_enum)*]
+
+		$name,
+		GENERIC: [],
+		NAME_WITH_GENERIC: [$name],
+		WHERE_CLAUSE: [],
+
+		$code, $response, parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
 		);
+	};
+
+	// Generic structs
+	(@ON_STRUCT
+		OPERATIONS_ENUM: [$($operations_enum:tt)*]
+
+		$(#[$meta:meta])*
+		$([[session_id($session_id:ident)]])?
+		pub partial struct $name:ident<T>
+			where T: [$($where_clause:tt)*]
+		{
+			code: $code:literal,
+			parameters: (
+				$(
+					$(@DEFAULT($default:expr))?
+					$(@RAW($bool:literal))?
+					$param:ident: $ty:ty
+				),* $(,)?
+			),
+			response: $response:ty,
+			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		$(#[$meta])*
+		pub struct $name<T>
+			where T: $($where_clause)*
+		{
+			parameters: [$crate::communication::Parameter; counter([(), $(replace_expr!($param ())),*])],
+			session_id: Option<$crate::communication::SessionId>,
+			transaction_id: $crate::communication::TransactionId,
+			_phantom: core::marker::PhantomData<T>,
+		}
+
+		impl<T> $name<T>
+			where T: $($where_clause)*
+		{
+			pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
+				Self {
+					parameters: [ParameterPriv::new_raw(T::CODE as u32).0, $(parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
+					session_id: Some(session_id),
+					transaction_id,
+					_phantom: Default::default(),
+				}
+			}
+		}
+
+		parse_operations!(@COMMON_OPERATIONS
+		OPERATIONS_ENUM: [$($operations_enum)*]
+
+		$name,
+		GENERIC: [T],
+		NAME_WITH_GENERIC: [$name<T>],
+		WHERE_CLAUSE: [where T: $($where_clause)*],
+
+		$code, $response, parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
+		);
+	};
+
+	// Stuff to generate for all operations, regardless of partial status
+	(
+		@COMMON_OPERATIONS
+		OPERATIONS_ENUM: [
+			pub enum Operation {
+				$($variants:tt)*
+			}
+		]
+		$name:ident,
+		GENERIC: [$($generic:tt)*],
+		NAME_WITH_GENERIC: [$($name_with_generic:tt)*],
+		WHERE_CLAUSE: [$($where_clause:tt)*],
+		$code:literal,
+		$response:ty,
+		parameters: ($($param:ident),*),
+		valid_error_codes: [$($error:ident),*]
+		$($rest:tt)*
+	) => {
+		impl<$($generic)*> $($name_with_generic)* $($where_clause)* {
+			const OPCODE: u16 = $code;
+		}
+
+		impl<'a, $($generic)*> From<&'a $($name_with_generic)*> for $crate::communication::operation::SerializedOperation<'a> $($where_clause)* {
+			fn from(value: &'a $($name_with_generic)*) -> $crate::communication::operation::SerializedOperation<'a> {
+				Self {
+					code: <$($name_with_generic)*>::OPCODE,
+					session_id: value.session_id.unwrap_or(SessionId::NONE),
+					transaction_id: value.transaction_id,
+					parameters: value.parameters.as_slice(),
+				}
+			}
+		}
+
+		const _: () = {
+			if counter([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
+				panic!("Too many parameters");
+			}
+		};
 
 		paste::paste! {
+			impl<$($generic)*> $crate::communication::operation::DynOperation for $($name_with_generic)* $($where_clause)* {
+				type Response = $response;
+				type Error = [<$name Error>];
+			}
+		}
+
+		paste::paste! {
+			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
 			#[derive(Debug, deku::DekuRead)]
 			#[deku(ctx = "error_code: u16", id = "error_code")]
 			pub enum [<$name Error>] {
@@ -86,14 +228,17 @@ macro_rules! define_operations {
 			impl core::error::Error for [<$name Error>] {}
 		}
 
-		impl $name {
-			const OPCODE: u16 = $code;
-		}
-
-		define_operations!(
-			@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)? ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*), [$($error),*]
+		parse_operations!(
+			@ON_STRUCT
+			OPERATIONS_ENUM: [
+				pub enum Operation {
+					$($variants)*
+					#[deku(id = $code)]
+					$name = $code,
+				}
+			]
+			$($rest)*
 		);
-		)*
 	};
 
 	(
@@ -108,13 +253,11 @@ macro_rules! define_operations {
 		),
 		[$($error:expr),* $(,)?]
 	) => {
-		impl $name {
-			pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
-				Self {
-					parameters: [$(define_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
-					session_id: None,
-					transaction_id,
-				}
+		pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
+			Self {
+				parameters: [$(parse_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
+				session_id: None,
+				transaction_id,
 			}
 		}
 	};
@@ -130,13 +273,11 @@ macro_rules! define_operations {
 		),* $(,)?),
 		[$($error:expr),* $(,)?]
 	) => {
-		impl $name {
-			pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
-				Self {
-					parameters: [$(define_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
-					session_id: Some(session_id),
-					transaction_id,
-				}
+		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
+			Self {
+				parameters: [$(parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
+				session_id: Some(session_id),
+				transaction_id,
 			}
 		}
 	};
@@ -163,41 +304,6 @@ macro_rules! define_operations {
 	) => {
 		ParameterPriv::new($param).0
 	};
-
-	(
-		$(#[$meta:meta])* $name:ident, code: $code:literal, $(session_id: $session_id:ident)?, [$($param:ident: $ty:ty),* $(,)?], $response:ty, [$($error:expr),* $(,)?]
-	) => {
-		const _: () = {
-			if counter([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
-				panic!("Too many parameters");
-			}
-		};
-
-		$(#[$meta])*
-		pub struct $name {
-			parameters: [$crate::communication::Parameter; counter([$(replace_expr!($param ())),*])],
-			session_id: Option<$crate::communication::SessionId>,
-			transaction_id: $crate::communication::TransactionId,
-		}
-
-		impl<'a> From<&'a $name> for $crate::communication::operation::SerializedOperation<'a> {
-			fn from(value: &'a $name) -> $crate::communication::operation::SerializedOperation<'a> {
-				Self {
-					code: <$name>::OPCODE,
-					session_id: value.session_id.unwrap_or(SessionId::NONE),
-					transaction_id: value.transaction_id,
-					parameters: value.parameters.as_slice(),
-				}
-			}
-		}
-
-		paste::paste! {
-			impl $crate::communication::operation::DynOperation for $name {
-				type Response = $response;
-				type Error = [<$name Error>];
-			}
-		}
-	}
 }
 
 define_operations! {
@@ -742,10 +848,12 @@ define_operations! {
 	}
 
 	/// Get the property description for the given object property code
-	pub struct GetObjectPropDesc {
+	pub partial struct GetObjectPropDesc<T>
+		where T: [ObjectProperty + core::cmp::Eq + core::fmt::Debug + Clone + for<'b> deku::DekuReader<'b>]
+	{
 		code: 0x9802,
-		parameters: (code: ObjectPropCode, format: ObjectFormatCode),
-		response: response::GetObjectPropDesc,
+		parameters: (format: ObjectFormatCode),
+		response: response::GetObjectPropDesc<T>,
 		valid_error_codes: [
 			OperationNotSupported,
 			SessionNotOpen,
@@ -760,7 +868,7 @@ define_operations! {
 	/// Get the value for the given object property code
 	pub struct GetObjectPropValue {
 		code: 0x9803,
-		parameters: (object: ObjectHandle, code: ObjectPropCode),
+		parameters: (object: ObjectHandle, code: ObjectPropertyCode),
 		response: response::GetObjectPropValue,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -775,7 +883,7 @@ define_operations! {
 	/// Set the value for the given object property code
 	pub struct SetObjectPropValue {
 		code: 0x9804,
-		parameters: (object: ObjectHandle, code: ObjectPropCode),
+		parameters: (object: ObjectHandle, code: ObjectPropertyCode),
 		response: response::SetObjectPropValue,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -859,7 +967,7 @@ define_operations! {
 	/// query each {object, property} pair.
 	pub struct GetObjectPropList {
 		code: 0x9805,
-		parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropCode),
+		parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropertyCode),
 		response: response::GetObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -972,23 +1080,5 @@ impl From<u16> for DevicePropCode {
 impl From<DevicePropCode> for Parameter {
 	fn from(value: DevicePropCode) -> Self {
 		Parameter::new(value.0 as u32)
-	}
-}
-
-// TODO: Need a real impl of this
-#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
-#[repr(transparent)]
-pub struct ObjectPropCode(u32);
-
-impl From<u32> for ObjectPropCode {
-	fn from(value: u32) -> Self {
-		Self(value)
-	}
-}
-
-impl From<ObjectPropCode> for Parameter {
-	fn from(value: ObjectPropCode) -> Self {
-		Parameter::new(value.0)
 	}
 }

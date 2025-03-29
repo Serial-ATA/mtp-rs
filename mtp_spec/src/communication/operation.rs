@@ -6,10 +6,9 @@ use crate::object::types::ArrayEncodable;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use deku::no_std_io::{Cursor, Read, Seek};
+use deku::no_std_io::Cursor;
 use deku::reader::Reader;
-use deku::writer::Writer;
-use deku::{DekuContainerRead, DekuContainerWrite, DekuReader, DekuWrite, DekuWriter};
+use deku::{DekuContainerRead, DekuContainerWrite, DekuReader, DekuWrite};
 
 mod impls;
 pub use impls::*;
@@ -19,10 +18,10 @@ pub use impls::*;
 /// Every operation type can be converted into this. It cannot be constructed directly.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuWrite)]
 pub struct SerializedOperation<'a> {
-	pub code: u16,
-	pub session_id: SessionId,
-	pub transaction_id: TransactionId,
-	pub parameters: &'a [Parameter],
+	code: u16,
+	session_id: SessionId,
+	transaction_id: TransactionId,
+	parameters: &'a [Parameter],
 }
 
 impl SerializedOperation<'_> {
@@ -32,6 +31,18 @@ impl SerializedOperation<'_> {
 			buf.extend(param.to_bytes()?);
 		}
 		Ok(buf)
+	}
+
+	pub fn code(&self) -> u16 {
+		self.code
+	}
+
+	pub fn session_id(&self) -> SessionId {
+		self.session_id
+	}
+
+	pub fn transaction_id(&self) -> TransactionId {
+		self.transaction_id
 	}
 }
 

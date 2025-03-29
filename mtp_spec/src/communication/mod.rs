@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use core::fmt::Display;
 
 use deku::{DekuRead, DekuWrite};

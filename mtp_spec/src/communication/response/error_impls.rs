@@ -1,5 +1,5 @@
-use crate::communication::response::impls::{define_response, replace_expr, MAX_PARAMETERS};
 use crate::communication::SessionId;
+use crate::communication::response::impls::{MAX_PARAMETERS, define_response, replace_expr};
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
 macro_rules! define_error_response {
@@ -14,13 +14,14 @@ macro_rules! define_error_response {
 	) => {
 		define_response!(
 			$(#[$meta])*
-			pub struct $name {
+			pub struct $name[][] {
 				$(data: $data,)?
 				$(parameters: ($($param: $ty),*),)?
 			}
 		);
 
 		impl $name {
+			/// The raw datacode for this error
 			pub const CODE: u16 = $code;
 		}
 
@@ -29,7 +30,7 @@ macro_rules! define_error_response {
 				write!(
 					f,
 					"Error (code = {}): {}",
-					Self::CODE, $error_msg
+					$code, $error_msg
 				)
 			}
 		}

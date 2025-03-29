@@ -2,8 +2,6 @@ use crate::communication::TransactionId;
 use crate::device::storage::id::StorageId;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
-use alloc::vec::Vec;
-
 const fn counter<const N: usize>(_: [(); N]) -> usize {
 	N
 }

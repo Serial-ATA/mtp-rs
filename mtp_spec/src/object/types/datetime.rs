@@ -11,15 +11,28 @@ use deku::reader::Reader;
 use deku::writer::Writer;
 use deku::{DekuError, DekuReader, DekuWriter};
 
+/// An MTP date and time string
+///
+/// The format is `YYYYMMDDThhmmss.s`, where:
+///
+/// - `YYYY` is the year
+/// - `MM` is the month
+/// - `DD` is the day
+/// - `hh` is the hour
+/// - `mm` is the minute
+/// - `ss` is the second
+/// - `s` is the decisecond
+///
+/// It can optionally have `Z` appended to the end to indicate UTC, or `+/-hhmm` to indicate a timezone offset.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DateTime {
-	year: u16,
-	month: Option<u8>,
-	day: Option<u8>,
-	hour: Option<u8>,
-	minute: Option<u8>,
-	second: Option<u8>,
-	decisecond: Option<u8>,
+	pub year: u16,
+	pub month: Option<u8>,
+	pub day: Option<u8>,
+	pub hour: Option<u8>,
+	pub minute: Option<u8>,
+	pub second: Option<u8>,
+	pub decisecond: Option<u8>,
 }
 
 impl TryFrom<PtpString> for DateTime {
@@ -200,6 +213,10 @@ impl DekuWriter for DateTime {
 	where
 		W: Write + Seek,
 	{
+		if !self.validate() {
+			return Err(DekuError::InvalidParam(Cow::from("DateTime is invalid")));
+		}
+
 		let ptp_str = PtpString::try_from(self.to_string())
 			.map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))?;
 		ptp_str.to_writer(writer, ())

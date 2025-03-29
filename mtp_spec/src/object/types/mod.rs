@@ -1,9 +1,10 @@
-pub mod array;
-pub mod association;
-pub mod datetime;
-pub mod format_code;
-pub mod object_handle;
-pub mod string;
+mod array;
+mod association;
+mod datetime;
+mod format_code;
+mod object_handle;
+pub mod properties;
+mod string;
 
 pub use array::*;
 pub use association::*;

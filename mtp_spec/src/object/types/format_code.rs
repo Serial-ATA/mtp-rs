@@ -1,8 +1,6 @@
 use crate::communication::Parameter;
 use crate::object::types::ArrayEncodable;
 
-use alloc::vec::Vec;
-
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::prelude::{Reader, Writer};

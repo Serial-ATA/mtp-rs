@@ -1,4 +1,3 @@
-#![feature(macro_metavar_expr)]
 #![no_std]
 
 extern crate alloc;

@@ -1,8 +1,6 @@
+use crate::communication::event::Event;
 use crate::communication::operation::Operation;
 use crate::object::types::{Array, ObjectFormatCode, PtpString};
-use crate::communication::event::Event;
-
-use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 

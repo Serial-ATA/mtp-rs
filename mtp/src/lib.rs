@@ -21,6 +21,9 @@ async fn foo() {
 		}
 		let info = dbg!(handle.get_device_info(Some(session_id)).await.unwrap()).unwrap();
 		println!("{}", info.data.data.mtp_extensions);
-		dbg!(handle.get_storage_ids(session_id).await.unwrap()).unwrap();
+		let storages = dbg!(handle.get_storage_ids(session_id).await.unwrap()).unwrap();
+		for storage in storages.data.data {
+			dbg!(handle.get_storage_info(session_id, storage).await.unwrap()).unwrap();
+		}
 	}
 }

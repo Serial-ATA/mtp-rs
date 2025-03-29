@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
 use mtp_spec::communication::operation::{DynOperation, Operation, SerializedOperation};
-use mtp_spec::communication::response::{Response, ResponseFlags, SuccessResponse, CODE_OK};
+use mtp_spec::communication::response::{CODE_OK, Response, ResponseFlags, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::Device;
 use mtp_spec::error::MtpError;
@@ -76,19 +76,43 @@ impl PtpIo for DeviceHandle {
 	async fn send_operation<O>(
 		&mut self,
 		operation: O,
-		_data: Option<Vec<u8>>,
+		data: Option<Vec<u8>>,
 	) -> Result<Response<O>, Self::Error>
 	where
 		O: DynOperation,
 		for<'a> SerializedOperation<'a>: From<&'a O>,
 	{
+		async fn send(
+			data: Vec<u8>,
+			queue: &mut Queue<Vec<u8>>,
+			buffer_size: usize,
+			timeout: Duration,
+		) -> Result<(), crate::error::MtpError> {
+			let data_len = data.len();
+
+			let mut transfers = 1;
+			queue.submit(data);
+			if data_len % buffer_size == 0 {
+				queue.submit(Vec::new());
+				transfers += 1;
+			}
+
+			for _ in 0..transfers {
+				let completion = tokio::time::timeout(timeout, queue.next_complete()).await?;
+				completion.status.map_err(UsbError::from)?;
+			}
+
+			Ok(())
+		}
+
+		// Phase 1: Command
 		let command_buf;
 		{
 			let op = operation.encode();
 			let command_container = UsbContainer::new(
 				ContainerType::Command,
-				op.code,
-				op.transaction_id,
+				op.code(),
+				op.transaction_id(),
 				op.encode_parameters()?,
 			);
 			command_buf = command_container
@@ -96,17 +120,26 @@ impl PtpIo for DeviceHandle {
 				.map_err(Into::<MtpError>::into)?;
 		}
 
-		let buf_len = command_buf.len();
+		send(
+			command_buf,
+			&mut self.out_queue,
+			self.endpoints.bulk_out_buffer_size,
+			self.timeout,
+		)
+		.await?;
 
-		self.out_queue.submit(command_buf);
-
-		if buf_len % self.endpoints.bulk_out_buffer_size == 0 {
-			self.out_queue.submit(Vec::new());
+		// Phase 2: Data (if applicable)
+		if let Some(data) = data {
+			send(
+				data,
+				&mut self.out_queue,
+				self.endpoints.bulk_out_buffer_size,
+				self.timeout,
+			)
+			.await?;
 		}
 
-		let completion = tokio::time::timeout(self.timeout, self.out_queue.next_complete()).await?;
-		completion.status.map_err(UsbError::from)?;
-
+		// Phase 3: Response (includes data if the direction is responder->initiator)
 		let phases = get_response::<<O as DynOperation>::Response>(self).await?;
 
 		if phases.response.code != CODE_OK {
@@ -166,7 +199,7 @@ struct UsbContainer {
 impl UsbContainer {
 	fn new(ty: ContainerType, code: u16, transaction_id: TransactionId, payload: Vec<u8>) -> Self {
 		Self {
-			length: payload.len() as u32,
+			length: USB_CONTAINER_HEADER_SIZE + payload.len() as u32,
 			type_: ty,
 			code,
 			transaction_id,

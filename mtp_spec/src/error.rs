@@ -1,5 +1,6 @@
 use core::fmt::{Debug, Display};
 
+/// A specialized `Result` type for MTP operations.
 pub type Result<T> = core::result::Result<T, MtpError>;
 
 // Shorthand for return Err(MtpError::new(MtpErrorKind::Foo))
@@ -22,11 +23,15 @@ macro_rules! err {
 
 pub(crate) use err;
 
+/// The kind of error that occurred
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum MtpErrorKind {
+	/// Attempting to deserialize a [`PtpString`] containing a null byte
 	StringContainsNull,
+	/// Attempting to parse a malformed [`DateTime`]
 	BadDateTime(&'static str),
+	/// General serialization/deserialization errors
 	Serialization(deku::DekuError),
 }
 
@@ -40,24 +45,26 @@ impl Display for MtpErrorKind {
 	}
 }
 
+/// Errors that can occur during MTP operations
 pub struct MtpError {
 	kind: MtpErrorKind,
 }
 
 impl MtpError {
+	/// Create a new `MtpError`
 	pub fn new(kind: MtpErrorKind) -> MtpError {
 		MtpError { kind }
 	}
 }
 
 impl Debug for MtpError {
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		write!(f, "{:?}", self.kind)
 	}
 }
 
 impl Display for MtpError {
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		write!(f, "{}", self.kind)
 	}
 }

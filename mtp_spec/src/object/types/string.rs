@@ -1,4 +1,4 @@
-use crate::error::{err, MtpError, Result};
+use crate::error::{MtpError, Result, err};
 use alloc::borrow::Cow;
 
 use alloc::string::String;
@@ -22,8 +22,11 @@ use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
-#[derive(Default, Clone, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "endian")]
+#[derive(Default, Clone, Eq, PartialEq, Hash, DekuRead, DekuWrite)]
+#[deku(
+	ctx = "_endian: deku::ctx::Endian",
+	ctx_default = "deku::ctx::Endian::Little"
+)]
 pub struct PtpString(
 	#[deku(
 		reader = "ptp_string_read(deku::reader)",

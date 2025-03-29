@@ -4,8 +4,8 @@ mod impls;
 pub use error_impls::*;
 pub use impls::*;
 
-use crate::communication::operation::{DynOperation, Operation};
 use crate::communication::TransactionId;
+use crate::communication::operation::DynOperation;
 
 use core::error::Error;
 use core::fmt::{self, Debug, Display};

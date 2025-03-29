@@ -5,7 +5,7 @@ use core::ops::{Index, IndexMut};
 use core::slice::Iter;
 
 use deku::ctx::Endian;
-use deku::{deku_derive, DekuReader, DekuWriter};
+use deku::{DekuReader, DekuWriter, deku_derive};
 
 /// A fixed-size array of elements of type `T`.
 ///
@@ -14,6 +14,10 @@ use deku::{deku_derive, DekuReader, DekuWriter};
 /// See [`ArrayEncodable`] for a list of types that can be used in an `Array`.
 #[deku_derive(DekuRead, DekuWrite)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[deku(
+	ctx = "_endian: deku::ctx::Endian",
+	ctx_default = "deku::ctx::Endian::Little"
+)]
 pub struct Array<T: ArrayEncodable>(
 	// Array Definition
 	//
@@ -37,6 +41,19 @@ where
 		I: IntoIterator<Item = T>,
 	{
 		Self(iter.into_iter().take(u32::MAX as usize).collect())
+	}
+}
+
+impl<T> IntoIterator for Array<T>
+where
+	T: ArrayEncodable,
+{
+	type Item = T;
+
+	type IntoIter = alloc::vec::IntoIter<T>;
+
+	fn into_iter(self) -> Self::IntoIter {
+		self.0.into_iter()
 	}
 }
 

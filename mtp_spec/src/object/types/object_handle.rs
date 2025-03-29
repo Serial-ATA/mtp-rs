@@ -1,8 +1,6 @@
 use crate::communication::Parameter;
 use crate::object::types::ArrayEncodable;
 
-use alloc::vec::Vec;
-
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::prelude::{Reader, Writer};
@@ -21,6 +19,10 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[deku(endian = "big")]
 pub struct ObjectHandle(u32);
+
+impl ObjectHandle {
+	pub const NONE: Self = ObjectHandle(0);
+}
 
 impl From<u32> for ObjectHandle {
 	fn from(value: u32) -> Self {
