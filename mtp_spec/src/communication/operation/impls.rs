@@ -30,8 +30,6 @@ macro_rules! replace_expr {
 	};
 }
 
-const MAX_PARAMETERS: usize = 5;
-
 macro_rules! define_operations {
 	($($tt:tt)*) => {
 		parse_operations!(@ON_STRUCT
@@ -225,6 +223,8 @@ macro_rules! parse_operations {
 		}
 
 		const _: () = {
+			const MAX_PARAMETERS: usize = 5;
+
 			if counter([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
 				panic!("Too many parameters");
 			}

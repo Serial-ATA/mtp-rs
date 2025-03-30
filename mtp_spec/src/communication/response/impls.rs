@@ -9,17 +9,11 @@ use crate::object::types::{Array, ObjectHandle};
 
 use alloc::vec::Vec;
 
-pub(super) const fn counter<const N: usize>(_: [(); N]) -> usize {
-	N
-}
-
 macro_rules! replace_expr {
 	($_t:tt $sub:expr) => {
 		$sub
 	};
 }
-
-pub(super) const MAX_PARAMETERS: usize = 5;
 
 macro_rules! define_response {
 	(
@@ -41,7 +35,13 @@ macro_rules! define_response {
 	) => {
 		$(
 			const _: () = {
-				if $crate::communication::response::impls::counter(
+				const fn counter<const N: usize>(_: [(); N]) -> usize {
+					N
+				}
+
+				const MAX_PARAMETERS: usize = 5;
+
+				if counter(
 					[$($crate::communication::response::impls::replace_expr!($param ())),*]
 				) > MAX_PARAMETERS {
 					panic!("Too many parameters");

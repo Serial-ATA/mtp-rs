@@ -2,8 +2,8 @@ use crate::communication::TransactionId;
 use crate::device::storage::id::StorageId;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
+use deku::DekuError;
 use deku::no_std_io::{Read, Seek, Write};
-use deku::{DekuError, DekuReader};
 
 macro_rules! define_events {
 	(
@@ -12,10 +12,6 @@ macro_rules! define_events {
 		accumulate_events!(
 			EVENTS_PARSER_ENUM: [
 				pub enum EventsParser {}
-
-				fn code(&self) -> u16 {
-					match self {}
-				}
 
 				fn from(event: EventsParser) -> Event {
 					match event {}
@@ -38,12 +34,6 @@ macro_rules! accumulate_events {
 		EVENTS_PARSER_ENUM: [
 			pub enum EventsParser {
 				$($parser_variants:tt)*
-			}
-
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms:tt)*
-				}
 			}
 
 			fn from(event: EventsParser) -> Event {
@@ -83,7 +73,7 @@ macro_rules! accumulate_events {
 			ctx = "_endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
-		pub enum EventsParser {
+		pub(super) enum EventsParser {
 			$($parser_variants)*
 			#[deku(id_pat = "_", default)]
 			Unknown {
@@ -92,15 +82,6 @@ macro_rules! accumulate_events {
 				param2: u32,
 				param3: u32
 			},
-		}
-
-		impl EventsParser {
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms)*
-					Self::Unknown { code, param1, param2, param3 } => *code,
-				}
-			}
 		}
 
 		impl From<EventsParser> for Event {
@@ -113,7 +94,7 @@ macro_rules! accumulate_events {
 						param2,
 						param3
 					} if (0x6000_u16..=0x63FF_u16).contains(&code) => Event::VendorSpecific { code, param1, param2, param3 },
-					_ => Event::Unknown { code: event.code(), param1: 0, param2: 0, param3: 0 }
+					EventsParser::Unknown { code, param1, param2, param3 } => Event::Unknown { code, param1, param2, param3 }
 				}
 			}
 		}
@@ -122,12 +103,17 @@ macro_rules! accumulate_events {
 		#[repr(u16)]
 		pub enum Event {
 			$($variants)*
+			/// Some vendor-specific event
 			VendorSpecific {
 				code: u16,
 				param1: u32,
 				param2: u32,
 				param3: u32
 			},
+			/// Any unknown event
+			///
+			/// This falls outside of the [`Self::VendorSpecific`] range, which may indicate
+			/// a faulty device.
 			Unknown {
 				code: u16,
 				param1: u32,
@@ -224,12 +210,6 @@ macro_rules! accumulate_events {
 				$($parser_variants:tt)*
 			}
 
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms:tt)*
-				}
-			}
-
 			fn from(event: EventsParser) -> Event {
 				match event {
 					$($parser_match_arms:tt)*
@@ -279,13 +259,6 @@ macro_rules! accumulate_events {
 					},
 				}
 
-				fn code(&self) -> u16 {
-					match self {
-						$($parser_code_match_arms)*
-						EventsParser::$name { .. } => $code,
-					}
-				}
-
 				fn from(event: EventsParser) -> Event {
 					match event {
 						$($parser_match_arms)*
@@ -330,12 +303,6 @@ macro_rules! accumulate_events {
 		EVENTS_PARSER_ENUM: [
 			pub enum EventsParser {
 				$($parser_variants:tt)*
-			}
-
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms:tt)*
-				}
 			}
 
 			fn from(event: EventsParser) -> Event {
@@ -388,13 +355,6 @@ macro_rules! accumulate_events {
 					},
 				}
 
-				fn code(&self) -> u16 {
-					match self {
-						$($parser_code_match_arms)*
-						EventsParser::$name { .. } => $code,
-					}
-				}
-
 				fn from(event: EventsParser) -> Event {
 					match event {
 						$($parser_match_arms)*
@@ -443,12 +403,6 @@ macro_rules! accumulate_events {
 		EVENTS_PARSER_ENUM: [
 			pub enum EventsParser {
 				$($parser_variants:tt)*
-			}
-
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms:tt)*
-				}
 			}
 
 			fn from(event: EventsParser) -> Event {
@@ -500,13 +454,6 @@ macro_rules! accumulate_events {
 						$param2: $ty2,
 						__param3: u32
 					},
-				}
-
-				fn code(&self) -> u16 {
-					match self {
-						$($parser_code_match_arms)*
-						EventsParser::$name { .. } => $code,
-					}
 				}
 
 				fn from(event: EventsParser) -> Event {
@@ -561,12 +508,6 @@ macro_rules! accumulate_events {
 				$($parser_variants:tt)*
 			}
 
-			fn code(&self) -> u16 {
-				match self {
-					$($parser_code_match_arms:tt)*
-				}
-			}
-
 			fn from(event: EventsParser) -> Event {
 				match event {
 					$($parser_match_arms:tt)*
@@ -617,13 +558,6 @@ macro_rules! accumulate_events {
 						$param2: $ty2,
 						$param3: $ty3
 					},
-				}
-
-				fn code(&self) -> u16 {
-					match self {
-						$($parser_code_match_arms)*
-						EventsParser::$name { .. } => $code,
-					}
 				}
 
 				fn from(event: EventsParser) -> Event {

@@ -1,4 +1,4 @@
-use crate::communication::event::{Event, EventCode};
+use crate::communication::event::EventCode;
 use crate::communication::operation::Operation;
 use crate::object::types::{Array, ObjectFormatCode, PtpString};
 

@@ -1,5 +1,5 @@
 use crate::communication::Parameter;
-use crate::device::property_describing::{EnumerationForm, GetSet, RangeForm};
+use crate::device::property_describing::GetSet;
 use crate::object::types::{
 	Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PtpString,
 };

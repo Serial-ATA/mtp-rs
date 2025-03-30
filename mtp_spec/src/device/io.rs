@@ -9,8 +9,10 @@ use futures_core::Stream;
 
 /// I/O abstraction for MTP devices
 ///
+/// Any implementation of this trait also acts as an [`Event`] stream.
+///
 /// See [`Device`](super::Device) for a higher-level interface for sending operations.
-pub trait PtpIo {
+pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> {
 	/// Implementation-specific errors that can occur during I/O operations
 	type Error: core::error::Error;
 
@@ -26,9 +28,6 @@ pub trait PtpIo {
 	/// session IDs monotonically increasing.
 	#[must_use]
 	fn next_session_id(&mut self) -> SessionId;
-
-	/// Get the event stream for the device
-	fn event_stream(&mut self) -> impl Stream<Item = Result<Event, Self::Error>>;
 
 	/// Send the operation to the device and wait for a response
 	fn send_operation<O>(
