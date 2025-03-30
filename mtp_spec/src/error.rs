@@ -30,8 +30,12 @@ pub(crate) use err;
 #[non_exhaustive]
 pub enum MtpErrorKind {
 	/// Attempting to deserialize a [`PtpString`] containing a null byte
+	///
+	/// [`PtpString`]: crate::object::types::PtpString
 	StringContainsNull,
 	/// Attempting to parse a malformed [`DateTime`]
+	///
+	/// [`DateTime`]: crate::object::types::DateTime
 	BadDateTime(&'static str),
 	/// General serialization/deserialization errors
 	Serialization(deku::DekuError),

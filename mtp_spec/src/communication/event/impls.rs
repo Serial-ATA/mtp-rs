@@ -99,6 +99,13 @@ macro_rules! accumulate_events {
 			}
 		}
 
+		/// A notification of an event, from either party
+		///
+		/// Events differ from operations, in that they need no acknowledgement or action.
+		///
+		/// They will only ever occur in an open session.
+		///
+		/// See [`PtpIo`](crate::device::PtpIo) for information on how to poll for events.
 		#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 		#[repr(u16)]
 		pub enum Event {
@@ -615,9 +622,7 @@ define_events! {
 
 	/// A transaction has been cancelled.
 	///
-	/// It is strongly recommended to utilize USB cancelation functionality
-	/// in preference to this protocol level cancelation. When an [`Initiator`]
-	/// or [`Responder`] receives this event, it shall cancel the transaction
+	/// When an initiator or responder receives this event, it shall cancel the transaction
 	/// identified by the [`TransactionId`] in the event dataset. If the transaction
 	/// has already completed, this event shall be ignored.
 	pub struct CancelTransaction {
@@ -646,9 +651,9 @@ define_events! {
 	///
 	/// If the new store contains more than one logical store, then the first parameter shall be set
 	/// to [`StorageId::DEFAULT_STORE`] and the initiator should retrieve a new list of StorageIDs using the
-	/// [`GetStorageIDs`] operation.
+	/// [`GetStorageIds`] operation.
 	///
-	/// [`GetStorageIDs`]: crate::communication::operations::GetStorageIDs
+	/// [`GetStorageIds`]: crate::communication::operation::GetStorageIds
 	pub struct StoreAdded {
 		code: 0x4004,
 		storage_id: StorageId,
@@ -684,6 +689,8 @@ define_events! {
 	///
 	/// This may be caused by the Responder going into or out of a sleep state, or by the Responder
 	/// losing or gaining some functionality.
+	///
+	/// [`DeviceInfo`]: crate::device::info::DeviceInfo
 	pub struct DeviceInfoChanged {
 		code: 0x4008,
 	}
@@ -691,6 +698,8 @@ define_events! {
 	/// The responder asks the initiator to initiate a [`GetObject`] operation on the specified handle.
 	///
 	/// This allows for push-mode to be enabled on devices that intrinsically use pull mode.
+	///
+	/// [`GetObject`]: crate::communication::operation::GetObject
 	pub struct RequestObjectTransfer {
 		code: 0x4009,
 		object: ObjectHandle,
@@ -705,7 +714,7 @@ define_events! {
 		storage_id: StorageId,
 	}
 
-	/// The device is resettting, either manually of via the [`ResetDevice`] operation.
+	/// The device is resetting, either manually of via the [`ResetDevice`] operation.
 	///
 	/// This is an indication that the session is about to be closed. All open sessions will receive
 	/// this, except for the one that initiated the reset.
@@ -716,6 +725,8 @@ define_events! {
 	}
 
 	/// Information in the [`StorageInfo`] dataset for the specified store had changed.
+	///
+	/// [`StorageInfo`]: crate::device::storage::info::StorageInfo
 	pub struct StorageInfoChanged {
 		code: 0x400C,
 		storage_id: StorageId,
@@ -723,7 +734,7 @@ define_events! {
 
 	/// A capture session, previously initiated by the [`InitiateCapture`] operation, is complete.
 	///
-	/// [`InitiateCapture`]: crate::communication::operations::InitiateCapture
+	/// [`InitiateCapture`]: crate::communication::operation::InitiateCapture
 	pub struct CaptureComplete {
 		code: 0x400D,
 		transaction: TransactionId,

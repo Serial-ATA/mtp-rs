@@ -2,7 +2,7 @@
 //!
 //! This module contains two key traits:
 //!
-//! * [`Device`]: Convenience trait providing simple methods for sending [`operations`](crate::operation)
+//! * [`Device`]: Convenience trait providing simple methods for sending [`operations`](crate::communication::operation)
 //! * [`PtpIo`]: The backing I/O interface used by [`Device`], implemented by higher-level crates
 //!   providing transport implementations
 
@@ -39,7 +39,7 @@ pub use io::*;
 /// This is a convenience trait to perform operations on a responder without having to interact with
 /// [`operations`] directly.
 ///
-/// [`operations`]: crate::communication::operations
+/// [`operations`]: crate::communication::operation
 pub trait Device: PtpIo
 where
 	<Self as PtpIo>::Error: From<crate::error::MtpError>,

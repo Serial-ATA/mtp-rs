@@ -70,7 +70,9 @@ define_error_response! {
 }
 
 define_error_response! {
-	/// Indicates that the [TransactionID] of this operation does not identify a valid transaction.
+	/// Indicates that the [`TransactionID`] of this operation does not identify a valid transaction.
+	///
+	/// [`TransactionID`]: crate::communication::TransactionId
 	[[error("The transaction ID of this operation does not identify a valid transaction")]]
 	pub struct InvalidTransactionId {
 		code: 0x2004,
@@ -241,6 +243,9 @@ define_error_response! {
 	///
 	/// The initiator must successfully complete a SendObjectInfo operation before attempting another
 	/// SendObject operation.
+	///
+	/// [`SendObject`]: crate::communication::operation::SendObject
+	/// [`SendObjectInfo`]: crate::communication::operation::SendObjectInfo
 	[[error("No `SendObjectInfo` operation has been received")]]
 	pub struct NoValidObjectInfo {
 		code: 0x2015,
@@ -293,16 +298,18 @@ define_error_response! {
 }
 
 define_error_response! {
-	/// Malformed [`DevicePropFormat`]
-	[[error("The object is not an association")]]
+	/// Malformed [`DevicePropDesc`]
+	[[error("The device property description is malformed")]]
 	pub struct InvalidDevicePropFormat {
 		code: 0x201B,
 	}
 }
 
 define_error_response! {
-	/// Malformed [`PropertyValue`]
-	[[error("The object is not an association")]]
+	/// The device does not allow setting the specified [`PropertyValue`]
+	///
+	/// [`PropertyValue`]: crate::device::property_describing::PropertyValue
+	[[error("The device does not allow setting the specified property value")]]
 	pub struct InvalidDevicePropValue {
 		code: 0x201C,
 	}

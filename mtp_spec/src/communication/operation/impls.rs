@@ -379,6 +379,8 @@ define_operations! {
 	///
 	/// This operation is commonly the first operation called by an initiator upon
 	/// connecting to a responder for the first time.
+	///
+	/// [`DeviceInfo`]: crate::device::info::DeviceInfo
 	pub struct GetDeviceInfo {
 		code: 0x1001,
 		visible_parameters: (),
@@ -391,8 +393,10 @@ define_operations! {
 	///
 	/// Unless specified otherwise, all operations must be performed within the context of a session.
 	///
-	/// In the event that an active session already exists, a response of [`ResponseCode::SessionAlreadyOpen`]
+	/// In the event that an active session already exists, a response of [`SessionAlreadyOpen`]
 	/// will be returned.
+	///
+	/// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
 	[[session_id(false)]]
 	pub struct OpenSession {
 		code: 0x1002,
@@ -411,7 +415,9 @@ define_operations! {
 	///
 	/// All stateful information associated with the session will be discarded.
 	///
-	/// If no session is currently open, a response of [`ResponseCode::SessionNotOpen`] will be returned.
+	/// If no session is currently open, a response of [`SessionNotOpen`] will be returned.
+	///
+	/// [`SessionNotOpen`]: crate::communication::response::errors::SessionNotOpen
 	pub struct CloseSession {
 		code: 0x1003,
 		visible_parameters: (),
@@ -439,6 +445,9 @@ define_operations! {
 	}
 
 	/// Get the [`StorageInfo`] of the given [`StorageId`].
+	///
+	/// [`StorageInfo`]: crate::device::storage::info::StorageInfo
+	/// [`StorageId`]: crate::device::storage::id::StorageId
 	pub struct GetStorageInfo {
 		code: 0x1005,
 		visible_parameters: (storage: StorageId),
@@ -511,6 +520,8 @@ define_operations! {
 	}
 
 	/// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
+	///
+	/// [`ObjectInfo`]: crate::object::info::ObjectInfo
 	pub struct GetObjectInfo {
 		code: 0x1008,
 		visible_parameters: (object: ObjectHandle),

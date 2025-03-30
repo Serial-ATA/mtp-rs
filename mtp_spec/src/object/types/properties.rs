@@ -186,6 +186,8 @@ define_object_property_descriptions! {
 	/// The storage on which this object exists
 	///
 	/// This value is also available on the [`ObjectInfo`].
+	///
+	/// [`ObjectInfo`]: crate::object::info::ObjectInfo
 	pub struct StorageId {
 		properties: {
 			data_type: u32,
@@ -199,6 +201,8 @@ define_object_property_descriptions! {
 	/// The object format code describes this object
 	///
 	/// This value is also available on the [`ObjectInfo`].
+	///
+	/// [`ObjectInfo`]: crate::object::info::ObjectInfo
 	pub struct ObjectFormat {
 		properties: {
 			data_type: u16,
