@@ -1,3 +1,5 @@
+//! MTP error responses
+
 use crate::communication::SessionId;
 use crate::communication::response::impls::{MAX_PARAMETERS, define_response};
 use crate::device::storage::id::StorageId;

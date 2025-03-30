@@ -26,15 +26,17 @@ macro_rules! define_response {
 		$(#[$meta:meta])*
 		pub struct $name:ident [$($generics:tt)*][$($where_clause:tt)*] {
 			$(
-			$(#[$deku_meta:meta])*
-			data: $data:ty,
+				$(#[$deku_meta:meta])*
+				data: $data:ty,
 			)?
-			$(parameters: (
-				$(
-					$(#[$param_meta:meta])*
-					$param:ident: $ty:ty
-				),* $(,)?
-			),)?
+			$(
+				parameters: (
+					$(
+						$(#[$param_meta:meta])*
+						$param:ident: $ty:ty
+					),* $(,)?
+				),
+			)?
 		}
 	) => {
 		$(
@@ -49,9 +51,11 @@ macro_rules! define_response {
 
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
+		#[allow(missing_docs)]
 		pub struct $name $($generics)* $($where_clause)* {
 			$(
 			$(#[$deku_meta])*
+			/// The decoded data from the responder
 			pub data: $data,
 			)?
 			$(

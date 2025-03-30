@@ -5,6 +5,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 
 #[lints]
 #workspace = true
@@ -15,8 +16,8 @@ mtp_spec.workspace = true
 bitflags = "2"
 nusb = "0.1"
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "time"] }
-deku = { path = "../../../Dependencies/deku", default-features = false, features = ["alloc", "logging"] }
-log = "0.4.22"
+deku = { workspace = true, features = ["alloc", "logging"] }
+log.workspace = true
 
 [dev-dependencies]
 test-log = "0.2.16"

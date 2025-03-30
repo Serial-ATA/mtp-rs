@@ -4,12 +4,11 @@ use crate::usb::UsbDeviceFlags;
 use std::time::Duration;
 
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
-use mtp_spec::communication::operation::{DynOperation, SerializedOperation};
+use mtp_spec::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use mtp_spec::communication::response::{CODE_OK, Response, ResponseFlags, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
-use mtp_spec::device::Device;
+use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
-use mtp_spec::io::PtpIo;
 use nusb::transfer::{Queue, RequestBuffer};
 
 pub(super) struct Endpoints {
@@ -20,6 +19,9 @@ pub(super) struct Endpoints {
 	pub(super) interrupt: u8,
 }
 
+/// A handle to an open USB device
+///
+/// This implements [`Device`], which is how this should be interacted with primarily.
 pub struct DeviceHandle {
 	device: nusb::Device,
 	flags: UsbDeviceFlags,
@@ -72,7 +74,7 @@ impl PtpIo for DeviceHandle {
 		SessionId::new(1)
 	}
 
-	async fn send_operation<O>(
+	async fn __send_operation<O>(
 		&mut self,
 		operation: O,
 		data: Option<Vec<u8>>,
@@ -108,6 +110,8 @@ impl PtpIo for DeviceHandle {
 		let command_buf;
 		{
 			let op = operation.encode();
+			log::debug!("Sending operation of type: {}", op.code());
+
 			let command_container = UsbContainer::new(
 				ContainerType::Command,
 				op.code(),
@@ -128,30 +132,55 @@ impl PtpIo for DeviceHandle {
 		.await?;
 
 		// Phase 2: Data (if applicable)
-		if let Some(data) = data {
-			send(
-				data,
-				&mut self.out_queue,
-				self.endpoints.bulk_out_buffer_size,
-				self.timeout,
-			)
-			.await?;
+		//
+		// This phase may also deliver the response, see `get_data_from_responder`.
+		let mut responder_data = None;
+		let mut response = None;
+
+		match O::DATA_DIRECTION {
+			Some(DataDirection::InitiatorToResponder) => {
+				send(
+					data.expect("data should exist"),
+					&mut self.out_queue,
+					self.endpoints.bulk_out_buffer_size,
+					self.timeout,
+				)
+				.await?;
+			},
+			Some(DataDirection::ResponderToInitiator) => {
+				let phases = get_data_from_responder::<<O as DynOperation>::Response>(self).await?;
+				responder_data = Some(phases.data.payload);
+				response = phases.response;
+			},
+			// No data phase
+			_ => {},
 		}
 
-		// Phase 3: Response (includes data if the direction is responder->initiator)
-		let phases = get_response::<<O as DynOperation>::Response>(self).await?;
+		// Phase 3: Response (may have already been read above)
+		let response = match response {
+			Some(r) => r,
+			None => {
+				log::trace!("Attempting to get response");
 
-		if phases.response.code != CODE_OK {
-			let err = O::decode_err(&phases.response.payload, phases.response.code)?;
+				let response_raw = next_packet(self).await?;
+
+				let (_, response_container) =
+					UsbContainer::from_bytes((&response_raw, 0)).map_err(MtpError::from)?;
+				response_container
+			},
+		};
+
+		if response.code != CODE_OK {
+			let err = O::decode_err(&response.payload, response.code)?;
 			return Ok(Response::Err(err));
 		}
 
-		match phases.data {
+		match responder_data {
 			Some(data) => {
-				let data = O::decode_data(&data.payload)?;
+				let data = O::decode_data(&data)?;
 				Ok(Response::Ok(SuccessResponse {
 					data,
-					transaction_id: phases.response.transaction_id,
+					transaction_id: response.transaction_id,
 				}))
 			},
 			None => {
@@ -160,7 +189,7 @@ impl PtpIo for DeviceHandle {
 				let data = O::decode_data(&[])?;
 				Ok(Response::Ok(SuccessResponse {
 					data,
-					transaction_id: phases.response.transaction_id,
+					transaction_id: response.transaction_id,
 				}))
 			},
 		}
@@ -208,14 +237,18 @@ impl UsbContainer {
 }
 
 struct Phases {
-	data: Option<UsbContainer>,
-	response: UsbContainer,
+	data: UsbContainer,
+	response: Option<UsbContainer>,
 }
 
-async fn get_response<T: ResponseFlags>(
+async fn get_data_from_responder<T: ResponseFlags>(
 	handle: &mut DeviceHandle,
 ) -> Result<Phases, crate::error::MtpError> {
-	let next_phase = next_packet(handle).await?;
+	log::trace!("Attempting to get data from responder");
+
+	let next_phase_raw = next_packet(handle).await?;
+	let (_, mut next_phase) =
+		UsbContainer::from_bytes((&next_phase_raw, 0)).map_err(MtpError::from)?;
 
 	// From the MTP 1.1 spec appendix: Splitting the Header and Data during the Data Phase
 	//
@@ -231,11 +264,12 @@ async fn get_response<T: ResponseFlags>(
 		&& next_phase.payload.is_empty()
 		&& next_phase.type_ == ContainerType::Response
 	{
-		let data_container = next_packet(handle).await?;
+		let next_phase_raw = next_packet(handle).await?;
+		let (_, data) = UsbContainer::from_bytes((&next_phase_raw, 0)).map_err(MtpError::from)?;
 
 		return Ok(Phases {
-			data: Some(data_container),
-			response: next_phase,
+			data,
+			response: Some(next_phase),
 		});
 	}
 
@@ -245,19 +279,41 @@ async fn get_response<T: ResponseFlags>(
 		}
 
 		return Ok(Phases {
-			data: None,
-			response: next_phase,
+			data: todo!(),
+			response: Some(next_phase),
 		});
 	}
 
-	let response = next_packet(handle).await?;
+	// Device is buffering the data
+	let len_without_header = next_phase.length - USB_CONTAINER_HEADER_SIZE;
+	if len_without_header > next_phase.payload.len() as u32 {
+		let mut remaining = len_without_header - next_phase.payload.len() as u32;
+
+		log::trace!(
+			"Device is buffering the data, received {}/{} bytes",
+			next_phase.payload.len(),
+			len_without_header
+		);
+
+		while remaining > 0 {
+			let data = next_packet(handle).await?;
+			let Some(r) = remaining.checked_sub(data.len() as u32) else {
+				todo!("Error, device sent too much data");
+			};
+			remaining = r;
+
+			// Grow the first packet
+			next_phase.payload.extend(data);
+		}
+	}
+
 	Ok(Phases {
-		data: Some(next_phase),
-		response,
+		data: next_phase,
+		response: None,
 	})
 }
 
-async fn next_packet(handle: &mut DeviceHandle) -> Result<UsbContainer, crate::error::MtpError> {
+async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error::MtpError> {
 	let pending = handle.in_queue.pending();
 	for _ in 0..(2usize.saturating_sub(pending)) {
 		handle
@@ -265,9 +321,9 @@ async fn next_packet(handle: &mut DeviceHandle) -> Result<UsbContainer, crate::e
 			.submit(RequestBuffer::new(handle.endpoints.bulk_in_buffer_size));
 	}
 
+	log::trace!("Waiting for next packet");
 	let completion = tokio::time::timeout(handle.timeout, handle.in_queue.next_complete()).await?;
 	completion.status.map_err(UsbError::from)?;
 
-	let (_, container) = UsbContainer::from_bytes((&completion.data, 0)).map_err(MtpError::from)?;
-	Ok(container)
+	Ok(completion.data)
 }

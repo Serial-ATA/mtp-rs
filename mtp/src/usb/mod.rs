@@ -15,6 +15,9 @@ static WELL_KNOWN_DEVICE_DESCRIPTORS: LazyLock<HashSet<UsbDeviceDescriptor>> =
 	LazyLock::new(|| HashSet::from_iter(include!("../../generated/devices.rs")));
 
 bitflags! {
+	/// Flags indicating the bugs/unexpected behaviors of MTP devices
+	///
+	/// These flags match device flags of `libmtp` here: <https://sourceforge.net/p/libmtp/code/ci/master/tree/src/device-flags.h>
 	#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 	pub struct UsbDeviceFlags: u32 {
 		const BROKEN_MTP_GET_OBJECT_PROP_LIST_ALL = 0b0000_0001;
@@ -27,11 +30,15 @@ bitflags! {
 		const ALWAYS_PROBE_DESCRIPTOR = 0b1000_0000;
 		const CANNOT_HANDLE_DATEMODIFIED = 0b0001_0000_0000;
 		const OGG_IS_UNKNOWN = 0b0010_0000_0000;
+		/// The playlist format is the Samsung SPL format v1.00, rather than a proper MTP playlist.
 		const PLAYLIST_SPL_V1 = 0b0100_0000_0000;
 		const NO_ZERO_READS = 0b1000_0000_0000;
+		/// The playlist format is the Samsung SPL format v2.00, rather than a proper MTP playlist.
 		const PLAYLIST_SPL_V2 = 0b0001_0000_0000_0000;
+		/// The device needs unique filenames, no two files can be named the same string.
 		const UNIQUE_FILENAMES = 0b0010_0000_0000_0000;
 		const BROKEN_BATTERY_LEVEL = 0b0100_0000_0000_0000;
+		/// The device may need additional time to respond, extend its timeout
 		const LONG_TIMEOUT = 0b1000_0000_0000_0000;
 		const PROPLIST_OVERRIDES_OI = 0b0001_0000_0000_0000_0000;
 		const SAMSUNG_OFFSET_BUG = 0b0010_0000_0000_0000_0000;
@@ -51,10 +58,15 @@ bitflags! {
 /// This struct is used to identify MTP eligible devices.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct UsbDeviceDescriptor {
+	/// A human-readable name for the vendor
 	pub vendor: &'static str,
+	/// The USB vendor ID, specified in the `idVendor` field of the device descriptor.
 	pub vendor_id: u16,
+	/// A human-readable name for the device
 	pub product: &'static str,
+	/// The USB product ID, specified in the `idProduct` field of the device descriptor.
 	pub product_id: u16,
+	/// Flags indicating problematic behavior of the device
 	pub flags: UsbDeviceFlags,
 }
 

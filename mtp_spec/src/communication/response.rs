@@ -1,7 +1,6 @@
-mod error_impls;
+pub mod errors;
 mod impls;
 
-pub use error_impls::*;
 pub use impls::*;
 
 use crate::communication::TransactionId;
@@ -10,8 +9,10 @@ use crate::communication::operation::DynOperation;
 use core::error::Error;
 use core::fmt::{self, Debug, Display};
 
+/// The response code for a successful operation
 pub const CODE_OK: u16 = 0x2001;
 
+/// All error response codes
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u16)]
 pub enum ErrorCode {
@@ -320,21 +321,32 @@ impl Display for ErrorCode {
 	}
 }
 
+/// The result of a successful or failed operation
+///
+/// See [`SuccessResponse`] and [`ErrorResponse`]
 pub type Response<O: DynOperation> =
 	Result<SuccessResponse<<O as DynOperation>::Response>, <O as DynOperation>::Error>;
 
+/// The result of a successful operation
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SuccessResponse<T>
 where
 	T: Clone + Debug + Eq + PartialEq,
 {
+	/// The data returned by the responder
 	pub data: T,
+	/// The transaction ID of the operation
 	pub transaction_id: TransactionId,
 }
 
+/// The result of a failed operation
+///
+/// This includes the transaction ID of the operation that failed
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ErrorResponse {
+	/// The error code returned by the responder
 	pub code: ErrorCode,
+	/// The transaction ID of the operation that failed
 	pub transaction_id: TransactionId,
 }
 

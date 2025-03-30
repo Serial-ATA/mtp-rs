@@ -10,6 +10,13 @@ authors = ["Serial <69764315+Serial-ATA@users.noreply.github.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Serial-ATA/mtp-rs"
+readme = "README.md"
+
+[workspace.dependencies]
+mtp_spec = { path = "mtp_spec" }
+
+deku = { git = "https://github.com/Serial-ATA/deku.git", branch = "misc", default-features = false }
+log = "0.4.27"
 
 [workspace.lints.rust]
 missing_docs = "deny"
@@ -59,6 +66,3 @@ struct_excessive_bools = "allow" # I have yet to find one case of this being use
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
-
-[workspace.dependencies]
-mtp_spec = { path = "mtp_spec" }

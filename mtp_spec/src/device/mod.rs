@@ -1,27 +1,38 @@
-use super::io::PtpIo;
+//! Abstractions over MTP responder devices
+//!
+//! This module contains two key traits:
+//!
+//! * [`Device`]: Convenience trait providing simple methods for sending [`operations`](crate::operation)
+//! * [`PtpIo`]: The backing I/O interface used by [`Device`], implemented by higher-level crates
+//!   providing transport implementations
+
 use crate::communication::operation::{
 	CloseSession, CopyObject, DeleteObject, DevicePropCode, FormatStore, GetDeviceInfo,
-	GetDevicePropDesc, GetDevicePropValue, GetNumObjects, GetObject, GetObjectHandles,
-	GetObjectInfo, GetObjectPropDesc, GetObjectPropValue, GetObjectPropsSupported,
-	GetPartialObject, GetStorageIDs, GetStorageInfo, GetThumb, InitiateCapture,
-	InitiateOpenCapture, MoveObject, OpenSession, PowerDown, ResetDevice, ResetDevicePropValue,
-	SelfTest, SelfTestType, SendObject, SendObjectInfo, SetDevicePropValue, SetObjectProtection,
-	TerminateOpenCapture,
+	GetDevicePropDesc, GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject,
+	GetObjectHandles, GetObjectInfo, GetObjectPropDesc, GetObjectPropList, GetObjectPropValue,
+	GetObjectPropsSupported, GetObjectReferences, GetPartialObject, GetStorageIDs, GetStorageInfo,
+	GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject, OpenSession, PowerDown,
+	ResetDevice, ResetDevicePropValue, SelfTest, SelfTestType, SendObject, SendObjectInfo,
+	SendObjectPropList, SetDevicePropValue, SetObjectPropList, SetObjectPropValue,
+	SetObjectProtection, SetObjectReferences, Skip, TerminateOpenCapture,
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 use crate::device::storage::id::StorageId;
-use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::{ObjectFormatCode, ObjectHandle};
-
 use crate::device::storage::info::FilesystemType;
+use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
+use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
+
 use alloc::vec::Vec;
 use deku::DekuContainerWrite;
 
 pub mod info;
 pub mod property_describing;
 pub mod storage;
+
+mod io;
+pub use io::*;
 
 /// An MTP responder device
 ///
@@ -369,13 +380,13 @@ where
 		&mut self,
 		session_id: SessionId,
 		code: DevicePropCode,
-		value: Vec<u8>, // TODO
+		value: Vec<u8>,
 	) -> impl Future<Output = Result<Response<SetDevicePropValue>, <Self as PtpIo>::Error>> {
 		async move {
 			let transaction_id = self.next_transaction_id();
 			self.send_operation(
 				SetDevicePropValue::new(transaction_id, session_id, code),
-				None,
+				Some(value),
 			)
 			.await
 		}
@@ -404,9 +415,9 @@ where
 		transaction_id: TransactionId,
 	) -> impl Future<Output = Result<Response<TerminateOpenCapture>, <Self as PtpIo>::Error>> {
 		async move {
-			let transaction_id = self.next_transaction_id();
+			let next_transaction_id = self.next_transaction_id();
 			self.send_operation(
-				TerminateOpenCapture::new(transaction_id, session_id, transaction_id),
+				TerminateOpenCapture::new(next_transaction_id, session_id, transaction_id),
 				None,
 			)
 			.await
@@ -519,23 +530,186 @@ where
 		}
 	}
 
-	// TODO
-	// /// Send a [`GetObjectPropValue`] operation
-	// fn get_object_prop_value<T>(
-	// 	&mut self,
-	// 	session_id: SessionId,
-	// 	object: ObjectHandle,
-	// ) -> impl Future<Output = Result<Response<GetObjectPropValue<T>>, <Self as PtpIo>::Error>>
-	// where
-	// 	T: ObjectProperty,
-	// {
-	// 	async move {
-	// 		let transaction_id = self.next_transaction_id();
-	// 		self.send_operation(
-	// 			GetObjectPropValue::<T>::new(transaction_id, session_id, object, T::CODE),
-	// 			None,
-	// 		)
-	// 		.await
-	// 	}
-	// }
+	/// Send a [`GetObjectPropValue`] operation
+	fn get_object_prop_value<T>(
+		&mut self,
+		session_id: SessionId,
+		object: ObjectHandle,
+	) -> impl Future<Output = Result<Response<GetObjectPropValue<T>>, <Self as PtpIo>::Error>>
+	where
+		T: ObjectProperty,
+	{
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				GetObjectPropValue::<T>::new(transaction_id, session_id, object),
+				None,
+			)
+			.await
+		}
+	}
+
+	/// Send a [`SetObjectPropValue`] operation
+	fn set_object_prop_value<T>(
+		&mut self,
+		session_id: SessionId,
+		object: ObjectHandle,
+	) -> impl Future<Output = Result<Response<SetObjectPropValue<T>>, <Self as PtpIo>::Error>>
+	where
+		T: ObjectProperty,
+	{
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				SetObjectPropValue::<T>::new(transaction_id, session_id, object),
+				None,
+			)
+			.await
+		}
+	}
+
+	/// Send a [`GetObjectReferences`] operation
+	fn get_object_references(
+		&mut self,
+		session_id: SessionId,
+		object: ObjectHandle,
+	) -> impl Future<Output = Result<Response<GetObjectReferences>, <Self as PtpIo>::Error>> {
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				GetObjectReferences::new(transaction_id, session_id, object),
+				None,
+			)
+			.await
+		}
+	}
+
+	/// Send a [`SetObjectReferences`] operation
+	fn set_object_references(
+		&mut self,
+		session_id: SessionId,
+		object: ObjectHandle,
+		references: Array<ObjectHandle>,
+	) -> impl Future<Output = Result<Response<SetObjectReferences>, <Self as PtpIo>::Error>> {
+		async move {
+			let encoded_references = references
+				.to_bytes()
+				.map_err(Into::<crate::error::MtpError>::into)?;
+
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				SetObjectReferences::new(transaction_id, session_id, object),
+				Some(encoded_references),
+			)
+			.await
+		}
+	}
+
+	/// Send a [`Skip`] operation
+	fn skip(
+		&mut self,
+		session_id: SessionId,
+		skip: u32,
+	) -> impl Future<Output = Result<Response<Skip>, <Self as PtpIo>::Error>> {
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(Skip::new(transaction_id, session_id, skip), None)
+				.await
+		}
+	}
+
+	// == Enhanced Operations ==
+	//
+	// Defined in Appendix E
+
+	/// Send a [`GetObjectPropList`] operation
+	fn get_object_prop_list(
+		&mut self,
+		session_id: SessionId,
+		object: ObjectHandle,
+		format: Option<ObjectFormatCode>,
+		property: ObjectPropertyCode,
+		group: Option<u32>,
+		depth: Option<u32>,
+	) -> impl Future<Output = Result<Response<GetObjectPropList>, <Self as PtpIo>::Error>> {
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				GetObjectPropList::new(
+					transaction_id,
+					session_id,
+					object,
+					format,
+					property,
+					group.unwrap_or(0),
+					depth.unwrap_or(0),
+				),
+				None,
+			)
+			.await
+		}
+	}
+
+	/// Send a [`SetObjectPropList`] operation
+	fn set_object_prop_list(
+		&mut self,
+		session_id: SessionId,
+		props: Vec<u8>, // TODO: Actually define the ObjectPropList
+	) -> impl Future<Output = Result<Response<SetObjectPropList>, <Self as PtpIo>::Error>> {
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				SetObjectPropList::new(transaction_id, session_id),
+				Some(props),
+			)
+			.await
+		}
+	}
+
+	/// Send a [`GetInterdependentPropDesc`] operation
+	fn get_interdependent_prop_desc(
+		&mut self,
+		session_id: SessionId,
+		format: ObjectFormatCode,
+	) -> impl Future<Output = Result<Response<GetInterdependentPropDesc>, <Self as PtpIo>::Error>>
+	{
+		async move {
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				GetInterdependentPropDesc::new(transaction_id, session_id, format),
+				None,
+			)
+			.await
+		}
+	}
+
+	/// Send a [`SendObjectPropList`] operation
+	fn send_object_prop_list(
+		&mut self,
+		session_id: SessionId,
+		destination: Option<StorageId>,
+		parent: Option<ObjectHandle>,
+		format: ObjectFormatCode,
+		size: u64,
+	) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> {
+		async move {
+			let high = (size >> 32) as u32;
+			let low = size as u32;
+
+			let transaction_id = self.next_transaction_id();
+			self.send_operation(
+				SendObjectPropList::new(
+					transaction_id,
+					session_id,
+					destination,
+					parent,
+					format,
+					high,
+					low,
+				),
+				None,
+			)
+			.await
+		}
+	}
 }

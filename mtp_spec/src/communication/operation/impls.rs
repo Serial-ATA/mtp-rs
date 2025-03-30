@@ -7,6 +7,19 @@ use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
 use deku::{DekuRead, DekuWrite};
 
+/// The direction in which data is transferred in an operation
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DataDirection {
+	/// The responder sends data to the initiator
+	///
+	/// This is the most common direction
+	ResponderToInitiator,
+	/// The initiator sends data to the responder
+	///
+	/// This is used for setter operations
+	InitiatorToResponder,
+}
+
 const fn counter<const N: usize>(_: [(); N]) -> usize {
 	N
 }
@@ -38,6 +51,7 @@ macro_rules! parse_operations {
 			$($variants:tt)*
 		}
 	]) => {
+		/// All operation codes
 		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, DekuRead, DekuWrite)]
 		#[repr(u16)]
 		#[deku(
@@ -75,6 +89,7 @@ macro_rules! parse_operations {
 					),* $(,)?
 				),
 			)?
+			data_direction: $data_direction:expr,
 			response: $response:ty,
 			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 		}
@@ -106,7 +121,7 @@ macro_rules! parse_operations {
 		NAME_WITH_GENERIC: [$name],
 		WHERE_CLAUSE: [],
 
-		$code, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
+		$code, $data_direction, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
 		);
 	};
 
@@ -134,6 +149,7 @@ macro_rules! parse_operations {
 					),* $(,)?
 				),
 			)?
+			data_direction: $data_direction:expr,
 			response: $response:ty,
 			valid_error_codes: [$($error:ident),* $(,)?] $(,)?
 		}
@@ -170,7 +186,7 @@ macro_rules! parse_operations {
 		NAME_WITH_GENERIC: [$name<T>],
 		WHERE_CLAUSE: [where T: $($where_clause)*],
 
-		$code, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
+		$code, $data_direction, $response, visible_parameters: ($($param),*), valid_error_codes: [$($error),*] $($rest)*
 		);
 	};
 
@@ -187,6 +203,7 @@ macro_rules! parse_operations {
 		NAME_WITH_GENERIC: [$($name_with_generic:tt)*],
 		WHERE_CLAUSE: [$($where_clause:tt)*],
 		$code:literal,
+		$data_direction:expr,
 		$response:ty,
 		visible_parameters: ($($param:ident),*),
 		valid_error_codes: [$($error:ident),*]
@@ -215,6 +232,8 @@ macro_rules! parse_operations {
 
 		paste::paste! {
 			impl<$($generic)*> $crate::communication::operation::DynOperation for $($name_with_generic)* $($where_clause)* {
+				const DATA_DIRECTION: Option<DataDirection> = $data_direction;
+
 				type Response = $response;
 				type Error = [<$name Error>];
 			}
@@ -223,12 +242,13 @@ macro_rules! parse_operations {
 		paste::paste! {
 			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
 			#[derive(Debug, deku::DekuRead)]
-			#[deku(ctx = "error_code: u16", id = "error_code")]
+			#[deku(ctx = "error_code: u16", id = "error_code", id_endian = "big")]
+			#[allow(missing_docs)]
 			pub enum [<$name Error>] {
 				$(
 				// TODO: Ask if this should be supported
-				#[deku(id = crate::communication::response::$error::CODE)]
-				$error($crate::communication::response::$error)
+				#[deku(id = crate::communication::response::errors::$error::CODE)]
+				$error($crate::communication::response::errors::$error)
 				),*
 			}
 
@@ -362,6 +382,7 @@ define_operations! {
 	pub struct GetDeviceInfo {
 		code: 0x1001,
 		visible_parameters: (),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetDeviceInfo,
 		valid_error_codes: [ParameterNotSupported]
 	}
@@ -376,6 +397,7 @@ define_operations! {
 	pub struct OpenSession {
 		code: 0x1002,
 		visible_parameters: (session_id: SessionId),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			ParameterNotSupported,
@@ -393,6 +415,7 @@ define_operations! {
 	pub struct CloseSession {
 		code: 0x1003,
 		visible_parameters: (),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -405,6 +428,7 @@ define_operations! {
 	pub struct GetStorageIDs {
 		code: 0x1004,
 		visible_parameters: (),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetStorageIDs,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -418,6 +442,7 @@ define_operations! {
 	pub struct GetStorageInfo {
 		code: 0x1005,
 		visible_parameters: (storage: StorageId),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetStorageInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -440,6 +465,7 @@ define_operations! {
 			@DEFAULT(ObjectHandle::from(0))
 			parent: Option<ObjectHandle>
 		),
+		data_direction: None,
 		response: response::GetNumObjects,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -467,6 +493,7 @@ define_operations! {
 			@DEFAULT(ObjectHandle::from(0))
 			object: Option<ObjectHandle>
 		),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectHandles,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -487,6 +514,7 @@ define_operations! {
 	pub struct GetObjectInfo {
 		code: 0x1008,
 		visible_parameters: (object: ObjectHandle),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -502,6 +530,7 @@ define_operations! {
 	pub struct GetObject {
 		code: 0x1009,
 		visible_parameters: (object: ObjectHandle),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -520,6 +549,7 @@ define_operations! {
 	pub struct GetThumb {
 		code: 0x100a,
 		visible_parameters: (object: ObjectHandle),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetThumb,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -537,6 +567,7 @@ define_operations! {
 	pub struct DeleteObject {
 		code: 0x100b,
 		visible_parameters: (object: ObjectHandle, format: ObjectFormatCode),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -565,6 +596,7 @@ define_operations! {
 			@DEFAULT(ObjectHandle::from(0))
 			parent: Option<ObjectHandle>
 		),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SendObjectInfo,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -588,6 +620,7 @@ define_operations! {
 	pub struct SendObject {
 		code: 0x100d,
 		visible_parameters: (),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SendObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -615,6 +648,7 @@ define_operations! {
 			@DEFAULT(ObjectFormatCode::Unknown(0))
 			format: Option<ObjectFormatCode>
 		),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -640,6 +674,7 @@ define_operations! {
 			storage: StorageId,
 			fs: FilesystemType
 		),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -658,6 +693,7 @@ define_operations! {
 	pub struct ResetDevice {
 		code: 0x1010,
 		visible_parameters: (),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -673,6 +709,7 @@ define_operations! {
 	pub struct SelfTest {
 		code: 0x1011,
 		visible_parameters: (test_type: SelfTestType),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -686,6 +723,7 @@ define_operations! {
 	pub struct SetObjectProtection {
 		code: 0x1012,
 		visible_parameters: (object: ObjectHandle, status: ProtectionStatus),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -704,6 +742,7 @@ define_operations! {
 	pub struct PowerDown {
 		code: 0x1013,
 		visible_parameters: (),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -718,6 +757,7 @@ define_operations! {
 	pub struct GetDevicePropDesc {
 		code: 0x1014,
 		visible_parameters: (code: DevicePropCode),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetDevicePropDesc,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -737,6 +777,7 @@ define_operations! {
 	pub struct GetDevicePropValue {
 		code: 0x1015,
 		visible_parameters: (code: DevicePropCode),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetDevicePropValue,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -753,6 +794,7 @@ define_operations! {
 	pub struct SetDevicePropValue {
 		code: 0x1016,
 		visible_parameters: (code: DevicePropCode),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SetDevicePropValue,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -771,6 +813,7 @@ define_operations! {
 	pub struct ResetDevicePropValue {
 		code: 0x1017,
 		visible_parameters: (code: DevicePropCode),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -787,6 +830,7 @@ define_operations! {
 	pub struct TerminateOpenCapture {
 		code: 0x1018,
 		visible_parameters: (transaction: TransactionId),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -809,6 +853,7 @@ define_operations! {
 			@DEFAULT(ObjectHandle::NONE)
 			parent: Option<ObjectHandle>
 		),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -837,6 +882,7 @@ define_operations! {
 			@DEFAULT(ObjectHandle::NONE)
 			parent: Option<ObjectHandle>
 		),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -858,6 +904,7 @@ define_operations! {
 	pub struct GetPartialObject {
 		code: 0x101B,
 		visible_parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetPartialObject,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -886,6 +933,7 @@ define_operations! {
 			@DEFAULT(ObjectFormatCode::Unknown(0))
 			format: Option<ObjectFormatCode>
 		),
+		data_direction: None,
 		response: response::Empty,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -907,6 +955,7 @@ define_operations! {
 	pub struct GetObjectPropsSupported {
 		code: 0x9801,
 		visible_parameters: (format: ObjectFormatCode),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectPropsSupported,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -926,6 +975,7 @@ define_operations! {
 		code: 0x9802,
 		visible_parameters: (format: ObjectFormatCode),
 		operation_parameters: (format, Parameter::new(T::CODE as u32)),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectPropDesc<T>,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -939,9 +989,13 @@ define_operations! {
 	}
 
 	/// Get the value for the given object property code
-	pub struct GetObjectPropValue {
+	pub partial struct GetObjectPropValue<T>
+		where T: [ObjectProperty]
+	{
 		code: 0x9803,
-		visible_parameters: (object: ObjectHandle, code: ObjectPropertyCode),
+		visible_parameters: (object: ObjectHandle),
+		operation_parameters: (object, Parameter::new(T::CODE as u32)),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectPropValue,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -954,9 +1008,13 @@ define_operations! {
 	}
 
 	/// Set the value for the given object property code
-	pub struct SetObjectPropValue {
+	pub partial struct SetObjectPropValue<T>
+		where T: [ObjectProperty]
+	{
 		code: 0x9804,
-		visible_parameters: (object: ObjectHandle, code: ObjectPropertyCode),
+		visible_parameters: (object: ObjectHandle),
+		operation_parameters: (object, Parameter::new(T::CODE as u32)),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SetObjectPropValue,
 		valid_error_codes: [
 			SessionNotOpen,
@@ -974,6 +1032,7 @@ define_operations! {
 	pub struct GetObjectReferences {
 		code: 0x9810,
 		visible_parameters: (object: ObjectHandle),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -984,11 +1043,11 @@ define_operations! {
 		]
 	}
 
-	// TODO: data on operation
 	/// Replace the references on an object
 	pub struct SetObjectReferences {
 		code: 0x9811,
 		visible_parameters: (object: ObjectHandle),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1004,7 +1063,6 @@ define_operations! {
 		]
 	}
 
-	// TODO: bad newtypes
 	/// Update the playback of the current object
 	///
 	/// The `skip` determines the depth and direction into the playback queue. Meaning a value of 1
@@ -1013,6 +1071,7 @@ define_operations! {
 	pub struct Skip {
 		code: 0x9820,
 		visible_parameters: (@RAW(true) skip: u32),
+		data_direction: None,
 		response: response::SetObjectReferences,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1033,14 +1092,30 @@ define_operations! {
 	// Defined in Appendix E
 
 	// TODO: Optional parameters
-	// TODO: group and depth
 	/// Get a list containing all specified object properties
 	///
 	/// This is a more optimized way of accessing object properties without needing to individually
 	/// query each {object, property} pair.
+	///
+	/// NOTES:
+	///
+	/// * The `format` can be specified to limit the response to only the properties of objects
+	///   of the given format. If unspecified, the response will contain the properties of all
+	///   formats.
+	/// * The `depth` can be specified to limit the query to objects at a certain level of a folder
+	///   hierarchy. If unspecified, the response will contain the properties of objects only at the
+	///   top level.
 	pub struct GetObjectPropList {
 		code: 0x9805,
-		visible_parameters: (object: ObjectHandle, format: ObjectFormatCode, prop: ObjectPropertyCode),
+		visible_parameters: (
+			object: ObjectHandle,
+			@DEFAULT(ObjectFormatCode::from(0))
+			format: Option<ObjectFormatCode>,
+			prop: ObjectPropertyCode,
+			@RAW(true) group: u32,
+			@RAW(true) depth: u32,
+		),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1065,6 +1140,7 @@ define_operations! {
 	pub struct SetObjectPropList {
 		code: 0x9806,
 		visible_parameters: (),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SetObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1084,6 +1160,7 @@ define_operations! {
 	pub struct GetInterdependentPropDesc {
 		code: 0x9807,
 		visible_parameters: (format: ObjectFormatCode),
+		data_direction: Some(DataDirection::ResponderToInitiator),
 		response: response::GetInterdependentPropDesc,
 		valid_error_codes: [
 			OperationNotSupported,
@@ -1094,11 +1171,31 @@ define_operations! {
 		]
 	}
 
-	// TODO: Optional parameters
-	// TODO: object size
+	/// Send a modified [`ObjectPropList`] to the responder
+	///
+	/// This is to be used before a [`SendObject`] operation, to inform the responder of the properties
+	/// of the objects to come.
+	///
+	/// An `OK` response indicates that the responder can handle the intended object, and is ready
+	/// for a [`SendObject`] operation.
+	///
+	/// NOTES:
+	///
+	/// * If `destination` is unspecified, the responder will determine the store to palce it in.
+	/// * If `parent` is specified, `destination` **must** also be specified. If it is unspecified,
+	///   the responder will determine the store to place it in.
 	pub struct SendObjectPropList {
 		code: 0x9808,
-		visible_parameters: (destination: StorageId, parent: ObjectHandle, format: ObjectFormatCode),
+		visible_parameters: (
+			@DEFAULT(StorageId::from(0))
+			destination: Option<StorageId>,
+			@DEFAULT(ObjectHandle::from(0))
+			parent: Option<ObjectHandle>,
+			format: ObjectFormatCode,
+			@RAW(true) size_high: u32,
+			@RAW(true) size_low: u32
+		),
+		data_direction: Some(DataDirection::InitiatorToResponder),
 		response: response::SendObjectPropList,
 		valid_error_codes: [
 			OperationNotSupported,

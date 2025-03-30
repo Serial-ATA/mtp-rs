@@ -25,6 +25,7 @@ use deku::{DekuError, DekuReader, DekuWriter};
 ///
 /// It can optionally have `Z` appended to the end to indicate UTC, or `+/-hhmm` to indicate a timezone offset.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[allow(missing_docs)]
 pub struct DateTime {
 	pub year: u16,
 	pub month: Option<u8>,

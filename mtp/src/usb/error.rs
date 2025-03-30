@@ -1,10 +1,16 @@
+//! Error types for USB transport
+
 use core::error::Error;
 use core::fmt::Display;
 
+/// Errors that can occur during USB transport
 #[derive(Debug)]
 pub enum UsbError {
+	/// No applicable interfaces were found on the USB device
 	NoApplicableInterface,
+	/// OS I/O errors
 	Native(nusb::Error),
+	/// An error occurred during a USB transfer
 	Transfer(nusb::transfer::TransferError),
 }
 

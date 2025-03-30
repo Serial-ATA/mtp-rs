@@ -7,6 +7,7 @@ pub use nusb;
 use nusb::descriptors::language_id::US_ENGLISH;
 use nusb::transfer::{Direction, EndpointType};
 
+/// An un-opened potentially MTP-capable device
 #[derive(Clone)]
 pub struct Device {
 	info: nusb::DeviceInfo,
@@ -16,7 +17,9 @@ pub struct Device {
 
 impl Debug for Device {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Device").field("info", &self.info).finish()
+		f.debug_struct("Device")
+			.field("info", &self.info)
+			.finish_non_exhaustive()
 	}
 }
 
@@ -31,6 +34,13 @@ impl From<nusb::DeviceInfo> for Device {
 }
 
 impl Device {
+	/// Attempt to open the device for MTP communication
+	///
+	/// # Errors
+	///
+	/// * Unable to open the device
+	/// * The device has no applicable interfaces
+	#[allow(clippy::missing_panics_doc)] // Not possible
 	pub fn open(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
 		// MTP has 3 endpoints: 2 bulk, 1 interrupt
 		const MTP_ENDPOINT_COUNT: u8 = 3;
@@ -185,8 +195,8 @@ impl Device {
 /// # Errors
 ///
 /// See [`nusb::list_devices`].
-pub fn device_list(
-) -> Result<impl Iterator<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
+pub fn device_list()
+-> Result<impl Iterator<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
 	Ok(nusb::list_devices()?.filter_map(|info| {
 		let mut device = Device::from(info);
 		match device.check_mtp_eligibility() {

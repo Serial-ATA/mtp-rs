@@ -1,14 +1,21 @@
+//! Error types for MTP communication
+
 use core::error::Error;
 use core::fmt::Display;
 
 /// A specialized `Result` type for MTP operations.
 pub type Result<T> = core::result::Result<T, MtpError>;
 
+/// Errors that can occur during MTP operations
 #[derive(Debug)]
 pub enum MtpError {
+	/// Errors during USB transport
 	Usb(crate::usb::error::UsbError),
+	/// Any I/O errors
 	Io(std::io::Error),
+	/// A USB operation timed out
 	Timeout,
+	/// Any low-level protocol errors from [`mtp_spec`]
 	Core(mtp_spec::error::MtpError),
 }
 

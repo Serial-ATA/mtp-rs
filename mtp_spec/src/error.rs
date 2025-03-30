@@ -1,3 +1,5 @@
+//! Errors that can occur during MTP operations
+
 use core::fmt::{Debug, Display};
 
 /// A specialized `Result` type for MTP operations.

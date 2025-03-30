@@ -3,7 +3,7 @@ use crate::object::types::{Array, PtpString};
 use alloc::format;
 use alloc::vec::Vec;
 
-use deku::{deku_derive, DekuRead, DekuWrite};
+use deku::{DekuRead, DekuWrite, deku_derive};
 
 // TODO: Ask if this is necessary
 /// Wrapper around a [`PropertyValue`], used for standalone decoding

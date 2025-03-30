@@ -1,6 +1,6 @@
-use crate::error::{MtpError, Result, err};
-use alloc::borrow::Cow;
+use crate::error::{MtpError, err};
 
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{format, vec};
@@ -65,6 +65,9 @@ impl TryFrom<String> for PtpString {
 }
 
 impl PtpString {
+	/// The maximum length of a `PtpString`, including the null-terminator.
+	///
+	/// This is in characters, not bytes.
 	pub const MAX_LENGTH: usize = 255;
 
 	/// Returns the length of the string in UTF-16 characters.
@@ -107,15 +110,29 @@ impl PtpString {
 		self.0.is_empty()
 	}
 
-	pub fn as_bytes(&self) -> Result<Vec<u8>> {
-		// §3.2.3: "It should be noted that strings with embedded nulls are not permitted."
-		if self.0.contains(&0x00) {
-			err!(StringContainsNull);
-		}
-
+	/// Convert the `PtpString` into bytes, for transport
+	///
+	/// # Examples
+	///
+	/// ```rust
+	/// use mtp_spec::object::types::PtpString;
+	///
+	/// let message = String::from("Hello, world!");
+	/// let ptp_string = PtpString::try_from(message.clone()).unwrap();
+	///
+	/// let bytes = ptp_string.as_bytes();
+	///
+	/// // A `PtpString` is just a null-terminated UTF-16 string
+	/// let mut expected_bytes = message.encode_utf16().collect::<Vec<_>>();
+	/// expected_bytes.extend_from_slice(&[0, 0]);
+	///
+	/// assert_eq!(bytes, expected_bytes);
+	/// ```
+	#[allow(clippy::missing_panics_doc)]
+	pub fn as_bytes(&self) -> Vec<u8> {
 		// §3.2.3: "An empty string is represented by a single 8-bit integer containing a value of 0x00"
 		if self.0.is_empty() {
-			return Ok(vec![0x00]);
+			return vec![0x00];
 		}
 
 		// §3.2.3: "Strings are limited to 255 characters, including the terminating null character."
@@ -130,7 +147,7 @@ impl PtpString {
 
 		ret.extend_from_slice(&[0x00, 0x00]);
 
-		Ok(ret)
+		ret
 	}
 }
 

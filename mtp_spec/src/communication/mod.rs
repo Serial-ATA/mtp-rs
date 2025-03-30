@@ -1,3 +1,13 @@
+//! Device-to-Device communication primitives
+//!
+//! This module contains the primitives used for encoding and decoding MTP operations, responses,
+//! and events.
+//!
+//! Some important terminology:
+//!
+//! * `Initiator`: Your host device, the one initiating operations through this library
+//! * `Responder`: The device that is connected to the initiator, responding to operations
+
 use core::fmt::Display;
 
 use deku::{DekuRead, DekuWrite};
@@ -8,7 +18,7 @@ pub mod response;
 
 /// An encoded operation parameter
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(endian = "little")]
 #[repr(transparent)]
 pub struct Parameter(u32);
 
