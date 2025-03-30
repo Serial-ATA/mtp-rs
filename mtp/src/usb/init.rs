@@ -62,6 +62,7 @@ impl Device {
 					let mut bulk_out = None;
 					let mut bulk_out_buffer_size = 0;
 					let mut interrupt = None;
+					let mut interrupt_buffer_size = 0;
 					for endpoint in alt_settings.endpoints() {
 						match endpoint.transfer_type() {
 							EndpointType::Bulk => match endpoint.direction() {
@@ -74,7 +75,10 @@ impl Device {
 									bulk_out_buffer_size = endpoint.max_packet_size();
 								},
 							},
-							EndpointType::Interrupt => interrupt = Some(endpoint.address()),
+							EndpointType::Interrupt => {
+								interrupt = Some(endpoint.address());
+								interrupt_buffer_size = endpoint.max_packet_size();
+							},
 							_ => {},
 						}
 					}
@@ -92,6 +96,7 @@ impl Device {
 						bulk_out,
 						bulk_out_buffer_size,
 						interrupt,
+						interrupt_buffer_size,
 					});
 
 					interface_num = Some(interface.interface_number());

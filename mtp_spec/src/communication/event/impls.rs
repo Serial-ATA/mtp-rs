@@ -2,31 +2,80 @@ use crate::communication::TransactionId;
 use crate::device::storage::id::StorageId;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
-const fn counter<const N: usize>(_: [(); N]) -> usize {
-	N
-}
-
-macro_rules! replace_expr {
-	($_t:tt $sub:expr) => {
-		$sub
-	};
-}
-
-const MAX_PARAMETERS: usize = 3;
+use deku::no_std_io::{Read, Seek, Write};
+use deku::{DekuError, DekuReader};
 
 macro_rules! define_events {
 	(
-		$(
-			$(#[$meta:meta])*
-			pub struct $name:ident {
-				code: $code:literal,
-				$(
-					$($param:ident: $ty:ty),+ $(,)?
-				)?
-			}
-		)*
+		$($events:tt)*
 	) => {
-		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead, deku::DekuWrite)]
+		accumulate_events!(
+			EVENTS_PARSER_ENUM: [
+				pub enum EventsParser {}
+
+				fn code(&self) -> u16 {
+					match self {}
+				}
+
+				fn from(event: EventsParser) -> Event {
+					match event {}
+				}
+			],
+			EVENTS_ENUM: [ pub enum Events {} ],
+			EVENT_CODE_ENUM: [ pub enum EventCode {} ],
+			ALL_EVENT_CODES: [
+				match code {}
+				match self {}
+			]
+			$($events)*
+		);
+	}
+}
+
+macro_rules! accumulate_events {
+	// Base case, no more events
+	(
+		EVENTS_PARSER_ENUM: [
+			pub enum EventsParser {
+				$($parser_variants:tt)*
+			}
+
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms:tt)*
+				}
+			}
+
+			fn from(event: EventsParser) -> Event {
+				match event {
+					$($parser_match_arms:tt)*
+				}
+			}
+		],
+
+		EVENTS_ENUM: [
+			pub enum Events {
+				$($variants:tt)*
+			}
+		],
+
+		EVENT_CODE_ENUM: [
+			pub enum EventCode {
+				$($code_variants:tt)*
+			}
+		],
+
+		ALL_EVENT_CODES: [
+			match code {
+				$($code_match_arms:tt)*
+			}
+
+			match self {
+				$($code_match_arms_inverse:tt)*
+			}
+		]
+	) => {
+		#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead)]
 		#[repr(u16)]
 		#[deku(
 			id_type = "u16",
@@ -34,36 +83,594 @@ macro_rules! define_events {
 			ctx = "_endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
-		pub enum Event {
-			$(
-				#[deku(id = $code)]
-				$name = $code,
-			)*
-			#[deku(id_pat = "o if (0xC000_u16..=0xC7FF_u16).contains(&o)")]
-			VendorSpecific(u16),
+		pub enum EventsParser {
+			$($parser_variants)*
 			#[deku(id_pat = "_", default)]
+			Unknown {
+				code: u16,
+				param1: u32,
+				param2: u32,
+				param3: u32
+			},
+		}
+
+		impl EventsParser {
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms)*
+					Self::Unknown { code, param1, param2, param3 } => *code,
+				}
+			}
+		}
+
+		impl From<EventsParser> for Event {
+			fn from(event: EventsParser) -> Self {
+				match event {
+					$($parser_match_arms)*
+					EventsParser::Unknown {
+						code,
+						param1,
+						param2,
+						param3
+					} if (0x6000_u16..=0x63FF_u16).contains(&code) => Event::VendorSpecific { code, param1, param2, param3 },
+					_ => Event::Unknown { code: event.code(), param1: 0, param2: 0, param3: 0 }
+				}
+			}
+		}
+
+		#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+		#[repr(u16)]
+		pub enum Event {
+			$($variants)*
+			VendorSpecific {
+				code: u16,
+				param1: u32,
+				param2: u32,
+				param3: u32
+			},
+			Unknown {
+				code: u16,
+				param1: u32,
+				param2: u32,
+				param3: u32
+			}
+		}
+
+		impl deku::DekuReader<'_, ()> for Event {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut deku::reader::Reader<R>,
+				_: (),
+			) -> Result<Self, DekuError> {
+				let event = EventsParser::from_reader_with_ctx(reader, ())?;
+				Ok(event.into())
+			}
+		}
+
+		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+		#[repr(u16)]
+		pub enum EventCode {
+			$($code_variants)*
+			VendorSpecific(u16),
 			Unknown(u16),
 		}
 
-		$(
-		const _: () = {
-            $(
-                if counter([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
-                    panic!("Too many parameters");
-                }
-            )?
-		};
-
-		$(#[$meta])*
-		pub struct $name {
-			$(
-                $(
-                    pub $param: $ty,
-                )*
-            )?
+		impl From<u16> for EventCode {
+			fn from(code: u16) -> Self {
+				match code {
+					$($code_match_arms)*
+					_ if (0x6000_u16..=0x63FF_u16).contains(&code) => EventCode::VendorSpecific(code),
+					_ => EventCode::Unknown(code)
+				}
+			}
 		}
-		)*
-	}
+
+		impl From<EventCode> for u16 {
+			fn from(code: EventCode) -> Self {
+				match code {
+					$($code_match_arms_inverse)*
+					EventCode::VendorSpecific(code) => code,
+					EventCode::Unknown(code) => code
+				}
+			}
+		}
+
+		impl deku::DekuReader<'_, ()> for EventCode {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut deku::reader::Reader<R>,
+				_: (),
+			) -> Result<Self, DekuError> {
+				let code = u16::from_reader_with_ctx(reader, deku::ctx::Endian::Little)?;
+				Ok(code.into())
+			}
+		}
+
+		impl deku::DekuReader<'_, deku::ctx::Endian> for EventCode {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut deku::reader::Reader<R>,
+				_: deku::ctx::Endian,
+			) -> Result<Self, DekuError> {
+				let code = u16::from_reader_with_ctx(reader, deku::ctx::Endian::Little)?;
+				Ok(code.into())
+			}
+		}
+
+		impl deku::DekuWriter<()> for EventCode {
+			fn to_writer<W: Write + Seek>(
+				&self,
+				writer: &mut deku::writer::Writer<W>,
+				_: (),
+			) -> Result<(), DekuError> {
+				let code = u16::from(*self);
+				code.to_writer(writer, deku::ctx::Endian::Little)
+			}
+		}
+
+		impl deku::DekuWriter<deku::ctx::Endian> for EventCode {
+			fn to_writer<W: Write + Seek>(
+				&self,
+				writer: &mut deku::writer::Writer<W>,
+				endian: deku::ctx::Endian,
+			) -> Result<(), DekuError> {
+				let code = u16::from(*self);
+				code.to_writer(writer, endian)
+			}
+		}
+	};
+
+	// Event with 0 parameters
+	(
+		EVENTS_PARSER_ENUM: [
+			pub enum EventsParser {
+				$($parser_variants:tt)*
+			}
+
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms:tt)*
+				}
+			}
+
+			fn from(event: EventsParser) -> Event {
+				match event {
+					$($parser_match_arms:tt)*
+				}
+			}
+		],
+
+		EVENTS_ENUM: [
+			pub enum Events {
+				$($variants:tt)*
+			}
+		],
+
+		EVENT_CODE_ENUM: [
+			pub enum EventCode {
+				$($code_variants:tt)*
+			}
+		],
+
+		ALL_EVENT_CODES: [
+			match code {
+				$($code_match_arms:tt)*
+			}
+
+			match self {
+				$($code_match_arms_inverse:tt)*
+			}
+		]
+
+		$(#[$meta:meta])*
+		pub struct $name:ident {
+			code: $code:literal $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		accumulate_events!(
+			EVENTS_PARSER_ENUM: [
+				pub enum EventsParser {
+					$($parser_variants)*
+					#[deku(id = $code)]
+					$(#[$meta])*
+					$name {
+						__param1: u32,
+						__param2: u32,
+						__param3: u32
+					},
+				}
+
+				fn code(&self) -> u16 {
+					match self {
+						$($parser_code_match_arms)*
+						EventsParser::$name { .. } => $code,
+					}
+				}
+
+				fn from(event: EventsParser) -> Event {
+					match event {
+						$($parser_match_arms)*
+						EventsParser::$name { .. } => Event::$name,
+					}
+				}
+			],
+
+			EVENTS_ENUM: [
+				pub enum Events {
+					$($variants)*
+					$(#[$meta])*
+					$name,
+				}
+			],
+
+			EVENT_CODE_ENUM: [
+				pub enum EventCode {
+					$($code_variants)*
+					$name = $code,
+				}
+			],
+
+			ALL_EVENT_CODES: [
+				match code {
+					$($code_match_arms)*
+					$code => EventCode::$name,
+				}
+
+				match self {
+					$($code_match_arms_inverse)*
+					EventCode::$name => $code,
+				}
+			]
+
+			$($rest)*
+		);
+	};
+
+	// Event with 1 parameter
+	(
+		EVENTS_PARSER_ENUM: [
+			pub enum EventsParser {
+				$($parser_variants:tt)*
+			}
+
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms:tt)*
+				}
+			}
+
+			fn from(event: EventsParser) -> Event {
+				match event {
+					$($parser_match_arms:tt)*
+				}
+			}
+		],
+
+		EVENTS_ENUM: [
+			pub enum Events {
+				$($variants:tt)*
+			}
+		],
+
+		EVENT_CODE_ENUM: [
+			pub enum EventCode {
+				$($code_variants:tt)*
+			}
+		],
+
+		ALL_EVENT_CODES: [
+			match code {
+				$($code_match_arms:tt)*
+			}
+
+			match self {
+				$($code_match_arms_inverse:tt)*
+			}
+		]
+
+		$(#[$meta:meta])*
+		pub struct $name:ident {
+			code: $code:literal,
+			$param:ident: $ty:ty $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		accumulate_events!(
+			EVENTS_PARSER_ENUM: [
+				pub enum EventsParser {
+					$($parser_variants)*
+					#[deku(id = $code)]
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+						__param2: u32,
+						__param3: u32
+					},
+				}
+
+				fn code(&self) -> u16 {
+					match self {
+						$($parser_code_match_arms)*
+						EventsParser::$name { .. } => $code,
+					}
+				}
+
+				fn from(event: EventsParser) -> Event {
+					match event {
+						$($parser_match_arms)*
+						EventsParser::$name { $param, .. } => Event::$name {
+							$param,
+						},
+					}
+				}
+			],
+
+			EVENTS_ENUM: [
+				pub enum Events {
+					$($variants)*
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+					},
+				}
+			],
+
+			EVENT_CODE_ENUM: [
+				pub enum EventCode {
+					$($code_variants)*
+					$name = $code,
+				}
+			],
+
+			ALL_EVENT_CODES: [
+				match code {
+					$($code_match_arms)*
+					$code => EventCode::$name,
+				}
+
+				match self {
+					$($code_match_arms_inverse)*
+					EventCode::$name => $code,
+				}
+			]
+
+			$($rest)*
+		);
+	};
+
+	// Event with 2 parameters
+	(
+		EVENTS_PARSER_ENUM: [
+			pub enum EventsParser {
+				$($parser_variants:tt)*
+			}
+
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms:tt)*
+				}
+			}
+
+			fn from(event: EventsParser) -> Event {
+				match event {
+					$($parser_match_arms:tt)*
+				}
+			}
+		],
+
+		EVENTS_ENUM: [
+			pub enum Events {
+				$($variants:tt)*
+			}
+		],
+
+		EVENT_CODE_ENUM: [
+			pub enum EventCode {
+				$($code_variants:tt)*
+			}
+		],
+
+		ALL_EVENT_CODES: [
+			match code {
+				$($code_match_arms:tt)*
+			}
+
+			match self {
+				$($code_match_arms_inverse:tt)*
+			}
+		]
+
+		$(#[$meta:meta])*
+		pub struct $name:ident {
+			code: $code:literal,
+			$param:ident: $ty:ty,
+			$param2:ident: $ty2:ty $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		accumulate_events!(
+			EVENTS_PARSER_ENUM: [
+				pub enum EventsParser {
+					$($parser_variants)*
+					#[deku(id = $code)]
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+						$param2: $ty2,
+						__param3: u32
+					},
+				}
+
+				fn code(&self) -> u16 {
+					match self {
+						$($parser_code_match_arms)*
+						EventsParser::$name { .. } => $code,
+					}
+				}
+
+				fn from(event: EventsParser) -> Event {
+					match event {
+						$($parser_match_arms)*
+						EventsParser::$name { $param, $param2, .. } => Event::$name {
+							$param,
+							$param2,
+						},
+					}
+				}
+			],
+
+			EVENTS_ENUM: [
+				pub enum Events {
+					$($variants)*
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+						$param2: $ty2,
+					},
+				}
+			],
+
+			EVENT_CODE_ENUM: [
+				pub enum EventCode {
+					$($code_variants)*
+					$name = $code,
+				}
+			],
+
+			ALL_EVENT_CODES: [
+				match code {
+					$($code_match_arms)*
+					$code => EventCode::$name,
+				}
+
+				match self {
+					$($code_match_arms_inverse)*
+					EventCode::$name => $code,
+				}
+			]
+
+			$($rest)*
+		);
+	};
+
+	// Event with 3 parameters
+	(
+		EVENTS_PARSER_ENUM: [
+			pub enum EventsParser {
+				$($parser_variants:tt)*
+			}
+
+			fn code(&self) -> u16 {
+				match self {
+					$($parser_code_match_arms:tt)*
+				}
+			}
+
+			fn from(event: EventsParser) -> Event {
+				match event {
+					$($parser_match_arms:tt)*
+				}
+			}
+		],
+
+		EVENTS_ENUM: [
+			pub enum Events {
+				$($variants:tt)*
+			}
+		],
+
+		EVENT_CODE_ENUM: [
+			pub enum EventCode {
+				$($code_variants:tt)*
+			}
+		],
+
+		ALL_EVENT_CODES: [
+			match code {
+				$($code_match_arms:tt)*
+			}
+
+			match self {
+				$($code_match_arms_inverse:tt)*
+			}
+		]
+
+		$(#[$meta:meta])*
+		pub struct $name:ident {
+			code: $code:literal,
+			$param:ident: $ty:ty,
+			$param2:ident: $ty2:ty,
+			$param3:ident: $ty3:ty $(,)?
+		}
+
+		$($rest:tt)*
+	) => {
+		accumulate_events!(
+			EVENTS_PARSER_ENUM: [
+				pub enum EventsParser {
+					$($parser_variants)*
+					#[deku(id = $code)]
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+						$param2: $ty2,
+						$param3: $ty3
+					},
+				}
+
+				fn code(&self) -> u16 {
+					match self {
+						$($parser_code_match_arms)*
+						EventsParser::$name { .. } => $code,
+					}
+				}
+
+				fn from(event: EventsParser) -> Event {
+					match event {
+						$($parser_match_arms)*
+						EventsParser::$name { $param, $param2, $param3, .. } => Event::$name {
+							$param,
+							$param2,
+							$param3,
+						},
+					}
+				}
+			],
+
+			EVENTS_ENUM: [
+				pub enum Events {
+					$($variants)*
+					$(#[$meta])*
+					$name {
+						$param: $ty,
+						$param2: $ty2,
+						$param3: $ty3
+					},
+				}
+			],
+			EVENT_CODE_ENUM: [
+				pub enum EventCode {
+					$($code_variants)*
+					$name = $code,
+				}
+			],
+
+			ALL_EVENT_CODES: [
+				match code {
+					$($code_match_arms)*
+					$code => EventCode::$name,
+				}
+
+				match self {
+					$($code_match_arms_inverse)*
+					EventCode::$name => $code,
+				}
+			]
+
+			$($rest)*
+		);
+	};
 }
 
 define_events! {

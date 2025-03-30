@@ -1,8 +1,11 @@
+use crate::communication::event::Event;
 use crate::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 
 use alloc::vec::Vec;
+
+use futures_core::Stream;
 
 /// I/O abstraction for MTP devices
 ///
@@ -23,6 +26,9 @@ pub trait PtpIo {
 	/// session IDs monotonically increasing.
 	#[must_use]
 	fn next_session_id(&mut self) -> SessionId;
+
+	/// Get the event stream for the device
+	fn event_stream(&mut self) -> impl Stream<Item = Result<Event, Self::Error>>;
 
 	/// Send the operation to the device and wait for a response
 	fn send_operation<O>(

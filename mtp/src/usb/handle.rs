@@ -1,15 +1,18 @@
 use super::error::UsbError;
 use crate::usb::UsbDeviceFlags;
 
+use std::task::Poll;
 use std::time::Duration;
 
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
+use futures::Stream;
+use mtp_spec::communication::event::Event;
 use mtp_spec::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use mtp_spec::communication::response::{CODE_OK, Response, ResponseFlags, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
-use nusb::transfer::{Queue, RequestBuffer};
+use nusb::transfer::{Completion, Queue, RequestBuffer};
 
 pub(super) struct Endpoints {
 	pub(super) bulk_in: u8,
@@ -17,6 +20,7 @@ pub(super) struct Endpoints {
 	pub(super) bulk_out: u8,
 	pub(super) bulk_out_buffer_size: usize,
 	pub(super) interrupt: u8,
+	pub(super) interrupt_buffer_size: usize,
 }
 
 /// A handle to an open USB device
@@ -29,6 +33,7 @@ pub struct DeviceHandle {
 	endpoints: Endpoints,
 	out_queue: Queue<Vec<u8>>,
 	in_queue: Queue<RequestBuffer>,
+	interrupt_queue: Queue<RequestBuffer>,
 	timeout: Duration,
 	transaction_id: TransactionId,
 }
@@ -48,6 +53,7 @@ impl DeviceHandle {
 
 		let out_queue = interface.bulk_out_queue(endpoints.bulk_out);
 		let in_queue = interface.bulk_in_queue(endpoints.bulk_in);
+		let interrupt_queue = interface.interrupt_in_queue(endpoints.interrupt);
 		Self {
 			device,
 			flags,
@@ -55,6 +61,7 @@ impl DeviceHandle {
 			endpoints,
 			out_queue,
 			in_queue,
+			interrupt_queue,
 			timeout,
 			transaction_id: TransactionId::new(1),
 		}
@@ -72,6 +79,24 @@ impl PtpIo for DeviceHandle {
 
 	fn next_session_id(&mut self) -> SessionId {
 		SessionId::new(1)
+	}
+
+	fn event_stream(&mut self) -> impl Stream<Item = Result<Event, Self::Error>> {
+		let buffer_size = self.endpoints.interrupt_buffer_size;
+		futures::stream::poll_fn(move |cx| {
+			let pending = self.interrupt_queue.pending();
+			for _ in 0..(2usize.saturating_sub(pending)) {
+				self.interrupt_queue.submit(RequestBuffer::new(buffer_size));
+			}
+
+			match self.interrupt_queue.poll_next(cx) {
+				Poll::Ready(completion) => match Event::try_from(completion.data) {
+					Ok(event) => Poll::Ready(Some(Ok(event))),
+					Err(e) => Poll::Ready(Some(Err(e.into()))),
+				},
+				Poll::Pending => Poll::Pending,
+			}
+		})
 	}
 
 	async fn __send_operation<O>(

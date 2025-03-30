@@ -16,7 +16,9 @@ readme = "README.md"
 mtp_spec = { path = "mtp_spec" }
 
 deku = { git = "https://github.com/Serial-ATA/deku.git", branch = "misc", default-features = false }
-log = "0.4.27"
+log = "0.4"
+futures = "0.3"
+futures-core = { version = "0.3", default-features = false }
 
 [workspace.lints.rust]
 missing_docs = "deny"

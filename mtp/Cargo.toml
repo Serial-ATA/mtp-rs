@@ -18,6 +18,7 @@ nusb = "0.1"
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "time"] }
 deku = { workspace = true, features = ["alloc", "logging"] }
 log.workspace = true
+futures.workspace = true
 
 [dev-dependencies]
 test-log = "0.2.16"

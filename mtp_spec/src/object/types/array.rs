@@ -13,7 +13,7 @@ use deku::{DekuReader, DekuWriter, deku_derive};
 ///
 /// See [`ArrayEncodable`] for a list of types that can be used in an `Array`.
 #[deku_derive(DekuRead, DekuWrite)]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 #[deku(
 	ctx = "_endian: deku::ctx::Endian",
 	ctx_default = "deku::ctx::Endian::Little"
@@ -31,6 +31,15 @@ pub struct Array<T: ArrayEncodable>(
 	#[deku(temp, temp_value = "field_1.len() as u32", endian = "little")] u32,
 	#[deku(count = "field_0", endian = "big")] Box<[T]>,
 );
+
+impl<T> Debug for Array<T>
+where
+	T: ArrayEncodable + Debug,
+{
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_list().entries(self.iter()).finish()
+	}
+}
 
 impl<T> FromIterator<T> for Array<T>
 where
