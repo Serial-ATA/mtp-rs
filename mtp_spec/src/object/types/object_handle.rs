@@ -21,41 +21,41 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 pub struct ObjectHandle(u32);
 
 impl ObjectHandle {
-	pub const NONE: Self = ObjectHandle(0);
+    pub const NONE: Self = ObjectHandle(0);
 }
 
 impl From<u32> for ObjectHandle {
-	fn from(value: u32) -> Self {
-		ObjectHandle(value)
-	}
+    fn from(value: u32) -> Self {
+        ObjectHandle(value)
+    }
 }
 
 impl From<ObjectHandle> for Parameter {
-	fn from(value: ObjectHandle) -> Self {
-		Parameter::new(value.0)
-	}
+    fn from(value: ObjectHandle) -> Self {
+        Parameter::new(value.0)
+    }
 }
 
 impl<'a> DekuReader<'a, Endian> for ObjectHandle {
-	fn from_reader_with_ctx<R: Read + Seek>(
-		reader: &mut Reader<R>,
-		ctx: Endian,
-	) -> Result<Self, DekuError>
-	where
-		Self: Sized,
-	{
-		u32::from_reader_with_ctx(reader, ctx).map(ObjectHandle)
-	}
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Endian,
+    ) -> Result<Self, DekuError>
+    where
+        Self: Sized,
+    {
+        u32::from_reader_with_ctx(reader, ctx).map(ObjectHandle)
+    }
 }
 
 impl DekuWriter<Endian> for ObjectHandle {
-	fn to_writer<W: Write + Seek>(
-		&self,
-		writer: &mut Writer<W>,
-		ctx: Endian,
-	) -> Result<(), DekuError> {
-		self.0.to_writer(writer, ctx)
-	}
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Endian,
+    ) -> Result<(), DekuError> {
+        self.0.to_writer(writer, ctx)
+    }
 }
 
 // `ObjectHandle` is simply a `u32` wrapper

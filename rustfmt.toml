@@ -8,5 +8,4 @@ use_field_init_shorthand = true
 format_strings = true
 normalize_comments = true
 match_block_trailing_comma = true
-hard_tabs = true
 newline_style = "Unix"

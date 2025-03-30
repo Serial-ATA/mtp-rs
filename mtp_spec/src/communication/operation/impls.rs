@@ -10,24 +10,24 @@ use deku::{DekuRead, DekuWrite};
 /// The direction in which data is transferred in an operation
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DataDirection {
-	/// The responder sends data to the initiator
-	///
-	/// This is the most common direction
-	ResponderToInitiator,
-	/// The initiator sends data to the responder
-	///
-	/// This is used for setter operations
-	InitiatorToResponder,
+    /// The responder sends data to the initiator
+    ///
+    /// This is the most common direction
+    ResponderToInitiator,
+    /// The initiator sends data to the responder
+    ///
+    /// This is used for setter operations
+    InitiatorToResponder,
 }
 
 const fn counter<const N: usize>(_: [(); N]) -> usize {
-	N
+    N
 }
 
 macro_rules! replace_expr {
-	($_t:tt $sub:expr) => {
-		$sub
-	};
+    ($_t:tt $sub:expr) => {
+        $sub
+    };
 }
 
 macro_rules! define_operations {
@@ -375,853 +375,853 @@ macro_rules! parse_operations {
 }
 
 define_operations! {
-	/// Get the [`DeviceInfo`] of the device.
-	///
-	/// This operation is commonly the first operation called by an initiator upon
-	/// connecting to a responder for the first time.
-	///
-	/// [`DeviceInfo`]: crate::device::info::DeviceInfo
-	pub struct GetDeviceInfo {
-		code: 0x1001,
-		visible_parameters: (),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetDeviceInfo,
-		valid_error_codes: [ParameterNotSupported]
-	}
+    /// Get the [`DeviceInfo`] of the device.
+    ///
+    /// This operation is commonly the first operation called by an initiator upon
+    /// connecting to a responder for the first time.
+    ///
+    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    pub struct GetDeviceInfo {
+        code: 0x1001,
+        visible_parameters: (),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetDeviceInfo,
+        valid_error_codes: [ParameterNotSupported]
+    }
 
-	/// Create a new session for between the initiator and responder.
-	///
-	/// Unless specified otherwise, all operations must be performed within the context of a session.
-	///
-	/// In the event that an active session already exists, a response of [`SessionAlreadyOpen`]
-	/// will be returned.
-	///
-	/// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
-	[[session_id(false)]]
-	pub struct OpenSession {
-		code: 0x1002,
-		visible_parameters: (session_id: SessionId),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			ParameterNotSupported,
-			InvalidParameter,
-			SessionAlreadyOpen,
-			DeviceBusy,
-		]
-	}
+    /// Create a new session for between the initiator and responder.
+    ///
+    /// Unless specified otherwise, all operations must be performed within the context of a session.
+    ///
+    /// In the event that an active session already exists, a response of [`SessionAlreadyOpen`]
+    /// will be returned.
+    ///
+    /// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
+    [[session_id(false)]]
+    pub struct OpenSession {
+        code: 0x1002,
+        visible_parameters: (session_id: SessionId),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            ParameterNotSupported,
+            InvalidParameter,
+            SessionAlreadyOpen,
+            DeviceBusy,
+        ]
+    }
 
-	/// Close the current session.
-	///
-	/// All stateful information associated with the session will be discarded.
-	///
-	/// If no session is currently open, a response of [`SessionNotOpen`] will be returned.
-	///
-	/// [`SessionNotOpen`]: crate::communication::response::errors::SessionNotOpen
-	pub struct CloseSession {
-		code: 0x1003,
-		visible_parameters: (),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			SessionNotOpen,
-			InvalidTransactionId,
-			ParameterNotSupported,
-		]
-	}
+    /// Close the current session.
+    ///
+    /// All stateful information associated with the session will be discarded.
+    ///
+    /// If no session is currently open, a response of [`SessionNotOpen`] will be returned.
+    ///
+    /// [`SessionNotOpen`]: crate::communication::response::errors::SessionNotOpen
+    pub struct CloseSession {
+        code: 0x1003,
+        visible_parameters: (),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            SessionNotOpen,
+            InvalidTransactionId,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the storage IDs of all storages on the device.
-	pub struct GetStorageIDs {
-		code: 0x1004,
-		visible_parameters: (),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetStorageIDs,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the storage IDs of all storages on the device.
+    pub struct GetStorageIDs {
+        code: 0x1004,
+        visible_parameters: (),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetStorageIDs,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the [`StorageInfo`] of the given [`StorageId`].
-	///
-	/// [`StorageInfo`]: crate::device::storage::info::StorageInfo
-	/// [`StorageId`]: crate::device::storage::id::StorageId
-	pub struct GetStorageInfo {
-		code: 0x1005,
-		visible_parameters: (storage: StorageId),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetStorageInfo,
-		valid_error_codes: [
-			OperationNotSupported,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidStorageId,
-			StoreNotAvailable,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the [`StorageInfo`] of the given [`StorageId`].
+    ///
+    /// [`StorageInfo`]: crate::device::storage::info::StorageInfo
+    /// [`StorageId`]: crate::device::storage::id::StorageId
+    pub struct GetStorageInfo {
+        code: 0x1005,
+        visible_parameters: (storage: StorageId),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetStorageInfo,
+        valid_error_codes: [
+            OperationNotSupported,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidStorageId,
+            StoreNotAvailable,
+            ParameterNotSupported,
+        ]
+    }
 
-	// TODO: Explain the optional parameters
-	/// Get the number of objects on the device
-	pub struct GetNumObjects {
-		code: 0x1006,
-		visible_parameters: (
-			storage: StorageId,
-			@DEFAULT(ObjectFormatCode::from(0))
-			format: Option<ObjectFormatCode>,
-			@DEFAULT(ObjectHandle::from(0))
-			parent: Option<ObjectHandle>
-		),
-		data_direction: None,
-		response: response::GetNumObjects,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidStorageId,
-			StoreNotAvailable,
-			SpecificationByFormatUnsupported,
-			InvalidCodeFormat,
-			ParameterNotSupported,
-			InvalidParentObject,
-			InvalidObjectHandle,
-			InvalidParameter,
-		]
-	}
+    // TODO: Explain the optional parameters
+    /// Get the number of objects on the device
+    pub struct GetNumObjects {
+        code: 0x1006,
+        visible_parameters: (
+            storage: StorageId,
+            @DEFAULT(ObjectFormatCode::from(0))
+            format: Option<ObjectFormatCode>,
+            @DEFAULT(ObjectHandle::from(0))
+            parent: Option<ObjectHandle>
+        ),
+        data_direction: None,
+        response: response::GetNumObjects,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidStorageId,
+            StoreNotAvailable,
+            SpecificationByFormatUnsupported,
+            InvalidCodeFormat,
+            ParameterNotSupported,
+            InvalidParentObject,
+            InvalidObjectHandle,
+            InvalidParameter,
+        ]
+    }
 
-	// TODO: Explain the optional parameters
-	/// Get the [`ObjectHandle`]s of the contents on the device
-	pub struct GetObjectHandles {
-		code: 0x1007,
-		visible_parameters: (
-			storage: StorageId,
-			@DEFAULT(ObjectFormatCode::from(0))
-			format: Option<ObjectFormatCode>,
-			@DEFAULT(ObjectHandle::from(0))
-			object: Option<ObjectHandle>
-		),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectHandles,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidStorageId,
-			StoreNotAvailable,
-			SpecificationByFormatUnsupported,
-			InvalidCodeFormat,
-			InvalidObjectHandle,
-			InvalidParameter,
-			ParameterNotSupported,
-			InvalidParentObject,
-		]
-	}
+    // TODO: Explain the optional parameters
+    /// Get the [`ObjectHandle`]s of the contents on the device
+    pub struct GetObjectHandles {
+        code: 0x1007,
+        visible_parameters: (
+            storage: StorageId,
+            @DEFAULT(ObjectFormatCode::from(0))
+            format: Option<ObjectFormatCode>,
+            @DEFAULT(ObjectHandle::from(0))
+            object: Option<ObjectHandle>
+        ),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectHandles,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidStorageId,
+            StoreNotAvailable,
+            SpecificationByFormatUnsupported,
+            InvalidCodeFormat,
+            InvalidObjectHandle,
+            InvalidParameter,
+            ParameterNotSupported,
+            InvalidParentObject,
+        ]
+    }
 
-	/// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
-	///
-	/// [`ObjectInfo`]: crate::object::info::ObjectInfo
-	pub struct GetObjectInfo {
-		code: 0x1008,
-		visible_parameters: (object: ObjectHandle),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectInfo,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			StoreNotAvailable,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
+    ///
+    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
+    pub struct GetObjectInfo {
+        code: 0x1008,
+        visible_parameters: (object: ObjectHandle),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectInfo,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            StoreNotAvailable,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the binary contents of the given [`ObjectHandle`].
-	pub struct GetObject {
-		code: 0x1009,
-		visible_parameters: (object: ObjectHandle),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObject,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			InvalidParameter,
-			StoreNotAvailable,
-			IncompleteTransfer,
-			AccessDenied,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the binary contents of the given [`ObjectHandle`].
+    pub struct GetObject {
+        code: 0x1009,
+        visible_parameters: (object: ObjectHandle),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObject,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            InvalidParameter,
+            StoreNotAvailable,
+            IncompleteTransfer,
+            AccessDenied,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the thumbnail of an image object at the given [`ObjectHandle`].
-	pub struct GetThumb {
-		code: 0x100a,
-		visible_parameters: (object: ObjectHandle),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetThumb,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			NoThumbnailPresent,
-			InvalidObjectFormatCode,
-			StoreNotAvailable,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the thumbnail of an image object at the given [`ObjectHandle`].
+    pub struct GetThumb {
+        code: 0x100a,
+        visible_parameters: (object: ObjectHandle),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetThumb,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            NoThumbnailPresent,
+            InvalidObjectFormatCode,
+            StoreNotAvailable,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Delete the object at the given [`ObjectHandle`].
-	pub struct DeleteObject {
-		code: 0x100b,
-		visible_parameters: (object: ObjectHandle, format: ObjectFormatCode),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			ObjectWriteProtected,
-			StoreReadOnly,
-			PartialDeletion,
-			StoreNotAvailable,
-			SpecificationByFormatUnsupported,
-			InvalidCodeFormat,
-			DeviceBusy,
-			ParameterNotSupported,
-			AccessDenied,
-		]
-	}
+    /// Delete the object at the given [`ObjectHandle`].
+    pub struct DeleteObject {
+        code: 0x100b,
+        visible_parameters: (object: ObjectHandle, format: ObjectFormatCode),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            ObjectWriteProtected,
+            StoreReadOnly,
+            PartialDeletion,
+            StoreNotAvailable,
+            SpecificationByFormatUnsupported,
+            InvalidCodeFormat,
+            DeviceBusy,
+            ParameterNotSupported,
+            AccessDenied,
+        ]
+    }
 
-	// TODO: explain optional parameters
-	/// Received from the device, indicating it wishes to send a new object
-	pub struct SendObjectInfo {
-		code: 0x100c,
-		visible_parameters: (
-			@DEFAULT(StorageId::from(0))
-			destination: Option<StorageId>,
-			@DEFAULT(ObjectHandle::from(0))
-			parent: Option<ObjectHandle>
-		),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SendObjectInfo,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidStorageId,
-			StoreReadOnly,
-			ObjectTooLarge,
-			StoreFull,
-			InvalidObjectFormatCode,
-			StoreNotAvailable,
-			ParameterNotSupported,
-			InvalidParentObject,
-			InvalidDataset,
-			SpecificationOfDestinationUnsupported,
-		]
-	}
+    // TODO: explain optional parameters
+    /// Received from the device, indicating it wishes to send a new object
+    pub struct SendObjectInfo {
+        code: 0x100c,
+        visible_parameters: (
+            @DEFAULT(StorageId::from(0))
+            destination: Option<StorageId>,
+            @DEFAULT(ObjectHandle::from(0))
+            parent: Option<ObjectHandle>
+        ),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SendObjectInfo,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidStorageId,
+            StoreReadOnly,
+            ObjectTooLarge,
+            StoreFull,
+            InvalidObjectFormatCode,
+            StoreNotAvailable,
+            ParameterNotSupported,
+            InvalidParentObject,
+            InvalidDataset,
+            SpecificationOfDestinationUnsupported,
+        ]
+    }
 
-	/// Received from the device after a successful [`SendObjectInfo`], contains the binary data of the new object
-	pub struct SendObject {
-		code: 0x100d,
-		visible_parameters: (),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SendObject,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidStorageId,
-			StoreReadOnly,
-			ObjectTooLarge,
-			StoreFull,
-			InvalidObjectFormatCode,
-			StoreNotAvailable,
-			ParameterNotSupported,
-			InvalidParentObject,
-		]
-	}
+    /// Received from the device after a successful [`SendObjectInfo`], contains the binary data of the new object
+    pub struct SendObject {
+        code: 0x100d,
+        visible_parameters: (),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SendObject,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidStorageId,
+            StoreReadOnly,
+            ObjectTooLarge,
+            StoreFull,
+            InvalidObjectFormatCode,
+            StoreNotAvailable,
+            ParameterNotSupported,
+            InvalidParentObject,
+        ]
+    }
 
-	// TODO: optional parameters
-	/// Produce a new data object using an object capture mechanism
-	pub struct InitiateCapture {
-		code: 0x100e,
-		visible_parameters: (
-			@DEFAULT(StorageId::from(0))
-			storage: Option<StorageId>,
-			@DEFAULT(ObjectFormatCode::Unknown(0))
-			format: Option<ObjectFormatCode>
-		),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidStorageId,
-			StoreFull,
-			InvalidObjectFormatCode,
-			InvalidParameter,
-			StoreNotAvailable,
-			InvalidCodeFormat,
-			DeviceBusy,
-			ParameterNotSupported,
-			StoreReadOnly,
-		]
-	}
+    // TODO: optional parameters
+    /// Produce a new data object using an object capture mechanism
+    pub struct InitiateCapture {
+        code: 0x100e,
+        visible_parameters: (
+            @DEFAULT(StorageId::from(0))
+            storage: Option<StorageId>,
+            @DEFAULT(ObjectFormatCode::Unknown(0))
+            format: Option<ObjectFormatCode>
+        ),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidStorageId,
+            StoreFull,
+            InvalidObjectFormatCode,
+            InvalidParameter,
+            StoreNotAvailable,
+            InvalidCodeFormat,
+            DeviceBusy,
+            ParameterNotSupported,
+            StoreReadOnly,
+        ]
+    }
 
-	// TODO: Explain optional parameters
-	/// Format the media indicated by the given [`StorageId`]
-	pub struct FormatStore {
-		code: 0x100f,
-		visible_parameters: (
-			storage: StorageId,
-			fs: FilesystemType
-		),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidStorageId,
-			StoreNotAvailable,
-			DeviceBusy,
-			ParameterNotSupported,
-			InvalidParameter,
-			StoreReadOnly,
-		]
-	}
+    // TODO: Explain optional parameters
+    /// Format the media indicated by the given [`StorageId`]
+    pub struct FormatStore {
+        code: 0x100f,
+        visible_parameters: (
+            storage: StorageId,
+            fs: FilesystemType
+        ),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidStorageId,
+            StoreNotAvailable,
+            DeviceBusy,
+            ParameterNotSupported,
+            InvalidParameter,
+            StoreReadOnly,
+        ]
+    }
 
-	/// Return the device to a default state
-	pub struct ResetDevice {
-		code: 0x1010,
-		visible_parameters: (),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			DeviceBusy,
-		]
-	}
+    /// Return the device to a default state
+    pub struct ResetDevice {
+        code: 0x1010,
+        visible_parameters: (),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            DeviceBusy,
+        ]
+    }
 
-	/// Return the device to a default state
-	///
-	/// See [`SelfTestType`]
-	pub struct SelfTest {
-		code: 0x1011,
-		visible_parameters: (test_type: SelfTestType),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			DeviceBusy,
-		]
-	}
+    /// Return the device to a default state
+    ///
+    /// See [`SelfTestType`]
+    pub struct SelfTest {
+        code: 0x1011,
+        visible_parameters: (test_type: SelfTestType),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            DeviceBusy,
+        ]
+    }
 
-	/// Set the write-protection status of an object
-	pub struct SetObjectProtection {
-		code: 0x1012,
-		visible_parameters: (object: ObjectHandle, status: ProtectionStatus),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidObjectHandle,
-			InvalidParameter,
-			StoreNotAvailable,
-			ParameterNotSupported,
-			StoreReadOnly,
-		]
-	}
+    /// Set the write-protection status of an object
+    pub struct SetObjectProtection {
+        code: 0x1012,
+        visible_parameters: (object: ObjectHandle, status: ProtectionStatus),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidObjectHandle,
+            InvalidParameter,
+            StoreNotAvailable,
+            ParameterNotSupported,
+            StoreReadOnly,
+        ]
+    }
 
-	/// Instruct the device to close all active sessions and power down
-	pub struct PowerDown {
-		code: 0x1013,
-		visible_parameters: (),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			DeviceBusy,
-			ParameterNotSupported,
-		]
-	}
+    /// Instruct the device to close all active sessions and power down
+    pub struct PowerDown {
+        code: 0x1013,
+        visible_parameters: (),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            DeviceBusy,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the property descriptor for the given property code
-	pub struct GetDevicePropDesc {
-		code: 0x1014,
-		visible_parameters: (code: DevicePropCode),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetDevicePropDesc,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			DevicePropNotSupported,
-			DeviceBusy,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the property descriptor for the given property code
+    pub struct GetDevicePropDesc {
+        code: 0x1014,
+        visible_parameters: (code: DevicePropCode),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetDevicePropDesc,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            DevicePropNotSupported,
+            DeviceBusy,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Get the value of the given property code
-	///
-	/// NOTE: This is the same as the `current_value` field in [`DevicePropDesc`], provided by the
-	///       [`GetDevicePropDesc`] operation.
-	pub struct GetDevicePropValue {
-		code: 0x1015,
-		visible_parameters: (code: DevicePropCode),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetDevicePropValue,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			DevicePropNotSupported,
-			DeviceBusy,
-			ParameterNotSupported,
-		]
-	}
+    /// Get the value of the given property code
+    ///
+    /// NOTE: This is the same as the `current_value` field in [`DevicePropDesc`], provided by the
+    ///       [`GetDevicePropDesc`] operation.
+    pub struct GetDevicePropValue {
+        code: 0x1015,
+        visible_parameters: (code: DevicePropCode),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetDevicePropValue,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            DevicePropNotSupported,
+            DeviceBusy,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Set the value of the given property code
-	pub struct SetDevicePropValue {
-		code: 0x1016,
-		visible_parameters: (code: DevicePropCode),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SetDevicePropValue,
-		valid_error_codes: [
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			DevicePropNotSupported,
-			ObjectPropNotSupported,
-			InvalidDevicePropFormat,
-			InvalidDevicePropValue,
-			DeviceBusy,
-			ParameterNotSupported,
-		]
-	}
+    /// Set the value of the given property code
+    pub struct SetDevicePropValue {
+        code: 0x1016,
+        visible_parameters: (code: DevicePropCode),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SetDevicePropValue,
+        valid_error_codes: [
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            DevicePropNotSupported,
+            ObjectPropNotSupported,
+            InvalidDevicePropFormat,
+            InvalidDevicePropValue,
+            DeviceBusy,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Factory reset the device property value
-	pub struct ResetDevicePropValue {
-		code: 0x1017,
-		visible_parameters: (code: DevicePropCode),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			DevicePropNotSupported,
-			DeviceBusy,
-			ParameterNotSupported,
-			AccessDenied,
-		]
-	}
+    /// Factory reset the device property value
+    pub struct ResetDevicePropValue {
+        code: 0x1017,
+        visible_parameters: (code: DevicePropCode),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            DevicePropNotSupported,
+            DeviceBusy,
+            ParameterNotSupported,
+            AccessDenied,
+        ]
+    }
 
-	/// End an [`InitiateOpenCapture`] operation
-	pub struct TerminateOpenCapture {
-		code: 0x1018,
-		visible_parameters: (transaction: TransactionId),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			ParameterNotSupported,
-			InvalidParameter,
-			CaptureAlreadyTerminated,
-		]
-	}
+    /// End an [`InitiateOpenCapture`] operation
+    pub struct TerminateOpenCapture {
+        code: 0x1018,
+        visible_parameters: (transaction: TransactionId),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            ParameterNotSupported,
+            InvalidParameter,
+            CaptureAlreadyTerminated,
+        ]
+    }
 
-	/// Change the location of an object
-	///
-	/// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
-	pub struct MoveObject {
-		code: 0x1019,
-		visible_parameters: (
-			object: ObjectHandle,
-			storage: StorageId,
-			@DEFAULT(ObjectHandle::NONE)
-			parent: Option<ObjectHandle>
-		),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			StoreReadOnly,
-			StoreNotAvailable,
-			InvalidObjectHandle,
-			InvalidParentObject,
-			DeviceBusy,
-			ParameterNotSupported,
-			InvalidStorageId,
-			StoreFull,
-			PartialDeletion,
-		]
-	}
+    /// Change the location of an object
+    ///
+    /// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
+    pub struct MoveObject {
+        code: 0x1019,
+        visible_parameters: (
+            object: ObjectHandle,
+            storage: StorageId,
+            @DEFAULT(ObjectHandle::NONE)
+            parent: Option<ObjectHandle>
+        ),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            StoreReadOnly,
+            StoreNotAvailable,
+            InvalidObjectHandle,
+            InvalidParentObject,
+            DeviceBusy,
+            ParameterNotSupported,
+            InvalidStorageId,
+            StoreFull,
+            PartialDeletion,
+        ]
+    }
 
-	/// Create a copy of an object and place it in a new location
-	///
-	/// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
-	pub struct CopyObject {
-		code: 0x101A,
-		visible_parameters: (
-			object: ObjectHandle,
-			storage: StorageId,
-			@DEFAULT(ObjectHandle::NONE)
-			parent: Option<ObjectHandle>
-		),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			StoreReadOnly,
-			InvalidObjectHandle,
-			InvalidParentObject,
-			DeviceBusy,
-			StoreFull,
-			ParameterNotSupported,
-			InvalidStorageId,
-		]
-	}
+    /// Create a copy of an object and place it in a new location
+    ///
+    /// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
+    pub struct CopyObject {
+        code: 0x101A,
+        visible_parameters: (
+            object: ObjectHandle,
+            storage: StorageId,
+            @DEFAULT(ObjectHandle::NONE)
+            parent: Option<ObjectHandle>
+        ),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            StoreReadOnly,
+            InvalidObjectHandle,
+            InvalidParentObject,
+            DeviceBusy,
+            StoreFull,
+            ParameterNotSupported,
+            InvalidStorageId,
+        ]
+    }
 
-	/// Get a partial object from the device, may be used in place of [`GetObject`]
-	///
-	/// If the entire object is desired, `len` can be set to [`u32::MAX`].
-	pub struct GetPartialObject {
-		code: 0x101B,
-		visible_parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetPartialObject,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			InvalidObjectFormatCode,
-			InvalidParameter,
-			StoreNotAvailable,
-			DeviceBusy,
-			ParameterNotSupported,
-		]
-	}
+    /// Get a partial object from the device, may be used in place of [`GetObject`]
+    ///
+    /// If the entire object is desired, `len` can be set to [`u32::MAX`].
+    pub struct GetPartialObject {
+        code: 0x101B,
+        visible_parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetPartialObject,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            InvalidObjectFormatCode,
+            InvalidParameter,
+            StoreNotAvailable,
+            DeviceBusy,
+            ParameterNotSupported,
+        ]
+    }
 
-	/// Initiate the capture of multiple new objects
-	///
-	/// NOTES:
-	///
-	/// * If `storage` is not specified, the responder determines the location
-	/// * If `format` is not specified, the responder determines the format
-	pub struct InitiateOpenCapture {
-		code: 0x101C,
-		visible_parameters: (
-			@DEFAULT(StorageId::from(0))
-			storage: Option<StorageId>,
-			@DEFAULT(ObjectFormatCode::Unknown(0))
-			format: Option<ObjectFormatCode>
-		),
-		data_direction: None,
-		response: response::Empty,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidStorageId,
-			StoreFull,
-			InvalidObjectFormatCode,
-			InvalidParameter,
-			StoreNotAvailable,
-			InvalidCodeFormat,
-			DeviceBusy,
-			ParameterNotSupported,
-			StoreReadOnly,
-		]
-	}
+    /// Initiate the capture of multiple new objects
+    ///
+    /// NOTES:
+    ///
+    /// * If `storage` is not specified, the responder determines the location
+    /// * If `format` is not specified, the responder determines the format
+    pub struct InitiateOpenCapture {
+        code: 0x101C,
+        visible_parameters: (
+            @DEFAULT(StorageId::from(0))
+            storage: Option<StorageId>,
+            @DEFAULT(ObjectFormatCode::Unknown(0))
+            format: Option<ObjectFormatCode>
+        ),
+        data_direction: None,
+        response: response::Empty,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidStorageId,
+            StoreFull,
+            InvalidObjectFormatCode,
+            InvalidParameter,
+            StoreNotAvailable,
+            InvalidCodeFormat,
+            DeviceBusy,
+            ParameterNotSupported,
+            StoreReadOnly,
+        ]
+    }
 
-	/// Get all supported object property codes for the given format
-	pub struct GetObjectPropsSupported {
-		code: 0x9801,
-		visible_parameters: (format: ObjectFormatCode),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectPropsSupported,
-		valid_error_codes: [
-			OperationNotSupported,
-			DeviceBusy,
-			InvalidTransactionId,
-			InvalidObjectFormatCode,
-		]
-	}
+    /// Get all supported object property codes for the given format
+    pub struct GetObjectPropsSupported {
+        code: 0x9801,
+        visible_parameters: (format: ObjectFormatCode),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectPropsSupported,
+        valid_error_codes: [
+            OperationNotSupported,
+            DeviceBusy,
+            InvalidTransactionId,
+            InvalidObjectFormatCode,
+        ]
+    }
 
-	/// Get the property description for the given object property code
-	///
-	/// The parameter `T` specifies the object property to be returned.
-	/// See [`crate::object::types::properties`] for a list of properties.
-	pub partial struct GetObjectPropDesc<T>
-		where T: [ObjectProperty]
-	{
-		code: 0x9802,
-		visible_parameters: (format: ObjectFormatCode),
-		operation_parameters: (format, Parameter::new(T::CODE as u32)),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectPropDesc<T>,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidObjectPropCode,
-			InvalidObjectFormatCode,
-			DeviceBusy,
-		]
-	}
+    /// Get the property description for the given object property code
+    ///
+    /// The parameter `T` specifies the object property to be returned.
+    /// See [`crate::object::types::properties`] for a list of properties.
+    pub partial struct GetObjectPropDesc<T>
+        where T: [ObjectProperty]
+    {
+        code: 0x9802,
+        visible_parameters: (format: ObjectFormatCode),
+        operation_parameters: (format, Parameter::new(T::CODE as u32)),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectPropDesc<T>,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidObjectPropCode,
+            InvalidObjectFormatCode,
+            DeviceBusy,
+        ]
+    }
 
-	/// Get the value for the given object property code
-	pub partial struct GetObjectPropValue<T>
-		where T: [ObjectProperty]
-	{
-		code: 0x9803,
-		visible_parameters: (object: ObjectHandle),
-		operation_parameters: (object, Parameter::new(T::CODE as u32)),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectPropValue,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectPropCode,
-			DeviceBusy,
-			InvalidObjectHandle,
-		]
-	}
+    /// Get the value for the given object property code
+    pub partial struct GetObjectPropValue<T>
+        where T: [ObjectProperty]
+    {
+        code: 0x9803,
+        visible_parameters: (object: ObjectHandle),
+        operation_parameters: (object, Parameter::new(T::CODE as u32)),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectPropValue,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectPropCode,
+            DeviceBusy,
+            InvalidObjectHandle,
+        ]
+    }
 
-	/// Set the value for the given object property code
-	pub partial struct SetObjectPropValue<T>
-		where T: [ObjectProperty]
-	{
-		code: 0x9804,
-		visible_parameters: (object: ObjectHandle),
-		operation_parameters: (object, Parameter::new(T::CODE as u32)),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SetObjectPropValue,
-		valid_error_codes: [
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidObjectPropCode,
-			InvalidObjectHandle,
-			DeviceBusy,
-			InvalidObjectPropFormat,
-			InvalidObjectPropValue,
-		]
-	}
+    /// Set the value for the given object property code
+    pub partial struct SetObjectPropValue<T>
+        where T: [ObjectProperty]
+    {
+        code: 0x9804,
+        visible_parameters: (object: ObjectHandle),
+        operation_parameters: (object, Parameter::new(T::CODE as u32)),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SetObjectPropValue,
+        valid_error_codes: [
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidObjectPropCode,
+            InvalidObjectHandle,
+            DeviceBusy,
+            InvalidObjectPropFormat,
+            InvalidObjectPropValue,
+        ]
+    }
 
-	/// Get an array of all active [`ObjectHandle`]s
-	pub struct GetObjectReferences {
-		code: 0x9810,
-		visible_parameters: (object: ObjectHandle),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectReferences,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			InvalidObjectHandle,
-			StoreNotAvailable,
-		]
-	}
+    /// Get an array of all active [`ObjectHandle`]s
+    pub struct GetObjectReferences {
+        code: 0x9810,
+        visible_parameters: (object: ObjectHandle),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectReferences,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            InvalidObjectHandle,
+            StoreNotAvailable,
+        ]
+    }
 
-	/// Replace the references on an object
-	pub struct SetObjectReferences {
-		code: 0x9811,
-		visible_parameters: (object: ObjectHandle),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SetObjectReferences,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidStorageId,
-			StoreReadOnly,
-			StoreFull,
-			StoreNotAvailable,
-			InvalidObjectHandle,
-			InvalidObjectReference,
-		]
-	}
+    /// Replace the references on an object
+    pub struct SetObjectReferences {
+        code: 0x9811,
+        visible_parameters: (object: ObjectHandle),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SetObjectReferences,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidStorageId,
+            StoreReadOnly,
+            StoreFull,
+            StoreNotAvailable,
+            InvalidObjectHandle,
+            InvalidObjectReference,
+        ]
+    }
 
-	/// Update the playback of the current object
-	///
-	/// The `skip` determines the depth and direction into the playback queue. Meaning a value of 1
-	/// indicates the device should skip ahead one media object, and a value of -1 indicates the
-	/// device should skip back one media object.
-	pub struct Skip {
-		code: 0x9820,
-		visible_parameters: (@RAW(true) skip: u32),
-		data_direction: None,
-		response: response::SetObjectReferences,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			InvalidStorageId,
-			StoreReadOnly,
-			StoreFull,
-			StoreNotAvailable,
-			InvalidObjectHandle,
-			InvalidObjectReference,
-		]
-	}
+    /// Update the playback of the current object
+    ///
+    /// The `skip` determines the depth and direction into the playback queue. Meaning a value of 1
+    /// indicates the device should skip ahead one media object, and a value of -1 indicates the
+    /// device should skip back one media object.
+    pub struct Skip {
+        code: 0x9820,
+        visible_parameters: (@RAW(true) skip: u32),
+        data_direction: None,
+        response: response::SetObjectReferences,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            InvalidStorageId,
+            StoreReadOnly,
+            StoreFull,
+            StoreNotAvailable,
+            InvalidObjectHandle,
+            InvalidObjectReference,
+        ]
+    }
 
-	// == Enhanced Operations ==
-	//
-	// Defined in Appendix E
+    // == Enhanced Operations ==
+    //
+    // Defined in Appendix E
 
-	// TODO: Optional parameters
-	/// Get a list containing all specified object properties
-	///
-	/// This is a more optimized way of accessing object properties without needing to individually
-	/// query each {object, property} pair.
-	///
-	/// NOTES:
-	///
-	/// * The `format` can be specified to limit the response to only the properties of objects
-	///   of the given format. If unspecified, the response will contain the properties of all
-	///   formats.
-	/// * The `depth` can be specified to limit the query to objects at a certain level of a folder
-	///   hierarchy. If unspecified, the response will contain the properties of objects only at the
-	///   top level.
-	pub struct GetObjectPropList {
-		code: 0x9805,
-		visible_parameters: (
-			object: ObjectHandle,
-			@DEFAULT(ObjectFormatCode::from(0))
-			format: Option<ObjectFormatCode>,
-			prop: ObjectPropertyCode,
-			@RAW(true) group: u32,
-			@RAW(true) depth: u32,
-		),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetObjectPropList,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			ObjectPropNotSupported,
-			InvalidObjectHandle,
-			GroupNotSupported,
-			DeviceBusy,
-			ParameterNotSupported,
-			SpecificationByFormatUnsupported,
-			SpecificationByGroupUnsupported,
-			SpecificationByDepthUnsupported,
-			InvalidCodeFormat,
-			InvalidObjectPropCode,
-			InvalidStorageId,
-			StoreNotAvailable,
-		]
-	}
+    // TODO: Optional parameters
+    /// Get a list containing all specified object properties
+    ///
+    /// This is a more optimized way of accessing object properties without needing to individually
+    /// query each {object, property} pair.
+    ///
+    /// NOTES:
+    ///
+    /// * The `format` can be specified to limit the response to only the properties of objects
+    ///   of the given format. If unspecified, the response will contain the properties of all
+    ///   formats.
+    /// * The `depth` can be specified to limit the query to objects at a certain level of a folder
+    ///   hierarchy. If unspecified, the response will contain the properties of objects only at the
+    ///   top level.
+    pub struct GetObjectPropList {
+        code: 0x9805,
+        visible_parameters: (
+            object: ObjectHandle,
+            @DEFAULT(ObjectFormatCode::from(0))
+            format: Option<ObjectFormatCode>,
+            prop: ObjectPropertyCode,
+            @RAW(true) group: u32,
+            @RAW(true) depth: u32,
+        ),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetObjectPropList,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            ObjectPropNotSupported,
+            InvalidObjectHandle,
+            GroupNotSupported,
+            DeviceBusy,
+            ParameterNotSupported,
+            SpecificationByFormatUnsupported,
+            SpecificationByGroupUnsupported,
+            SpecificationByDepthUnsupported,
+            InvalidCodeFormat,
+            InvalidObjectPropCode,
+            InvalidStorageId,
+            StoreNotAvailable,
+        ]
+    }
 
-	/// Set object properties container in the given dataset
-	pub struct SetObjectPropList {
-		code: 0x9806,
-		visible_parameters: (),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SetObjectPropList,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			ObjectPropNotSupported,
-			InvalidObjectPropFormat,
-			InvalidObjectPropValue,
-			InvalidObjectHandle,
-			DeviceBusy,
-			StoreNotAvailable,
-			StoreFull,
-		]
-	}
+    /// Set object properties container in the given dataset
+    pub struct SetObjectPropList {
+        code: 0x9806,
+        visible_parameters: (),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SetObjectPropList,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            ObjectPropNotSupported,
+            InvalidObjectPropFormat,
+            InvalidObjectPropValue,
+            InvalidObjectHandle,
+            DeviceBusy,
+            StoreNotAvailable,
+            StoreFull,
+        ]
+    }
 
-	pub struct GetInterdependentPropDesc {
-		code: 0x9807,
-		visible_parameters: (format: ObjectFormatCode),
-		data_direction: Some(DataDirection::ResponderToInitiator),
-		response: response::GetInterdependentPropDesc,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			DeviceBusy,
-			InvalidCodeFormat,
-		]
-	}
+    pub struct GetInterdependentPropDesc {
+        code: 0x9807,
+        visible_parameters: (format: ObjectFormatCode),
+        data_direction: Some(DataDirection::ResponderToInitiator),
+        response: response::GetInterdependentPropDesc,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            DeviceBusy,
+            InvalidCodeFormat,
+        ]
+    }
 
-	/// Send a modified [`ObjectPropList`] to the responder
-	///
-	/// This is to be used before a [`SendObject`] operation, to inform the responder of the properties
-	/// of the objects to come.
-	///
-	/// An `OK` response indicates that the responder can handle the intended object, and is ready
-	/// for a [`SendObject`] operation.
-	///
-	/// NOTES:
-	///
-	/// * If `destination` is unspecified, the responder will determine the store to palce it in.
-	/// * If `parent` is specified, `destination` **must** also be specified. If it is unspecified,
-	///   the responder will determine the store to place it in.
-	pub struct SendObjectPropList {
-		code: 0x9808,
-		visible_parameters: (
-			@DEFAULT(StorageId::from(0))
-			destination: Option<StorageId>,
-			@DEFAULT(ObjectHandle::from(0))
-			parent: Option<ObjectHandle>,
-			format: ObjectFormatCode,
-			@RAW(true) size_high: u32,
-			@RAW(true) size_low: u32
-		),
-		data_direction: Some(DataDirection::InitiatorToResponder),
-		response: response::SendObjectPropList,
-		valid_error_codes: [
-			OperationNotSupported,
-			SessionNotOpen,
-			InvalidTransactionId,
-			AccessDenied,
-			ObjectPropNotSupported,
-			InvalidObjectPropFormat,
-			InvalidObjectPropValue,
-			InvalidObjectHandle,
-			DeviceBusy,
-			StoreNotAvailable,
-			StoreFull,
-		]
-	}
+    /// Send a modified [`ObjectPropList`] to the responder
+    ///
+    /// This is to be used before a [`SendObject`] operation, to inform the responder of the properties
+    /// of the objects to come.
+    ///
+    /// An `OK` response indicates that the responder can handle the intended object, and is ready
+    /// for a [`SendObject`] operation.
+    ///
+    /// NOTES:
+    ///
+    /// * If `destination` is unspecified, the responder will determine the store to palce it in.
+    /// * If `parent` is specified, `destination` **must** also be specified. If it is unspecified,
+    ///   the responder will determine the store to place it in.
+    pub struct SendObjectPropList {
+        code: 0x9808,
+        visible_parameters: (
+            @DEFAULT(StorageId::from(0))
+            destination: Option<StorageId>,
+            @DEFAULT(ObjectHandle::from(0))
+            parent: Option<ObjectHandle>,
+            format: ObjectFormatCode,
+            @RAW(true) size_high: u32,
+            @RAW(true) size_low: u32
+        ),
+        data_direction: Some(DataDirection::InitiatorToResponder),
+        response: response::SendObjectPropList,
+        valid_error_codes: [
+            OperationNotSupported,
+            SessionNotOpen,
+            InvalidTransactionId,
+            AccessDenied,
+            ObjectPropNotSupported,
+            InvalidObjectPropFormat,
+            InvalidObjectPropValue,
+            InvalidObjectHandle,
+            DeviceBusy,
+            StoreNotAvailable,
+            StoreFull,
+        ]
+    }
 }
 
 /// |                        Value                        |          Description         |
@@ -1236,15 +1236,15 @@ define_operations! {
 pub struct SelfTestType(u16);
 
 impl From<u16> for SelfTestType {
-	fn from(value: u16) -> Self {
-		Self(value)
-	}
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
 impl From<SelfTestType> for Parameter {
-	fn from(value: SelfTestType) -> Self {
-		Parameter::new(value.0 as u32)
-	}
+    fn from(value: SelfTestType) -> Self {
+        Parameter::new(value.0 as u32)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
@@ -1253,13 +1253,13 @@ impl From<SelfTestType> for Parameter {
 pub struct DevicePropCode(u16);
 
 impl From<u16> for DevicePropCode {
-	fn from(value: u16) -> Self {
-		Self(value)
-	}
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
 impl From<DevicePropCode> for Parameter {
-	fn from(value: DevicePropCode) -> Self {
-		Parameter::new(value.0 as u32)
-	}
+    fn from(value: DevicePropCode) -> Self {
+        Parameter::new(value.0 as u32)
+    }
 }
