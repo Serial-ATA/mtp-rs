@@ -15,8 +15,9 @@ use deku::{DekuReader, DekuWriter, deku_derive};
 #[deku_derive(DekuRead, DekuWrite)]
 #[derive(Clone, Eq, PartialEq)]
 #[deku(
-    ctx = "_endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 pub struct Array<T: ArrayEncodable>(
     // Array Definition
@@ -28,8 +29,8 @@ pub struct Array<T: ArrayEncodable>(
     // | ArrayEntry[1]             | Element Size | Special |
     // | ...                       | ...          | ...     |
     // | ArrayEntry[NumElements-1] | Element Size | Special |
-    #[deku(temp, temp_value = "field_1.len() as u32", endian = "little")] u32,
-    #[deku(count = "field_0", endian = "big")] Box<[T]>,
+    #[deku(temp, temp_value = "field_1.len() as u32")] u32,
+    #[deku(count = "field_0")] Box<[T]>,
 );
 
 impl<T> Debug for Array<T>

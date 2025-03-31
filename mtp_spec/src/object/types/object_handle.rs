@@ -17,11 +17,20 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 /// re-enumerated if object handles are needed
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(endian = "little")]
 pub struct ObjectHandle(u32);
 
 impl ObjectHandle {
     pub const NONE: Self = ObjectHandle(0);
+
+    /// In some contexts, we want to convert empty handles to `None` when parsing.
+    pub(crate) fn parse_optional(handle: ObjectHandle) -> Result<Option<ObjectHandle>, DekuError> {
+        if handle.0 == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(handle))
+        }
+    }
 }
 
 impl From<u32> for ObjectHandle {
@@ -39,12 +48,12 @@ impl From<ObjectHandle> for Parameter {
 impl<'a> DekuReader<'a, Endian> for ObjectHandle {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
-        ctx: Endian,
+        _: Endian,
     ) -> Result<Self, DekuError>
     where
         Self: Sized,
     {
-        u32::from_reader_with_ctx(reader, ctx).map(ObjectHandle)
+        u32::from_reader_with_ctx(reader, Endian::Little).map(ObjectHandle)
     }
 }
 
@@ -52,9 +61,9 @@ impl DekuWriter<Endian> for ObjectHandle {
     fn to_writer<W: Write + Seek>(
         &self,
         writer: &mut Writer<W>,
-        ctx: Endian,
+        _: Endian,
     ) -> Result<(), DekuError> {
-        self.0.to_writer(writer, ctx)
+        self.0.to_writer(writer, Endian::Little)
     }
 }
 

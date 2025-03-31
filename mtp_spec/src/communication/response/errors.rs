@@ -115,18 +115,18 @@ define_error_response! {
     [[error("The storage ID is not valid")]]
     pub struct InvalidStorageId {
         code: 0x2008,
-        parameters: (storage_id: StorageId),
     }
 }
 
 define_error_response! {
-    /// Indicates that one or more [`ObjectHandle`]s sent as parameters of an operation do not refer
-    /// to actual Objects on the device. The list of valid [`ObjectHandle`]s should be requested
-    /// again, along with any appropriate ObjectInfo datasets.
+    /// Indicates that one or more [`ObjectHandle`]s sent in the operation do not refer
+    /// to actual Objects on the device.
+    ///
+    /// The list of valid [`ObjectHandle`]s should be requested again, along with any appropriate
+    /// [`ObjectInfo`] datasets.
     [[error("The object handle is not valid")]]
     pub struct InvalidObjectHandle {
         code: 0x2009,
-        parameters: (object_handle: ObjectHandle),
     }
 }
 

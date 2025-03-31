@@ -8,6 +8,7 @@ use crate::object::types::properties::ObjectPropertyCode;
 use crate::object::types::{Array, ObjectHandle};
 
 use alloc::vec::Vec;
+use deku::ctx::Endian;
 
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
@@ -52,6 +53,11 @@ macro_rules! define_response {
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
 		#[allow(missing_docs)]
+		#[deku(
+			endian = "_endian",
+			ctx = "_endian: deku::ctx::Endian",
+			ctx_default = "deku::ctx::Endian::Big"
+		)]
 		pub struct $name $($generics)* $($where_clause)* {
 			$(
 			$(#[$deku_meta])*
@@ -76,6 +82,11 @@ pub(super) use {define_response, replace_expr};
 
 /// Empty response, device has nothing to provide
 #[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
+#[deku(
+    endian = "_endian",
+    ctx = "_endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub struct Empty;
 
 impl ResponseFlags for Empty {
@@ -200,7 +211,7 @@ define_response! {
 
 define_response! {
     /// Response to the [`GetObjectPropDesc`] operation.
-    pub struct GetObjectPropDesc[<T>][where T: for<'a> deku::DekuReader<'a, ()>] {
+    pub struct GetObjectPropDesc[<T>][where T: for<'a> deku::DekuReader<'a, Endian>] {
         data: T,
     }
 }

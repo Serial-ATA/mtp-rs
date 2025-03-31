@@ -6,9 +6,11 @@ use crate::object::types::ArrayEncodable;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
+use deku::ctx::Endian;
 use deku::no_std_io::Cursor;
 use deku::reader::Reader;
-use deku::{DekuContainerRead, DekuContainerWrite, DekuReader, DekuWrite};
+use deku::writer::Writer;
+use deku::{DekuReader, DekuWrite, DekuWriter};
 
 mod impls;
 pub use impls::*;
@@ -26,11 +28,14 @@ pub struct SerializedOperation<'a> {
 
 impl SerializedOperation<'_> {
     /// Encode the operation parameters for transport
-    pub fn encode_parameters(&self) -> Result<Vec<u8>> {
+    pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(size_of_val(self.parameters));
+
+        let mut writer = Writer::new(Cursor::new(&mut buf));
         for param in self.parameters.iter() {
-            buf.extend(param.to_bytes()?);
+            param.to_writer(&mut writer, endian)?;
         }
+
         Ok(buf)
     }
 
@@ -59,12 +64,12 @@ where
     const DATA_DIRECTION: Option<DataDirection>;
 
     /// The response type for this operation, see [`response`](crate::communication::response)
-    type Response: Clone + Debug + Eq + PartialEq + ResponseFlags + for<'b> DekuContainerRead<'b>;
+    type Response: Clone + Debug + Eq + PartialEq + ResponseFlags + for<'b> DekuReader<'b, Endian>;
 
     /// The error type for this operation
     ///
     /// This comes from the responder, see [`response::errors`](crate::communication::response::errors)
-    type Error: for<'b> DekuReader<'b, u16>;
+    type Error: for<'b> DekuReader<'b, (Endian, u16)>;
 
     /// Encode the operation for transport
     fn encode(&self) -> SerializedOperation<'_> {
@@ -78,8 +83,12 @@ where
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
     fn decode_data(bytes: &[u8]) -> Result<Self::Response> {
-        match DekuContainerRead::from_bytes((bytes, 0)) {
-            Ok((_remaining, response)) => Ok(response),
+        // TODO: Endian needs to be provided from some global context
+        match Self::Response::from_reader_with_ctx(
+            &mut Reader::new(Cursor::new(bytes)),
+            Endian::Little,
+        ) {
+            Ok(response) => Ok(response),
             Err(err) => Err(err.into()),
         }
     }
@@ -91,8 +100,12 @@ where
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
     fn decode_err(bytes: &[u8], code: u16) -> Result<Self::Error> {
-        Self::Error::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), code)
-            .map_err(Into::into)
+        // TODO: Endian needs to be provided from some global context
+        Self::Error::from_reader_with_ctx(
+            &mut Reader::new(Cursor::new(bytes)),
+            (Endian::Little, code),
+        )
+        .map_err(Into::into)
     }
 }
 

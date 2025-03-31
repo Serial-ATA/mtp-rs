@@ -4,6 +4,7 @@ use crate::usb::UsbDeviceFlags;
 use std::task::Poll;
 use std::time::Duration;
 
+use deku::ctx::Endian;
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
 use futures::Stream;
 use mtp_spec::communication::event::Event;
@@ -141,13 +142,13 @@ impl PtpIo for DeviceHandle {
         let command_buf;
         {
             let op = operation.encode();
-            log::debug!("Sending operation of type: {}", op.code());
+            log::debug!("Sending operation of type: {:#X}", op.code());
 
             let command_container = UsbContainer::new(
                 ContainerType::Command,
                 op.code(),
                 op.transaction_id(),
-                op.encode_parameters()?,
+                op.encode_parameters(Endian::Little)?, /* TODO: Needs to be provided from some global context */
             );
             command_buf = command_container
                 .to_bytes()
@@ -177,6 +178,13 @@ impl PtpIo for DeviceHandle {
             Some(DataDirection::ResponderToInitiator) => {
                 let data_phase =
                     get_data_from_responder::<<O as DynOperation>::Response>(self).await?;
+
+                // Error was returned
+                if data_phase.type_ == ContainerType::Response {
+                    let err = O::decode_err(&data_phase.payload, data_phase.code)?;
+                    return Ok(Response::Err(err));
+                }
+
                 responder_data = Some(data_phase.payload);
             },
             // No data phase
@@ -267,8 +275,12 @@ async fn get_data_from_responder<T: ResponseFlags>(
     let (_, mut data_phase) =
         UsbContainer::from_bytes((&data_phase_raw, 0)).map_err(MtpError::from)?;
 
-    if data_phase.type_ != ContainerType::Data {
-        todo!("Error, responder didn't provide data")
+    if data_phase.type_ == ContainerType::Response {
+        if data_phase.code == CODE_OK {
+            todo!("Error, responder didn't provide data")
+        }
+
+        return Ok(data_phase);
     }
 
     // From the MTP 1.1 spec appendix: Splitting the Header and Data during the Data Phase

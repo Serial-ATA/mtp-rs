@@ -6,6 +6,7 @@ use alloc::string::ToString;
 use core::fmt::Display;
 use core::str::FromStr;
 
+use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::reader::Reader;
 use deku::writer::Writer;
@@ -34,6 +35,20 @@ pub struct DateTime {
     pub minute: Option<u8>,
     pub second: Option<u8>,
     pub decisecond: Option<u8>,
+}
+
+impl DateTime {
+    /// In many cases, empty date time strings are valid.
+    pub(crate) fn parse_optional(string: PtpString) -> Result<Option<DateTime>, DekuError> {
+        if string.is_empty() {
+            return Ok(None);
+        }
+
+        match Self::try_from(string) {
+            Ok(datetime) => Ok(Some(datetime)),
+            Err(e) => Err(DekuError::Parse(e.to_string().into())),
+        }
+    }
 }
 
 impl TryFrom<PtpString> for DateTime {
@@ -203,7 +218,16 @@ impl DekuReader<'_, ()> for DateTime {
     where
         R: Read + Seek,
     {
-        PtpString::from_reader_with_ctx(reader, ()).and_then(|s| {
+        DateTime::from_reader_with_ctx(reader, Endian::Big)
+    }
+}
+
+impl DekuReader<'_, Endian> for DateTime {
+    fn from_reader_with_ctx<R>(reader: &mut Reader<R>, ctx: Endian) -> Result<Self, DekuError>
+    where
+        R: Read + Seek,
+    {
+        PtpString::from_reader_with_ctx(reader, ctx).and_then(|s| {
             DateTime::try_from(s).map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))
         })
     }
@@ -214,13 +238,22 @@ impl DekuWriter for DateTime {
     where
         W: Write + Seek,
     {
+        DateTime::to_writer(self, writer, Endian::Big)
+    }
+}
+
+impl DekuWriter<Endian> for DateTime {
+    fn to_writer<W>(&self, writer: &mut Writer<W>, ctx: Endian) -> Result<(), DekuError>
+    where
+        W: Write + Seek,
+    {
         if !self.validate() {
             return Err(DekuError::InvalidParam(Cow::from("DateTime is invalid")));
         }
 
         let ptp_str = PtpString::try_from(self.to_string())
             .map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))?;
-        ptp_str.to_writer(writer, ())
+        ptp_str.to_writer(writer, ctx)
     }
 }
 

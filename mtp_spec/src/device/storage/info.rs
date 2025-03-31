@@ -6,7 +6,12 @@ use deku::DekuRead;
 /// The physical nature of a storage, as described in [`StorageInfo`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
-#[deku(id_type = "u16", id_endian = "little")]
+#[deku(
+    id_type = "u16",
+    id_endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[allow(missing_docs)]
 pub enum StorageType {
     Undefined = 0x0000,
@@ -34,7 +39,12 @@ impl From<u16> for StorageType {
 /// The logical file system in use on a storage, as described in [`StorageInfo`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
-#[deku(id_type = "u16", id_endian = "little")]
+#[deku(
+    id_type = "u16",
+    id_endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[allow(missing_docs)]
 pub enum FilesystemType {
     Undefined = 0x0000,
@@ -58,7 +68,12 @@ impl From<FilesystemType> for Parameter {
 /// Globally-applicable write-protection affecting a storage, as described in [`StorageInfo`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
-#[deku(id_type = "u16", id_endian = "little")]
+#[deku(
+    id_type = "u16",
+    id_endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[allow(missing_docs)]
 pub enum AccessCapability {
     ReadWrite = 0x0000,
@@ -81,6 +96,11 @@ impl From<u16> for AccessCapability {
 
 /// Description of a storage contained in a device
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub struct StorageInfo {
     /// The physical nature of the storage
     pub storage_type: StorageType,
@@ -91,7 +111,6 @@ pub struct StorageInfo {
     /// The maximum capacity of the storage (**in bytes**).
     ///
     /// NOTE: This field is optional if the access capability is not [`ReadWrite`](AccessCapability::ReadWrite).
-    #[deku(endian = "little")]
     pub max_capacity: u64,
     /// How much space remains to be written to on the drive (**in bytes**).
     ///
@@ -101,14 +120,13 @@ pub struct StorageInfo {
     /// * If the access capability is [`ReadWrite`](AccessCapability::ReadWrite), but this field doesn't apply,
     ///   then its value will be [`u64::MAX`].
     /// * The `free_space_in_objects` field may be used by the responder instead.
-    #[deku(endian = "little")]
     pub free_space: u64,
     /// The number of additional objects that can be written to this storage.
     ///
     /// NOTE: If the field is unused, its value will be [`u32::MAX`].
-    #[deku(endian = "little")]
     pub free_space_in_objects: u32,
     /// A human-readable string identifying this storage, such as "256Mb SD Card" or "20Gb HDD"
+    #[deku(map = "PtpString::parse_optional")]
     pub storage_description: Option<PtpString>,
     /// A unique, programmatically relevant volume identifier, such as a serial number.
     pub volume_identifier: PtpString,

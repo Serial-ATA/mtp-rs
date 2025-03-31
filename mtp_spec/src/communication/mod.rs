@@ -18,7 +18,11 @@ pub mod response;
 
 /// An encoded operation parameter
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "little")]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(transparent)]
 pub struct Parameter(u32);
 
@@ -52,7 +56,11 @@ impl ParameterPriv {
 /// Operations can exist outside of an active session, in which case
 /// [`SessionId::NONE`] is valid.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(transparent)]
 pub struct SessionId(u32);
 
@@ -109,7 +117,11 @@ impl From<SessionId> for Parameter {
 /// Operations can exist outside of an active session, in which case
 /// [`TransactionId::NONE`] is valid.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(transparent)]
 pub struct TransactionId(u32);
 

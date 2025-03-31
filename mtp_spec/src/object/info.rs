@@ -1,17 +1,24 @@
 use crate::communication::Parameter;
 use crate::device::storage::id::StorageId;
-use crate::object::types::{Association, DateTime, ObjectFormatCode, ObjectHandle, PtpString};
+use crate::object::types::{
+    Association, AssociationType, DateTime, ObjectFormatCode, ObjectHandle, PtpString,
+};
 
-use deku::{DekuRead, DekuWrite};
+use alloc::vec::Vec;
+
+use deku::ctx::{Endian, Limit};
+use deku::no_std_io::{Cursor, Read, Seek, SeekFrom};
+use deku::prelude::Reader;
+use deku::{DekuError, DekuRead, DekuReader, DekuWrite};
 
 /// The write-protection status of an object
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[repr(u16)]
 #[deku(
     id_type = "u16",
-    endian = "big",
-    ctx = "_endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 pub enum ProtectionStatus {
     /// This object has no protection; it may be modified or deleted arbitrarily and its properties may be modified freely.
@@ -59,27 +66,49 @@ impl From<ProtectionStatus> for Parameter {
 
 /// PTP-compatible thumbnail information for image objects
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub struct Thumbnail {
     /// The format of the image
-    format: ObjectFormatCode,
+    pub format: ObjectFormatCode,
     /// The size of the data component of the object in bytes.
     ///
     /// If the object is larger than `2^32` bytes in size (4GB), this field shall contain a value
     /// of [`u32::MAX`].
-    compressed_size: u32,
+    pub compressed_size: u32,
     /// The width in pixels
-    #[deku(endian = "big")]
     pub width: u32,
     /// The height in pixels
-    #[deku(endian = "big")]
     pub height: u32,
     /// The bit depth of the image
-    #[deku(endian = "big")]
     pub bit_depth: u32,
 }
 
+impl Thumbnail {
+    fn parse_optional(thumbnail: Thumbnail) -> Result<Option<Thumbnail>, DekuError> {
+        if thumbnail.format == ObjectFormatCode::Unknown(0)
+            && thumbnail.compressed_size == 0
+            && thumbnail.width == 0
+            && thumbnail.height == 0
+            && thumbnail.bit_depth == 0
+        {
+            Ok(None)
+        } else {
+            Ok(Some(thumbnail))
+        }
+    }
+}
+
 /// Information about an object residing on the responder
-#[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[derive(Clone, Debug, Eq, PartialEq, DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub struct ObjectInfo {
     /// The storage in which this object is located
     pub storage_id: StorageId,
@@ -91,25 +120,212 @@ pub struct ObjectInfo {
     ///
     /// If the object is larger than `2^32` bytes in size (4GB), this field shall contain a value
     /// of [`u32::MAX`].
-    #[deku(endian = "big")]
     pub compressed_size: u32,
     /// PTP-compatible thumbnail information for image objects
     ///
     /// This field will most likely be unused by responders.
     pub thumbnail: Option<Thumbnail>,
     /// The parent of this object, if it exists in a hierarchy
-    pub parent_object: ObjectHandle,
-    /// The association of this object, if it is an association
-    pub association: Association,
+    #[deku(map = "ObjectHandle::parse_optional")]
+    pub parent_object: Option<ObjectHandle>,
+    /// The association type, if this is an association
+    pub association_type: Option<AssociationType>,
     /// Unused in MTP, but required by PTP
-    #[deku(endian = "big")]
     pub sequence_number: u32,
     /// The file name of this object, without any directory or file system information.
     pub filename: PtpString,
     /// The creation date of this object
-    pub date_created: DateTime,
+    #[deku(map = "DateTime::parse_optional")]
+    pub date_created: Option<DateTime>,
     /// The last modification date of this object
-    pub date_modified: DateTime,
+    #[deku(map = "DateTime::parse_optional")]
+    pub date_modified: Option<DateTime>,
     /// Keywords associated with the object, separated by ' '
     pub keywords: PtpString,
+}
+
+impl DekuReader<'_, ()> for ObjectInfo {
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        _: (),
+    ) -> Result<Self, DekuError> {
+        Self::from_reader_with_ctx(reader, Endian::Big)
+    }
+}
+
+impl DekuReader<'_, Endian> for ObjectInfo {
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Endian,
+    ) -> Result<Self, DekuError>
+    where
+        Self: Sized,
+    {
+        // The size of the object info all the way up to (not including) the file name field
+        const OBJECT_INFO_SIZE_UP_TO_FILE_NAME: usize = size_of::<StorageId>()
+            + size_of::<ObjectFormatCode>()
+            + size_of::<ProtectionStatus>()
+            + size_of::<u32>()
+            + size_of::<Thumbnail>()
+            + size_of::<ObjectHandle>()
+            + size_of::<Association>()
+            + size_of::<u32>();
+
+        let storage_id = StorageId::from_reader_with_ctx(reader, ctx)?;
+        let object_format = ObjectFormatCode::from_reader_with_ctx(reader, ctx)?;
+        let protection_status = ProtectionStatus::from_reader_with_ctx(reader, ctx)?;
+        let compressed_size = u32::from_reader_with_ctx(reader, ctx)?;
+
+        // Bytes read up to this point
+        const BYTES_READ: usize = size_of::<StorageId>()
+            + size_of::<ObjectFormatCode>()
+            + size_of::<ProtectionStatus>()
+            + size_of::<u32>();
+
+        // The offset of the `filename` field from our current position
+        const FILE_NAME_FROM_OFFSET: usize = OBJECT_INFO_SIZE_UP_TO_FILE_NAME - BYTES_READ;
+
+        // Read the rest of the buffer
+        let rest = <Vec<u8>>::from_reader_with_ctx(reader, (Limit::end(), ()))?;
+
+        let mut is_64_bit_compressed_size = false;
+        if rest[FILE_NAME_FROM_OFFSET] == 0 && rest[FILE_NAME_FROM_OFFSET + 4] != 0 {
+            // Samsung bug. Need to discard the next 4 bytes, as a 64 bit `compressed_size` was written.
+            is_64_bit_compressed_size = true;
+        }
+
+        // Now continue parsing as normal...
+
+        let mut reader = Reader::new(Cursor::new(rest));
+        if is_64_bit_compressed_size {
+            log::warn!("Received a 64 bit compressed size, discarding the next 4 bytes");
+            dbg!("AEFE");
+            reader
+                .seek(SeekFrom::Current(4))
+                .map_err(|e| DekuError::Io(e.kind()))?;
+        }
+
+        let thumbnail =
+            Thumbnail::parse_optional(Thumbnail::from_reader_with_ctx(&mut reader, ctx)?)?;
+        let parent_object =
+            ObjectHandle::parse_optional(ObjectHandle::from_reader_with_ctx(&mut reader, ctx)?)?;
+        let association_type = AssociationType::from_reader_with_ctx(&mut reader, ctx)?;
+
+        let association_type_opt;
+        if object_format == ObjectFormatCode::Association {
+            association_type_opt = Some(association_type);
+        } else {
+            association_type_opt = None;
+        }
+
+        let sequence_number = u32::from_reader_with_ctx(&mut reader, ctx)?;
+        let filename = PtpString::from_reader_with_ctx(&mut reader, ctx)?;
+        let date_created =
+            DateTime::parse_optional(PtpString::from_reader_with_ctx(&mut reader, ctx)?)?;
+        let date_modified =
+            DateTime::parse_optional(PtpString::from_reader_with_ctx(&mut reader, ctx)?)?;
+        let keywords = PtpString::from_reader_with_ctx(&mut reader, ctx)?;
+
+        Ok(ObjectInfo {
+            storage_id,
+            object_format,
+            protection_status,
+            compressed_size,
+            thumbnail,
+            parent_object,
+            association_type: association_type_opt,
+            sequence_number,
+            filename,
+            date_created,
+            date_modified,
+            keywords,
+        })
+    }
+}
+
+#[test]
+#[rustfmt::skip]
+fn oi() {
+    let t: [u8; 128] = [
+		// Storage ID
+        0x1, 0x0, 0x2, 0x0,
+		// Format code
+		0x1, 0x30,
+		// Protection status
+		0x0, 0x0,
+		
+		// Compressed (maybe?)
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		
+		// Thumb
+		0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+		
+		// Parent
+		0x0, 0x0, 0x0, 0x0,
+		
+		// Association type
+		0x2, 0x0,
+		
+		// Sequence number
+		0x0, 0x0, 0x1, 0x0,
+		
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x6F,
+        0x0, 0x62, 0x0, 0x62, 0x0, 0x0, 0x0, 0x10, 0x32, 0x0, 0x30, 0x0, 0x32, 0x0, 0x33, 0x0,
+        0x30, 0x0, 0x33, 0x0, 0x30, 0x0, 0x35, 0x0, 0x54, 0x0, 0x31, 0x0, 0x33, 0x0, 0x30, 0x0,
+        0x34, 0x0, 0x30, 0x0, 0x39, 0x0, 0x0, 0x0, 0x10, 0x32, 0x0, 0x30, 0x0, 0x32, 0x0, 0x33,
+        0x0, 0x30, 0x0, 0x33, 0x0, 0x30, 0x0, 0x35, 0x0, 0x54, 0x0, 0x31, 0x0, 0x33, 0x0, 0x30,
+        0x0, 0x34, 0x0, 0x30, 0x0, 0x39, 0x0, 0x0, 0x0, 0x0,
+    ];
+	
+	let t: [u8; 128] = [
+		// Storage ID
+        0x1, 0x0, 0x2, 0x0,
+		// Format code
+		0x1, 0x30,
+		// Protection status
+		0x0, 0x0,
+		
+		// Compressed (maybe?)
+		0x0, 0x0, 0x0, 0x0,
+		
+		// Thumb
+		0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0,
+			
+		// Parent
+		0x0, 0x0, 0x0, 0x0,
+		
+		// Association type
+		0x0, 0x0,
+		
+		// Sequence number
+		0x0, 0x0, 0x2, 0x0,
+		
+		// Name
+		0x0,
+		// Date
+		0x0,
+		// Date
+		0x1, 0x0,
+		
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x6F,
+        0x0, 0x62, 0x0, 0x62, 0x0, 0x0, 0x0, 0x10, 0x32, 0x0, 0x30, 0x0, 0x32, 0x0, 0x33, 0x0,
+        0x30, 0x0, 0x33, 0x0, 0x30, 0x0, 0x35, 0x0, 0x54, 0x0, 0x31, 0x0, 0x33, 0x0, 0x30, 0x0,
+        0x34, 0x0, 0x30, 0x0, 0x39, 0x0, 0x0, 0x0, 0x10, 0x32, 0x0, 0x30, 0x0, 0x32, 0x0, 0x33,
+        0x0, 0x30, 0x0, 0x33, 0x0, 0x30, 0x0, 0x35, 0x0, 0x54, 0x0, 0x31, 0x0, 0x33, 0x0, 0x30,
+        0x0, 0x34, 0x0, 0x30, 0x0, 0x39, 0x0, 0x0, 0x0, 0x0,
+    ];
+
+    dbg!(ObjectInfo::from_reader_with_ctx(
+        &mut Reader::new(Cursor::new(t)),
+        Endian::Little
+    ))
+    .unwrap();
 }

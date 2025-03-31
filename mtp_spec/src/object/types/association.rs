@@ -3,7 +3,12 @@ use alloc::format;
 use deku::{DekuRead, DekuWrite};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(id_type = "u32", endian = "little")]
+#[deku(
+    id_type = "u32",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(u32)]
 pub enum FolderType {
     #[deku(id = "0x0000")]
@@ -17,9 +22,9 @@ pub enum FolderType {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
     id_type = "u32",
-    endian = "little",
-    ctx = "_endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 #[repr(u16)]
 pub enum AssociationType {
@@ -51,61 +56,36 @@ pub enum AssociationType {
 ///
 /// Note that all association types have an associated descriptor, which will be unused in most cases.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(id_type = "u16")]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub enum Association {
     #[deku(id = "0x0000")]
-    Undefined {
-        #[deku(endian = "little")]
-        undefined: u32,
-    },
+    Undefined { undefined: u32 },
     #[deku(id = "0x0001")]
     GenericFolder { ty: FolderType },
     #[deku(id = "0x0002")]
-    Album {
-        #[deku(endian = "little")]
-        reserved: u32,
-    },
+    Album { reserved: u32 },
     #[deku(id = "0x0003")]
-    TimeSequence {
-        #[deku(endian = "little")]
-        default_playback_delta: u32,
-    },
+    TimeSequence { default_playback_delta: u32 },
     #[deku(id = "0x0004")]
-    HorizontalPanoramic {
-        #[deku(endian = "little")]
-        unused: u32,
-    },
+    HorizontalPanoramic { unused: u32 },
     #[deku(id = "0x0005")]
-    VerticalPanoramic {
-        #[deku(endian = "little")]
-        images_per_row: u32,
-    },
+    VerticalPanoramic { images_per_row: u32 },
     #[deku(id = "0x0006")]
-    Panoramic2d {
-        #[deku(endian = "little")]
-        undefined: u32,
-    },
+    Panoramic2d { undefined: u32 },
     #[deku(id = "0x0007")]
-    AncillaryData {
-        #[deku(endian = "little")]
-        unused: u32,
-    },
+    AncillaryData { unused: u32 },
     /// All other values with bit 15 set to 0
     #[deku(id_pat = "t if t & 0x8000 == 0")]
-    Reserved {
-        #[deku(endian = "little")]
-        unused: u32,
-    },
+    Reserved { unused: u32 },
     /// All other values with bit 15 set to 1 and bit 14 set to 0
     #[deku(id_pat = "t if t & 0xC000 == 0x8000")]
-    VendorDefined {
-        #[deku(endian = "little")]
-        undefined: u32,
-    },
+    VendorDefined { undefined: u32 },
     /// All other values with bit 15 set to 1 and bit 14 set to 1
     #[deku(id_pat = "_")]
-    Mtp {
-        #[deku(endian = "little")]
-        undefined: u32,
-    },
+    Mtp { undefined: u32 },
 }

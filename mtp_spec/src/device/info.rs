@@ -6,7 +6,12 @@ use deku::{DekuRead, DekuWrite};
 
 /// Modes allow the device to express different states with different capabilities.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(id_type = "u16", endian = "big")]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(u16)]
 #[allow(missing_docs)]
 pub enum FunctionalMode {
@@ -27,6 +32,11 @@ pub enum FunctionalMode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub struct DeviceInfo {
     /// This identifies the PTP version this device can support in hundredths. For MTP devices
     /// implemented under this specification, this shall contain the value `100` (representing 1.00).
@@ -47,10 +57,13 @@ pub struct DeviceInfo {
     pub capture_formats: Array<ObjectFormatCode>,
     pub playback_formats: Array<ObjectFormatCode>,
     /// Optional human-readable string that identifies the manufacturer of the device.
+    #[deku(map = "PtpString::parse_optional")]
     pub manufacturer: Option<PtpString>,
     /// Optional human-readable string that identifies the model of the device.
+    #[deku(map = "PtpString::parse_optional")]
     pub model: Option<PtpString>,
     /// Optional human-readable string that identifies the device's firmware version in a vendor-specific format.
+    #[deku(map = "PtpString::parse_optional")]
     pub device_version: Option<PtpString>,
     pub serial_number: PtpString,
 }

@@ -242,7 +242,11 @@ macro_rules! parse_operations {
 		paste::paste! {
 			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
 			#[derive(Debug, deku::DekuRead)]
-			#[deku(ctx = "error_code: u16", id = "error_code", id_endian = "big")]
+			#[deku(
+				ctx = "endian: deku::ctx::Endian, error_code: u16",
+				id = "error_code",
+				id_endian = "endian",
+			)]
 			#[allow(missing_docs)]
 			pub enum [<$name Error>] {
 				$(
@@ -1231,7 +1235,11 @@ define_operations! {
 /// | All values with Bit 15 set to 1 and Bit 14 set to 0 | MTP vendor extension         |
 /// | All values with Bit 15 set to 1 and Bit 14 set to 1 | Reserved MTP                 |
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(transparent)]
 pub struct SelfTestType(u16);
 
@@ -1248,7 +1256,11 @@ impl From<SelfTestType> for Parameter {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(endian = "big")]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[repr(transparent)]
 pub struct DevicePropCode(u16);
 

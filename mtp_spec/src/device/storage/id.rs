@@ -4,9 +4,9 @@ use crate::object::types::ArrayEncodable;
 /// A storage identifier
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, deku::DekuRead, deku::DekuWrite)]
 #[deku(
-    endian = "little",
-    ctx = "_endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 pub struct StorageId(u32);
 

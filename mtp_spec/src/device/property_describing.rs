@@ -8,6 +8,11 @@ use deku::{DekuRead, DekuWrite, deku_derive};
 // TODO: Ask if this is necessary
 /// Wrapper around a [`PropertyValue`], used for standalone decoding
 #[deku_derive(DekuRead)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyValueWrapper {
     #[deku(temp)]
@@ -17,30 +22,35 @@ pub struct PropertyValueWrapper {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(id = "data_type", id_endian = "big", ctx = "data_type: u16")]
+#[deku(
+    id = "data_type",
+    id_endian = "endian",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian, data_type: u16"
+)]
 pub enum PropertyValue {
     #[deku(id = "0x0000")]
     Undefined,
     #[deku(id = "0x0001")]
-    I8(#[deku(endian = "big")] i8),
+    I8(i8),
     #[deku(id = "0x0002")]
-    U8(#[deku(endian = "big")] u8),
+    U8(u8),
     #[deku(id = "0x0003")]
-    I16(#[deku(endian = "big")] i16),
+    I16(i16),
     #[deku(id = "0x0004")]
-    U16(#[deku(endian = "big")] u16),
+    U16(u16),
     #[deku(id = "0x0005")]
-    I32(#[deku(endian = "big")] i32),
+    I32(i32),
     #[deku(id = "0x0006")]
-    U32(#[deku(endian = "big")] u32),
+    U32(u32),
     #[deku(id = "0x0007")]
-    I64(#[deku(endian = "big")] i64),
+    I64(i64),
     #[deku(id = "0x0008")]
-    U64(#[deku(endian = "big")] u64),
+    U64(u64),
     #[deku(id = "0x0009")]
-    I128(#[deku(endian = "big")] i128),
+    I128(i128),
     #[deku(id = "0x000A")]
-    U128(#[deku(endian = "big")] u128),
+    U128(u128),
     #[deku(id = "0x4001")]
     I8Array(Array<i8>),
     #[deku(id = "0x4002")]
@@ -69,7 +79,12 @@ pub enum PropertyValue {
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
-#[deku(id_type = "u8", endian = "big")]
+#[deku(
+    id_type = "u8",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 pub enum GetSet {
     #[deku(id = "0x00")]
     ReadOnly = 0x00,
@@ -78,42 +93,48 @@ pub enum GetSet {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(ctx = "data_type: u16")]
+#[deku(ctx = "endian: deku::ctx::Endian, data_type: u16")]
 pub struct RangeForm {
-    #[deku(ctx = "data_type")]
+    #[deku(ctx = "endian, data_type")]
     minimum: PropertyValue,
-    #[deku(ctx = "data_type")]
+    #[deku(ctx = "endian, data_type")]
     maximum: PropertyValue,
-    #[deku(ctx = "data_type")]
+    #[deku(ctx = "endian, data_type")]
     step_size: PropertyValue,
 }
 
 #[deku_derive(DekuRead)]
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[deku(ctx = "data_type: u16")]
+#[deku(ctx = "endian: deku::ctx::Endian, data_type: u16")]
 pub struct EnumerationForm {
-    #[deku(temp, endian = "big")]
+    #[deku(temp)]
     number_of_values: u16,
-    #[deku(count = "number_of_values", ctx = "data_type")]
+    #[deku(count = "number_of_values", ctx = "endian, data_type")]
     values: Vec<PropertyValue>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead)]
-#[deku(id = "form", ctx = "form: u8, data_type: u16")]
+#[deku(
+    id = "form",
+    ctx = "endian: deku::ctx::Endian, form: u8, data_type: u16"
+)]
 pub enum Form {
     #[deku(id = "0x01")]
-    Range(#[deku(ctx = "data_type")] RangeForm),
+    Range(#[deku(ctx = "endian, data_type")] RangeForm),
     #[deku(id = "0x02")]
-    Enumeration(#[deku(ctx = "data_type")] EnumerationForm),
+    Enumeration(#[deku(ctx = "endian, data_type")] EnumerationForm),
 }
 
 #[deku_derive(DekuRead)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DevicePropDesc {
     /// A unique code that identifies the property.
-    #[deku(endian = "big")]
     pub device_property_code: u16,
-    #[deku(temp, endian = "big")]
     data_type: u16,
     /// Indicates whether the property is read-only or read-write.
     pub get_set: GetSet,

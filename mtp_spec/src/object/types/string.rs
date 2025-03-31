@@ -10,7 +10,7 @@ use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::reader::Reader;
 use deku::writer::Writer;
-use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
+use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 
 /// The string type of PTP (and thus MTP)
 ///
@@ -24,16 +24,28 @@ use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///       maximum length.
 #[derive(Default, Clone, Eq, PartialEq, Hash, DekuRead, DekuWrite)]
 #[deku(
-    ctx = "_endian: deku::ctx::Endian",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Little"
 )]
 pub struct PtpString(
     #[deku(
-        reader = "ptp_string_read(deku::reader)",
+        reader = "ptp_string_read(deku::reader, endian)",
         writer = "ptp_string_write(&self.0, deku::writer)"
     )]
     Vec<u16>,
 );
+
+impl PtpString {
+    /// In some contexts, empty strings are used to signify no value. Convert them to `Option`s.
+    pub fn parse_optional(string: PtpString) -> Result<Option<PtpString>, DekuError> {
+        if string.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(string))
+        }
+    }
+}
 
 impl TryFrom<String> for PtpString {
     type Error = MtpError;
@@ -171,8 +183,9 @@ impl Debug for PtpString {
 /// | String Characters | Variable     | Unicode null-terminated string |
 fn ptp_string_read<R: Read + Seek>(
     reader: &mut Reader<R>,
+    endian: Endian,
 ) -> core::result::Result<Vec<u16>, deku::DekuError> {
-    let num_chars = u8::from_reader_with_ctx(reader, ())?;
+    let num_chars = u8::from_reader_with_ctx(reader, endian)?;
     if num_chars == 0 {
         return Ok(Vec::new());
     }
@@ -180,10 +193,10 @@ fn ptp_string_read<R: Read + Seek>(
     let mut string_characters = Vec::with_capacity(num_chars as usize);
 
     for _ in 0..(num_chars - 1) {
-        string_characters.push(u16::from_reader_with_ctx(reader, Endian::Little)?);
+        string_characters.push(u16::from_reader_with_ctx(reader, endian)?);
     }
 
-    let terminator = u16::from_reader_with_ctx(reader, Endian::Little)?;
+    let terminator = u16::from_reader_with_ctx(reader, endian)?;
     if terminator != 0 {
         return Err(deku::DekuError::Assertion(Cow::Owned(format!(
             "Expected null terminator, got 0x{:04X} (is the string the correct length?)",

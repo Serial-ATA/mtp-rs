@@ -1,11 +1,6 @@
 use crate::communication::Parameter;
 use crate::object::types::ArrayEncodable;
 
-use deku::ctx::Endian;
-use deku::no_std_io::{Read, Seek, Write};
-use deku::prelude::{Reader, Writer};
-use deku::{DekuError, DekuReader, DekuWriter};
-
 macro_rules! format_codes {
 	(
 		$(
@@ -32,7 +27,12 @@ macro_rules! format_codes {
 			deku::DekuWrite,
 		)]
 		#[allow(missing_docs)]
-		#[deku(id_type = "u16", id_endian = "little")]
+		#[deku(
+			id_type = "u16",
+			id_endian = "endian",
+			ctx = "endian: deku::ctx::Endian",
+    		ctx_default = "deku::ctx::Endian::Big"
+		)]
 		pub enum ObjectFormatCode {
 			$(
 				$(#[$meta])*
@@ -41,7 +41,7 @@ macro_rules! format_codes {
 			)*
 			// Some other vendor-specific or otherwise unknown format code
 			#[deku(id_pat = "_", default)]
-			Unknown(#[deku(endian = "little")] u16),
+			Unknown(#[deku(endian = "endian")] u16),
 		}
 
 		impl From<ObjectFormatCode> for u16 {
@@ -228,30 +228,6 @@ format_codes!(
 impl From<ObjectFormatCode> for Parameter {
     fn from(value: ObjectFormatCode) -> Self {
         Parameter::new(u32::from(u16::from(value)))
-    }
-}
-
-impl<'a> DekuReader<'a, Endian> for ObjectFormatCode {
-    fn from_reader_with_ctx<R: Read + Seek>(
-        reader: &mut Reader<R>,
-        _: Endian,
-    ) -> Result<Self, DekuError>
-    where
-        Self: Sized,
-    {
-        // Little endian always
-        ObjectFormatCode::from_reader_with_ctx(reader, ())
-    }
-}
-
-impl DekuWriter<Endian> for ObjectFormatCode {
-    fn to_writer<W: Write + Seek>(
-        &self,
-        writer: &mut Writer<W>,
-        _: Endian,
-    ) -> Result<(), DekuError> {
-        // Little endian always
-        self.to_writer(writer, ())
     }
 }
 
