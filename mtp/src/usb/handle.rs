@@ -27,6 +27,7 @@ pub(super) struct Endpoints {
 /// A handle to an open USB device
 ///
 /// This implements [`Device`], which is how this should be interacted with primarily.
+#[expect(dead_code)]
 pub struct DeviceHandle {
     _device: nusb::Device,
     flags: UsbDeviceFlags,

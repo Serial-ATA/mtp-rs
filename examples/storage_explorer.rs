@@ -1,7 +1,7 @@
+use deku::DekuReader;
 use deku::ctx::Endian;
 use deku::no_std_io::Cursor;
 use deku::reader::Reader;
-use deku::{DekuReader, DekuWriter};
 use dialoguer::Select;
 use dialoguer::theme::ColorfulTheme;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -53,7 +53,7 @@ async fn main() -> mtp::error::Result<()> {
         },
     }
 
-    let root_objects = collect_root_objects(&mut handle, session_id, &objects).await?;
+    let root_objects = collect_objects(&mut handle, session_id, &objects, true).await?;
     prompt_for_children(&mut handle, session_id, storage, root_objects).await?;
 
     Ok(())
@@ -63,19 +63,23 @@ fn walk_into_object(
     device: &mut mtp::usb::DeviceHandle,
     session_id: SessionId,
     storage_id: StorageId,
-    object: mtp::object::types::ObjectHandle,
+    object: (mtp::object::types::ObjectHandle, String),
 ) -> impl Future<Output = mtp::error::Result<()>> {
     Box::pin(async move {
         let children = device
-            .get_object_handles(session_id, storage_id, None, Some(object))
+            .get_object_handles(session_id, storage_id, None, Some(object.0))
             .await
             .unwrap();
         match children {
             Ok(children) => {
                 let children = children.data.data;
-                let roots = collect_root_objects(device, session_id, &children)
+                let mut roots = collect_objects(device, session_id, &children, false)
                     .await
                     .unwrap();
+                if roots.is_empty() {
+                    roots.push((object.0, String::from("..")))
+                }
+
                 prompt_for_children(device, session_id, storage_id, roots).await
             },
             Err(e) => {
@@ -105,14 +109,15 @@ fn prompt_for_children(
             .interact()
             .unwrap();
 
-        walk_into_object(device, session_id, storage_id, roots[selection].0).await
+        walk_into_object(device, session_id, storage_id, roots[selection].clone()).await
     })
 }
 
-async fn collect_root_objects(
+async fn collect_objects(
     device: &mut mtp::usb::DeviceHandle,
     session_id: SessionId,
     objects: &Array<ObjectHandle>,
+    root_only: bool,
 ) -> mtp::error::Result<Vec<(ObjectHandle, String)>> {
     let bar = ProgressBar::new(objects.len() as u64)
         .with_message("Loading all directories")
@@ -126,15 +131,11 @@ async fn collect_root_objects(
             .get_object_prop_value::<ParentObject>(session_id, object)
             .await?;
 
-        let object_parent;
         match parent_response {
             Ok(parent) => {
-                if parent.data.data == [0; 4] {
+                if parent.data.data != [0; 4] && root_only {
                     continue;
                 }
-
-                object_parent =
-                    ObjectHandle::from(u32::from_be_bytes(parent.data.data.try_into().unwrap()));
             },
             Err(_) => continue,
         }
