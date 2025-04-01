@@ -8,7 +8,7 @@
 //!
 //! [`mtp`]: https://crates.io/crates/mtp
 
-//#![no_std]
+#![no_std]
 
 extern crate alloc;
 

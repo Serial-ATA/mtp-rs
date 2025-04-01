@@ -4,6 +4,9 @@ members = [
 	"mtp",
 	"mtp_spec",
 ]
+exclude = [
+	"mtpfs"
+]
 
 [workspace.package]
 authors = ["Serial <69764315+Serial-ATA@users.noreply.github.com>"]

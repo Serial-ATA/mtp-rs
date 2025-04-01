@@ -2,9 +2,6 @@
 
 use core::fmt::{Debug, Display};
 
-/// A specialized `Result` type for MTP operations.
-pub type Result<T> = core::result::Result<T, MtpError>;
-
 // Shorthand for return Err(MtpError::new(MtpErrorKind::Foo))
 //
 // Usage:

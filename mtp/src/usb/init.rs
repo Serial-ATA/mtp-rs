@@ -1,8 +1,11 @@
-use super::{MtpEligibility, UsbDeviceFlags};
+use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
 
 use std::fmt::Debug;
 use std::time::Duration;
 
+use crate::error::Error;
+use mtp_spec::communication::SessionId;
+use mtp_spec::device::Device as _;
 pub use nusb;
 use nusb::descriptors::language_id::US_ENGLISH;
 use nusb::transfer::{Direction, EndpointType};
@@ -18,7 +21,7 @@ use nusb::transfer::{Direction, EndpointType};
 /// use mtp::usb;
 ///
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), mtp::error::MtpError> {
+/// # async fn main() -> Result<(), mtp::error::Error> {
 /// // Get all MTP-eligible devices
 /// let devices = usb::device_list()?;
 ///
@@ -37,6 +40,7 @@ use nusb::transfer::{Direction, EndpointType};
 #[derive(Clone)]
 pub struct Device {
     info: nusb::DeviceInfo,
+    well_known_info: Option<UsbDeviceDescriptor>,
     flags: UsbDeviceFlags,
     handle: Option<nusb::Device>,
 }
@@ -53,6 +57,7 @@ impl From<nusb::DeviceInfo> for Device {
     fn from(info: nusb::DeviceInfo) -> Self {
         Self {
             info,
+            well_known_info: None,
             flags: UsbDeviceFlags::empty(),
             handle: None,
         }
@@ -62,12 +67,32 @@ impl From<nusb::DeviceInfo> for Device {
 impl Device {
     /// Attempt to open the device for MTP communication
     ///
+    /// This is the same as [`Self::open_raw()`], but it automatically opens a session.
+    ///
     /// # Errors
     ///
     /// * Unable to open the device
     /// * The device has no applicable interfaces
     #[allow(clippy::missing_panics_doc)] // Not possible
-    pub fn open(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
+    pub async fn open(self) -> Result<(super::handle::DeviceHandle, SessionId), Error> {
+        let mut handle = self.open_raw()?;
+
+        let (response, session_id) = handle.open_session().await?;
+        response.map_err(|e| Error::Generic(e.into()))?;
+
+        Ok((handle, session_id))
+    }
+
+    /// Attempt to open the device for MTP communication
+    ///
+    /// NOTE: This will not automatically open a session, see [`Self::open()`].
+    ///
+    /// # Errors
+    ///
+    /// * Unable to open the device
+    /// * The device has no applicable interfaces
+    #[allow(clippy::missing_panics_doc)] // Not possible
+    pub fn open_raw(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
         // MTP has 3 endpoints: 2 bulk, 1 interrupt
         const MTP_ENDPOINT_COUNT: u8 = 3;
 
@@ -147,6 +172,8 @@ impl Device {
 
     /// Information about the device, available without opening it
     ///
+    /// Certain human-readable fields may not be available. See [`Self::well_known_info()`].
+    ///
     /// # Examples
     ///
     /// ```rust,no_run
@@ -154,7 +181,7 @@ impl Device {
     /// use mtp::usb;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), mtp::error::MtpError> {
+    /// # async fn main() -> Result<(), mtp::error::Error> {
     /// // Get all MTP-eligible devices
     /// let devices = usb::device_list()?;
     ///
@@ -172,6 +199,17 @@ impl Device {
     pub fn info(&self) -> &nusb::DeviceInfo {
         &self.info
     }
+
+    /// Well-known information about the device
+    ///
+    /// The returned [`UsbDeviceDescriptor`] provides human-readable information about the device,
+    /// such as vendor and product name.
+    ///
+    /// NOTE: This information is not guaranteed to be available for all devices. See [`Self::info()`]
+    ///       for a subset of information available for all devices.
+    pub fn well_known_info(&self) -> Option<UsbDeviceDescriptor> {
+        self.well_known_info
+    }
 }
 
 impl Device {
@@ -180,6 +218,7 @@ impl Device {
             d.vendor_id == self.info.vendor_id() && d.product_id == self.info.product_id()
         }) {
             self.flags = well_known_entry.flags;
+            self.well_known_info = Some(*well_known_entry);
             return Ok(MtpEligibility::Eligible);
         }
 
@@ -250,6 +289,8 @@ impl Device {
 }
 
 /// Returns a list of connected devices that are MTP eligible.
+///
+/// NOTE: The returned iterator may be empty.
 ///
 /// # Errors
 ///

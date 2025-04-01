@@ -1,6 +1,6 @@
 use crate::communication::response::ResponseFlags;
 use crate::communication::{Parameter, SessionId, TransactionId};
-use crate::error::Result;
+use crate::error::MtpError;
 use crate::object::types::ArrayEncodable;
 
 use alloc::vec::Vec;
@@ -28,7 +28,7 @@ pub struct SerializedOperation<'a> {
 
 impl SerializedOperation<'_> {
     /// Encode the operation parameters for transport
-    pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>> {
+    pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>, MtpError> {
         let mut buf = Vec::with_capacity(size_of_val(self.parameters));
 
         let mut writer = Writer::new(Cursor::new(&mut buf));
@@ -82,7 +82,7 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_data(bytes: &[u8]) -> Result<Self::Response> {
+    fn decode_data(bytes: &[u8]) -> Result<Self::Response, MtpError> {
         // TODO: Endian needs to be provided from some global context
         match Self::Response::from_reader_with_ctx(
             &mut Reader::new(Cursor::new(bytes)),
@@ -99,7 +99,7 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_err(bytes: &[u8], code: u16) -> Result<Self::Error> {
+    fn decode_err(bytes: &[u8], code: u16) -> Result<Self::Error, MtpError> {
         // TODO: Endian needs to be provided from some global context
         Self::Error::from_reader_with_ctx(
             &mut Reader::new(Cursor::new(bytes)),

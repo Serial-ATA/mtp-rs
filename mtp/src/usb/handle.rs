@@ -71,7 +71,7 @@ impl DeviceHandle {
 }
 
 impl Stream for DeviceHandle {
-    type Item = Result<Event, crate::error::MtpError>;
+    type Item = Result<Event, crate::error::Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -95,7 +95,7 @@ impl Stream for DeviceHandle {
 }
 
 impl PtpIo for DeviceHandle {
-    type Error = crate::error::MtpError;
+    type Error = crate::error::Error;
 
     fn next_transaction_id(&mut self) -> TransactionId {
         let next = self.transaction_id;
@@ -121,7 +121,7 @@ impl PtpIo for DeviceHandle {
             queue: &mut Queue<Vec<u8>>,
             buffer_size: usize,
             timeout: Duration,
-        ) -> Result<(), crate::error::MtpError> {
+        ) -> Result<(), crate::error::Error> {
             let data_len = data.len();
 
             let mut transfers = 1;
@@ -132,7 +132,9 @@ impl PtpIo for DeviceHandle {
             }
 
             for _ in 0..transfers {
-                let completion = tokio::time::timeout(timeout, queue.next_complete()).await?;
+                let completion = tokio::time::timeout(timeout, queue.next_complete())
+                    .await
+                    .map_err(|_| UsbError::Timeout)?;
                 completion.status.map_err(UsbError::from)?;
             }
 
@@ -269,7 +271,7 @@ impl UsbContainer {
 
 async fn get_data_from_responder<T: ResponseFlags>(
     handle: &mut DeviceHandle,
-) -> Result<UsbContainer, crate::error::MtpError> {
+) -> Result<UsbContainer, crate::error::Error> {
     log::trace!("Attempting to get data from responder");
 
     let data_phase_raw = next_packet(handle).await?;
@@ -319,7 +321,7 @@ async fn get_data_from_responder<T: ResponseFlags>(
     Ok(data_phase)
 }
 
-async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error::MtpError> {
+async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error::Error> {
     let pending = handle.in_queue.pending();
     for _ in 0..(2usize.saturating_sub(pending)) {
         handle
@@ -328,7 +330,9 @@ async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error:
     }
 
     log::trace!("Waiting for next packet");
-    let completion = tokio::time::timeout(handle.timeout, handle.in_queue.next_complete()).await?;
+    let completion = tokio::time::timeout(handle.timeout, handle.in_queue.next_complete())
+        .await
+        .map_err(|_| UsbError::Timeout)?;
     completion.status.map_err(UsbError::from)?;
 
     Ok(completion.data)

@@ -3,6 +3,8 @@
 use core::error::Error;
 use core::fmt::Display;
 
+pub use mtp_spec::error::*;
+
 /// Errors that can occur during USB transport
 #[derive(Debug)]
 pub enum UsbError {
@@ -12,6 +14,8 @@ pub enum UsbError {
     Native(nusb::Error),
     /// An error occurred during a USB transfer
     Transfer(nusb::transfer::TransferError),
+    /// A USB operation timed out
+    Timeout,
 }
 
 impl Display for UsbError {
@@ -20,6 +24,7 @@ impl Display for UsbError {
             Self::NoApplicableInterface => write!(f, "No applicable interface found"),
             Self::Native(error) => write!(f, "{error}"),
             Self::Transfer(error) => write!(f, "{error}"),
+            Self::Timeout => write!(f, "Operation timed out"),
         }
     }
 }

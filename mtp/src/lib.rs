@@ -2,6 +2,7 @@
 
 pub mod error;
 /// USB backend for MTP.
+#[cfg(feature = "usb")]
 pub mod usb;
 
 pub use mtp_spec::*;
