@@ -1,19 +1,21 @@
 mod fuse;
+mod prompts;
 
 use crate::fuse::MtpFuse;
-use dialoguer::Select;
-use dialoguer::theme::ColorfulTheme;
-use mtp::communication::SessionId;
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use mtp::device::Device;
-use mtp::device::storage::id::StorageId;
 use mtp::error::Error;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    let device = prompt_for_device()?;
+    let mount_point = Path::new("/home/alex/mount");
+
+    let device = prompts::prompt_for_device()?;
 
     let (mut handle, session_id) = match device.open().await {
         Ok(val) => val,
@@ -23,131 +25,79 @@ async fn main() -> Result<(), Error> {
         },
     };
 
-    let storage = prompt_for_storage(&mut handle, session_id).await?;
+    let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
 
-    let storage_info;
-    match handle.get_storage_info(session_id, storage).await? {
-        Ok(info) => {
-            storage_info = info.data.data;
-        },
-        Err(e) => {
-            log::error!("Failed to get storage info: {e}");
-            return Err(Error::Generic(e.into()));
-        },
-    }
-
-    let fs = MtpFuse::new(handle, storage_info);
-
-    let mp = Path::new("/home/alex/mount_phone");
-    fuser::mount2(fs, mp, &[])?;
-
-    Ok(())
-}
-
-fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
-    fn extract_device_name(device: &mtp::usb::Device) -> String {
-        match device.well_known_info() {
-            Some(well_known_info) => {
-                let generic_info = device.info();
-                format!(
-                    "   {}: {} ({:04x}:{:04x}) @ bus {}, dev {}",
-                    well_known_info.vendor,
-                    well_known_info.product,
-                    well_known_info.vendor_id,
-                    well_known_info.product_id,
-                    generic_info.bus_number(),
-                    generic_info.device_address()
-                )
-            },
-            None => {
-                let generic_info = device.info();
-                format!(
-                    "   Unknown Device ({:04x}:{:04x}) @ bus {}, dev {}",
-                    generic_info.vendor_id(),
-                    generic_info.product_id(),
-                    generic_info.bus_number(),
-                    generic_info.device_address()
-                )
-            },
-        }
-    }
-
-    let mut devices = mtp::usb::device_list()?
-        .filter_map(|device| device.ok())
-        .collect::<Vec<_>>();
-
-    if devices.is_empty() {
-        log::error!("No devices found");
-        std::process::exit(1);
-    }
-
-    let device_names = devices.iter().map(extract_device_name).collect::<Vec<_>>();
-
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Which device do you want to use?")
-        .default(0)
-        .items(&device_names)
-        .interact()
-        .unwrap();
-
-    Ok(devices.remove(selection))
-}
-
-async fn prompt_for_storage(
-    device: &mut mtp::usb::DeviceHandle,
-    session_id: SessionId,
-) -> mtp::error::Result<StorageId> {
-    let response = device.get_storage_ids(session_id).await?;
-
-    let storage_ids;
-    match response {
-        Ok(storages_list) => {
-            storage_ids = storages_list.data.data;
-        },
-        Err(e) => {
-            eprintln!("Failed to get storage list: {e}");
-            std::process::exit(1);
-        },
-    }
-
-    if storage_ids.is_empty() {
-        log::error!("No storages found. Double check that your device has allowed media access.");
-        std::process::exit(1);
-    }
-
-    let mut storages = Vec::with_capacity(storage_ids.len());
-    for storage_id in storage_ids.iter().copied() {
-        let response = device.get_storage_info(session_id, storage_id).await?;
-        match response {
-            Ok(storage_info) => {
-                storages.push(storage_info.data.data);
+    let mut storage_info = Vec::with_capacity(storages.len());
+    for storage in storages {
+        match handle.get_storage_info(session_id, storage).await? {
+            Ok(info) => {
+                storage_info.push(info.data.data);
             },
             Err(e) => {
-                eprintln!("Failed to get storage info: {e}");
-                std::process::exit(1);
+                log::error!("Failed to get storage info: {e}");
+                return Err(Error::Generic(e.into()));
             },
         }
     }
 
-    let storage_names = storages
-        .iter()
-        .map(|storage| {
-            storage
-                .storage_description
-                .as_ref()
-                .map(|storage| storage.to_string())
-                .unwrap_or_else(|| String::from("Unknown storage"))
-        })
-        .collect::<Vec<_>>();
+    let device = Arc::new(Mutex::new(handle));
 
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Which storage do you want to use?")
-        .default(0)
-        .items(&storage_names)
-        .interact()
-        .unwrap();
+    let mut storage_paths = Vec::with_capacity(storage_info.len());
+    let mut sessions = FuturesUnordered::new();
+    for info in storage_info {
+        let name = info
+            .storage_description
+            .as_ref()
+            .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
+        let fs = MtpFuse::new(device.clone(), info);
 
-    let storage = storage_ids[selection];
+        let target = mount_point.join(&name);
+        if !target.exists() {
+            if let Err(e) = std::fs::create_dir_all(&target) {
+                log::error!(
+                    "Failed to create mountpoint for storage `{name}` at {}: {e}",
+                    target.display()
+                );
+                return Err(Error::Io(e));
+            }
+        }
 
-    Ok(storage)
+        storage_paths.push(target.clone());
+
+        sessions.push(tokio::task::spawn(async move {
+            if let Err(e) = fuser::mount2(fs, target, &[]) {
+                log::error!("Mount failed: {e}");
+            }
+        }));
+    }
+
+    loop {
+        tokio::select! {
+            _ = sessions.next() => {
+                sessions.clear();
+
+                for path in &storage_paths {
+                    if let Err(e) = std::fs::remove_dir_all(path) {
+                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                    }
+                }
+
+                std::process::exit(1);
+            },
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Shutting down");
+                sessions.clear();
+
+                for path in &storage_paths {
+                    if let Err(e) = std::fs::remove_dir_all(path) {
+                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }

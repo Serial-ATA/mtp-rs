@@ -96,6 +96,15 @@ where
     }
 }
 
+impl<T> From<Array<T>> for Box<[T]>
+where
+    T: ArrayEncodable,
+{
+    fn from(value: Array<T>) -> Self {
+        value.0
+    }
+}
+
 impl<T: ArrayEncodable + Debug> Array<T> {
     /// Get the length of the array.
     ///

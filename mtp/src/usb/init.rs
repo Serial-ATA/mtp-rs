@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::error::Error;
 use mtp_spec::communication::SessionId;
+use mtp_spec::communication::operation::OpenSessionError;
 use mtp_spec::device::Device as _;
 pub use nusb;
 use nusb::descriptors::language_id::US_ENGLISH;
@@ -78,7 +79,15 @@ impl Device {
         let mut handle = self.open_raw()?;
 
         let (response, session_id) = handle.open_session().await?;
-        response.map_err(|e| Error::Generic(e.into()))?;
+        match response {
+            Ok(_) => {},
+            Err(OpenSessionError::SessionAlreadyOpen(e)) => {
+                log::warn!("Session {} already open", e.session_id);
+            },
+            Err(e) => {
+                return Err(Error::Generic(e.into()));
+            },
+        }
 
         Ok((handle, session_id))
     }
