@@ -2,12 +2,14 @@ mod fuse;
 mod prompts;
 
 use crate::fuse::MtpFuse;
+use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use mtp::device::Device;
 use mtp::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -28,8 +30,8 @@ async fn main() -> Result<(), Error> {
     let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
 
     let mut storage_info = Vec::with_capacity(storages.len());
-    for storage in storages {
-        match handle.get_storage_info(session_id, storage).await? {
+    for storage in &storages {
+        match handle.get_storage_info(session_id, *storage).await? {
             Ok(info) => {
                 storage_info.push(info.data.data);
             },
@@ -44,12 +46,12 @@ async fn main() -> Result<(), Error> {
 
     let mut storage_paths = Vec::with_capacity(storage_info.len());
     let mut sessions = FuturesUnordered::new();
-    for info in storage_info {
+    for (info, id) in storage_info.into_iter().zip(storages.into_iter()) {
         let name = info
             .storage_description
             .as_ref()
             .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
-        let fs = MtpFuse::new(device.clone(), info);
+        let fs = MtpFuse::new(device.clone(), session_id, id, info);
 
         let target = mount_point.join(&name);
         if !target.exists() {
@@ -65,7 +67,15 @@ async fn main() -> Result<(), Error> {
         storage_paths.push(target.clone());
 
         sessions.push(tokio::task::spawn(async move {
-            if let Err(e) = fuser::mount2(fs, target, &[]) {
+            if let Err(e) = fuser::mount2(
+                fs,
+                target,
+                &[
+                    MountOption::AutoUnmount,
+                    MountOption::AllowOther,
+                    MountOption::DirSync,
+                ],
+            ) {
                 log::error!("Mount failed: {e}");
             }
         }));

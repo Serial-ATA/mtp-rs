@@ -1,18 +1,30 @@
+use deku::DekuReader;
+use deku::ctx::Endian;
+use deku::reader::Reader;
 use fuser::{
-    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, Reply, ReplyAttr, ReplyData, ReplyDirectory,
-    ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
-    TimeOrNow,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
+    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
-use id_tree::{InsertBehavior, Node, NodeId, Tree, TreeBuilder};
+use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
+use indicatif::{ProgressBar, ProgressStyle};
 use libc::{ENOENT, ENOTDIR};
+use mtp::communication::SessionId;
+use mtp::device::Device;
+use mtp::device::storage::id::StorageId;
 use mtp::device::storage::info::StorageInfo;
+use mtp::error::Error;
+use mtp::object::types::properties::{ObjectFileName, ParentObject};
+use mtp::object::types::{ObjectFormatCode, ObjectHandle, PtpString};
 use mtp::usb::DeviceHandle;
 use std::ffi::OsStr;
+use std::io::Cursor;
 use std::iter;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
+use tokio::sync::Mutex;
 
-const TTL: Duration = Duration::from_secs(0);
+const TTL: Duration = Duration::from_secs(u64::MAX);
 const BLOCK_SIZE: u32 = 1024;
 
 const ROOT_ATTR: FileAttr = FileAttr {
@@ -44,7 +56,7 @@ const PLAYLISTS_ATTR: FileAttr = FileAttr {
     crtime: SystemTime::UNIX_EPOCH,
     kind: FileType::Directory,
     perm: 0o777,
-    nlink: 2,
+    nlink: 1,
     uid: 0,
     gid: 0,
     rdev: 0,
@@ -63,7 +75,7 @@ const LOST_AND_FOUND_ATTR: FileAttr = FileAttr {
     crtime: SystemTime::UNIX_EPOCH,
     kind: FileType::Directory,
     perm: 0o777,
-    nlink: 2,
+    nlink: 1,
     uid: 0,
     gid: 0,
     rdev: 0,
@@ -71,11 +83,12 @@ const LOST_AND_FOUND_ATTR: FileAttr = FileAttr {
     flags: 0,
 };
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct INode {
     parent: u64,
-    file_handle: u64,
+    object_handle: ObjectHandle,
     attr: FileAttr,
+    name: Arc<str>,
 }
 
 #[derive(Default)]
@@ -84,62 +97,103 @@ struct Dirty {
     lost_and_found: bool,
 }
 
+struct FsProps {
+    node_ids: Vec<NodeId>,
+    files_changed: AtomicBool,
+    next_inode: AtomicU64,
+}
+
 pub struct MtpFuse {
     device: Arc<Mutex<DeviceHandle>>,
+    session_id: SessionId,
+    storage_id: StorageId,
     storage: StorageInfo,
     dirty: Dirty,
-    node_ids: Vec<NodeId>,
+
     fs: Tree<INode>,
+    props: FsProps,
 }
 
 impl MtpFuse {
-    pub fn new(device: Arc<Mutex<DeviceHandle>>, storage: StorageInfo) -> MtpFuse {
+    pub fn new(
+        device: Arc<Mutex<DeviceHandle>>,
+        session_id: SessionId,
+        storage_id: StorageId,
+        storage: StorageInfo,
+    ) -> MtpFuse {
         let root = INode {
-            parent: 0,
-            file_handle: 0,
+            parent: FUSE_ROOT_ID,
+            object_handle: ObjectHandle::NONE,
             attr: ROOT_ATTR,
+            name: String::from("/").into(),
         };
 
         let mut fs = Tree::new();
 
         let root_node_id = fs.insert(Node::new(root), InsertBehavior::AsRoot).unwrap();
-        let node_ids = vec![root_node_id];
+        let node_ids = vec![root_node_id.clone()];
 
         let mut ret = MtpFuse {
             device,
+            session_id,
+            storage_id,
             storage,
             dirty: Dirty::default(),
-            node_ids,
             fs,
+            props: FsProps {
+                node_ids,
+                files_changed: AtomicBool::new(true),
+                next_inode: AtomicU64::new(FUSE_ROOT_ID + 1),
+            },
         };
 
-        ret.insert(FUSE_ROOT_ID, PLAYLISTS_ATTR);
-        ret.insert(FUSE_ROOT_ID, LOST_AND_FOUND_ATTR);
+        ret.insert(
+            FUSE_ROOT_ID,
+            PLAYLISTS_ATTR,
+            ObjectHandle::NONE,
+            String::from("Playlists"),
+        );
+        ret.insert(
+            FUSE_ROOT_ID,
+            LOST_AND_FOUND_ATTR,
+            ObjectHandle::NONE,
+            String::from("lost+found"),
+        );
         ret
     }
 
     fn next_inode(&self) -> u64 {
-        self.node_ids.len() as u64
+        (self.props.node_ids.len() + 1) as u64
     }
 
     fn get_node_id(&self, inode: u64) -> Option<&NodeId> {
-        self.node_ids.get((inode - FUSE_ROOT_ID) as usize)
+        self.props.node_ids.get((inode - FUSE_ROOT_ID) as usize)
     }
 
-    fn get(&self, inode: u64) -> Option<INode> {
-        let inode_id = self.get_node_id(inode)?;
-        self.fs.get(inode_id).ok().map(|node| *node.data())
+    fn get(&self, inode: u64) -> Option<(&INode, &NodeId)> {
+        let node_id = self.get_node_id(inode)?;
+        self.fs.get(node_id).ok().map(|node| (node.data(), node_id))
     }
 
-    fn insert(&mut self, parent_inode: u64, attr: FileAttr) {
+    fn insert(
+        &mut self,
+        parent_inode: u64,
+        mut attr: FileAttr,
+        object_handle: ObjectHandle,
+        name: String,
+    ) {
         let Some(parent) = self.get_node_id(parent_inode).cloned() else {
             return;
         };
 
+        let inode = self.props.next_inode.fetch_add(1, Ordering::Relaxed);
+        attr.ino = inode;
+
         let new_inode = INode {
             parent: parent_inode,
-            file_handle: 0,
+            object_handle,
             attr,
+            name: name.into(),
         };
 
         let new_inode_id = self
@@ -147,10 +201,10 @@ impl MtpFuse {
             .insert(Node::new(new_inode), InsertBehavior::UnderNode(&parent))
             .unwrap();
 
-        self.node_ids.push(new_inode_id);
+        self.props.node_ids.push(new_inode_id);
     }
 
-    fn stat(&self, inode: u64, file_handle: Option<u64>) -> Option<FileAttr> {
+    fn stat(&self, inode: u64, _file_handle: Option<u64>) -> Option<FileAttr> {
         if inode == 0 {
             return None;
         }
@@ -167,25 +221,7 @@ impl MtpFuse {
             return Some(LOST_AND_FOUND_ATTR);
         }
 
-        let mut attr = FileAttr {
-            ino: inode,
-            size: 0,
-            blocks: 0,
-            atime: SystemTime::UNIX_EPOCH,
-            mtime: SystemTime::UNIX_EPOCH,
-            ctime: SystemTime::UNIX_EPOCH,
-            crtime: SystemTime::UNIX_EPOCH,
-            kind: FileType::NamedPipe,
-            perm: 0,
-            nlink: 0,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-            blksize: 0,
-            flags: 0,
-        };
-
-        todo!()
+        self.get(inode).map(|(inode, _)| inode.attr.clone())
     }
 
     fn playlists(&mut self) -> impl Iterator<Item = (String, FileAttr)> {
@@ -203,6 +239,176 @@ impl MtpFuse {
 
         iter::empty()
     }
+
+    fn root_node_id(&self) -> &NodeId {
+        &self.props.node_ids[0]
+    }
+
+    fn reset_fs(&mut self) {
+        // Only retain /, Playlists, and lost+found
+        let nodes_to_remove = self
+            .fs
+            .children_ids(self.root_node_id())
+            .unwrap()
+            .skip(2)
+            .cloned()
+            .collect::<Vec<_>>();
+        for node_id in nodes_to_remove {
+            self.fs
+                .remove_node(node_id, RemoveBehavior::DropChildren)
+                .unwrap();
+        }
+
+        self.props
+            .next_inode
+            .store(FUSE_ROOT_ID + 2, Ordering::Relaxed);
+    }
+
+    async fn update_files_if_needed(&mut self) -> Result<(), Error> {
+        if self
+            .props
+            .files_changed
+            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return Ok(()); // Already up to date
+        }
+
+        self.reset_fs();
+
+        let mut all_directories = Vec::new();
+        {
+            let mut device = self.device.lock().await;
+
+            let objects = match device
+                .get_object_handles(
+                    self.session_id,
+                    self.storage_id,
+                    Some(ObjectFormatCode::Association),
+                    None,
+                )
+                .await?
+            {
+                Ok(objects) => objects.data.data,
+                Err(e) => {
+                    return Err(Error::Generic(e.into()));
+                },
+            };
+
+            let bar = ProgressBar::new(objects.len() as u64)
+                .with_message("Loading all directories")
+                .with_style(ProgressStyle::with_template("{msg} {bar} {pos}/{len}").unwrap());
+
+            for object in objects.iter().copied() {
+                bar.inc(1);
+
+                let parent_response = device
+                    .get_object_prop_value::<ParentObject>(self.session_id, object)
+                    .await?;
+
+                let parent = match parent_response {
+                    Ok(parent) => {
+                        if parent.data.data == [0; 4] {
+                            None
+                        } else {
+                            Some(ObjectHandle::from(u32::from_le_bytes(
+                                parent.data.data.try_into().unwrap(),
+                            )))
+                        }
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to get parent object, skipping: {e}");
+                        continue;
+                    },
+                };
+
+                let name_response = device
+                    .get_object_prop_value::<ObjectFileName>(self.session_id, object)
+                    .await?;
+
+                match name_response {
+                    Ok(name) => {
+                        all_directories.push((
+                            parent,
+                            object,
+                            PtpString::from_reader_with_ctx(
+                                &mut Reader::new(Cursor::new(name.data.data)),
+                                Endian::Little,
+                            )
+                            .unwrap()
+                            .to_string(),
+                        ));
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to get object name, skipping: {e}");
+                        continue;
+                    },
+                }
+            }
+        }
+
+        // Sort the directories, so that all objects with parents are created after the parent
+        all_directories.sort_by_key(|(parent, ..)| parent.is_some());
+
+        for (parent, object, name) in all_directories {
+            let Some(parent) = parent else {
+                self.insert(
+                    FUSE_ROOT_ID,
+                    FileAttr {
+                        ino: self.next_inode(),
+                        size: 0,
+                        blocks: 0,
+                        atime: SystemTime::UNIX_EPOCH,
+                        mtime: SystemTime::UNIX_EPOCH,
+                        ctime: SystemTime::UNIX_EPOCH,
+                        crtime: SystemTime::UNIX_EPOCH,
+                        kind: FileType::Directory,
+                        perm: 0o777,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                        blksize: 0,
+                        flags: 0,
+                    },
+                    object,
+                    name,
+                );
+                continue;
+            };
+        }
+
+        Ok(())
+    }
+
+    async fn children_of(
+        &mut self,
+        inode: u64,
+    ) -> Result<Option<impl Iterator<Item = (&FileAttr, Arc<str>)>>, Error> {
+        self.update_files_if_needed().await?;
+
+        let Some((inode_entry, node_id)) = self.get(inode) else {
+            return Ok(None);
+        };
+
+        let parent_inode;
+        if inode == FUSE_ROOT_ID {
+            parent_inode = FUSE_ROOT_ID;
+        } else {
+            parent_inode = inode_entry.parent;
+        }
+
+        let children = self
+            .fs
+            .children(node_id)
+            .unwrap()
+            .map(|node| (&node.data().attr, node.data().name.clone()));
+
+        let (parent, _) = self.get(parent_inode).expect("parent should exist");
+        let pseudo_entries = [(&inode_entry.attr, ".".into()), (&parent.attr, "..".into())];
+
+        Ok(Some(pseudo_entries.into_iter().chain(children)))
+    }
 }
 
 impl Filesystem for MtpFuse {
@@ -210,39 +416,24 @@ impl Filesystem for MtpFuse {
         log::info!("Closing filesystem");
     }
 
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, mut reply: ReplyEntry) {
-        dbg!(name.to_str(), parent, self.get(parent));
-        let s = name.to_str();
-        if parent == FUSE_ROOT_ID {
-            if s == Some("Playlists") {
-                reply.entry(&TTL, &PLAYLISTS_ATTR, 0);
-                return;
-            }
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        let result = futures::executor::block_on(async move { self.children_of(parent).await });
 
-            if s == Some("lost+found") {
-                reply.entry(&TTL, &LOST_AND_FOUND_ATTR, 0);
-                return;
-            }
-        }
-
-        let Some(parent) = self.get(parent) else {
-            reply.error(ENOENT);
-            return;
-        };
-
-        if s == Some(".") {
-            reply.entry(&TTL, &parent.attr, 0);
-            return;
-        }
-
-        if s == Some("..") {
-            let Some(up) = self.get(parent.parent) else {
+        let children;
+        match result {
+            Ok(Some(c)) => children = c,
+            Ok(None) => {
                 reply.error(ENOENT);
                 return;
-            };
+            },
+            Err(e) => todo!(),
+        }
 
-            reply.entry(&TTL, &up.attr, 0);
-            return;
+        for (attr, child_name) in children {
+            if name.to_str() == Some(&*child_name) {
+                reply.entry(&TTL, attr, 0);
+                return;
+            }
         }
 
         reply.error(ENOENT);
@@ -258,32 +449,32 @@ impl Filesystem for MtpFuse {
     fn mkdir(
         &mut self,
         _req: &Request<'_>,
-        parent: u64,
-        name: &OsStr,
-        mode: u32,
-        umask: u32,
-        reply: ReplyEntry,
+        _parent: u64,
+        _name: &OsStr,
+        _mode: u32,
+        _umask: u32,
+        _reply: ReplyEntry,
     ) {
         todo!()
     }
 
-    fn unlink(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
         todo!()
     }
 
-    fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
         todo!()
     }
 
     fn rename(
         &mut self,
         _req: &Request<'_>,
-        parent: u64,
-        name: &OsStr,
-        newparent: u64,
-        newname: &OsStr,
-        flags: u32,
-        reply: ReplyEmpty,
+        _parent: u64,
+        _name: &OsStr,
+        _newparent: u64,
+        _newname: &OsStr,
+        _flags: u32,
+        _reply: ReplyEmpty,
     ) {
         todo!()
     }
@@ -294,25 +485,25 @@ impl Filesystem for MtpFuse {
         _ino: u64,
         _newparent: u64,
         _newname: &OsStr,
-        reply: ReplyEntry,
+        _reply: ReplyEntry,
     ) {
         todo!()
     }
 
-    fn open(&mut self, req: &Request, _ino: u64, flags: i32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request, _ino: u64, _flags: i32, _reply: ReplyOpen) {
         todo!()
     }
 
     fn read(
         &mut self,
         _req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        offset: i64,
-        size: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
-        reply: ReplyData,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _reply: ReplyData,
     ) {
         todo!()
     }
@@ -320,19 +511,19 @@ impl Filesystem for MtpFuse {
     fn write(
         &mut self,
         _req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        offset: i64,
-        data: &[u8],
-        write_flags: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
-        reply: ReplyWrite,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _data: &[u8],
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _reply: ReplyWrite,
     ) {
         todo!()
     }
 
-    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _reply: ReplyEmpty) {
         todo!()
     }
 
@@ -344,17 +535,17 @@ impl Filesystem for MtpFuse {
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
-        reply: ReplyEmpty,
+        _reply: ReplyEmpty,
     ) {
         todo!()
     }
 
-    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, _reply: ReplyEmpty) {
         todo!()
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-        let Some(inode) = self.get(ino) else {
+        let Some((inode, _)) = self.get(ino) else {
             reply.error(ENOENT);
             return;
         };
@@ -371,34 +562,13 @@ impl Filesystem for MtpFuse {
         &mut self,
         _req: &Request,
         ino: u64,
-        fh: u64,
+        _fh: u64,
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        if ino == 0 {
-            reply.error(ENOENT);
-            return;
-        }
-
-        let Some(inode) = self.get(ino) else {
-            reply.error(ENOENT);
-            return;
-        };
-
-        let _ = reply.add(ino, 1, FileType::Directory, ".");
-        let _ = reply.add(inode.parent, 2, FileType::Directory, "..");
-
-        if ino == FUSE_ROOT_ID {
-            let _ = reply.add(PLAYLISTS_NODE_ID, 3, FileType::Directory, "Playlists");
-            let _ = reply.add(LOST_AND_FOUND_NODE_ID, 4, FileType::Directory, "lost+found");
-
-            reply.ok();
-            return;
-        }
-
         if ino == PLAYLISTS_NODE_ID {
             for (index, (name, attr)) in self.playlists().enumerate() {
-                let _ = reply.add(1, (index + 3) as i64, FileType::RegularFile, name);
+                let _ = reply.add(attr.ino, (index + 2) as i64, attr.kind, name);
             }
 
             reply.ok();
@@ -407,15 +577,33 @@ impl Filesystem for MtpFuse {
 
         if ino == LOST_AND_FOUND_NODE_ID {
             for (index, (name, attr)) in self.lost_and_found().enumerate() {
-                let _ = reply.add(1, (index + 3) as i64, FileType::RegularFile, name);
+                let _ = reply.add(attr.ino, (index + 2) as i64, attr.kind, name);
             }
 
             reply.ok();
             return;
         }
 
-        dbg!(ino, fh, offset);
-        todo!()
+        let result = futures::executor::block_on(async move { self.children_of(ino).await });
+
+        let children;
+        match result {
+            Ok(Some(c)) => children = c,
+            Ok(None) => {
+                reply.error(ENOENT);
+                return;
+            },
+            Err(e) => todo!(),
+        }
+
+        for ((attr, name), offset) in children.skip(offset as usize).zip(offset..) {
+            if reply.add(attr.ino, offset + 1, attr.kind, &*name) {
+                reply.ok();
+                return;
+            }
+        }
+
+        reply.ok();
     }
 
     // fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
@@ -428,7 +616,7 @@ impl Filesystem for MtpFuse {
         _ino: u64,
         _fh: u64,
         _datasync: bool,
-        reply: ReplyEmpty,
+        _reply: ReplyEmpty,
     ) {
         todo!()
     }
