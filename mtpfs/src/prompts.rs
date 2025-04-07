@@ -1,8 +1,7 @@
 use dialoguer::Select;
 use dialoguer::theme::ColorfulTheme;
 use mtp::communication::SessionId;
-use mtp::device::Device;
-use mtp::device::storage::id::StorageId;
+use mtp::high_level::storages::{DeviceStorageExt, Storage};
 
 pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
     fn extract_device_name(device: &mtp::usb::Device) -> String {
@@ -56,46 +55,26 @@ pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
 pub async fn prompt_for_storages(
     device: &mut mtp::usb::DeviceHandle,
     session_id: SessionId,
-) -> mtp::error::Result<Vec<StorageId>> {
-    let response = device.get_storage_ids(session_id).await?;
-
-    let storage_ids;
-    match response {
-        Ok(storages_list) => {
-            storage_ids = storages_list.data.data;
-        },
+) -> mtp::error::Result<Vec<Storage>> {
+    let mut storages = match device.storages(session_id).await {
+        Ok(storages) => storages,
         Err(e) => {
             eprintln!("Failed to get storage list: {e}");
             std::process::exit(1);
         },
-    }
+    };
 
-    if storage_ids.is_empty() {
+    if storages.is_empty() {
         log::error!("No storages found. Double check that your device has allowed media access.");
         std::process::exit(1);
-    }
-
-    let mut storages = Vec::with_capacity(storage_ids.len() + 1);
-    for storage_id in storage_ids.iter().copied() {
-        let response = device.get_storage_info(session_id, storage_id).await?;
-        match response {
-            Ok(storage_info) => {
-                storages.push(storage_info.data.data);
-            },
-            Err(e) => {
-                eprintln!("Failed to get storage info: {e}");
-                std::process::exit(1);
-            },
-        }
     }
 
     let mut storage_names = storages
         .iter()
         .map(|storage| {
             storage
-                .storage_description
-                .as_ref()
-                .map(|storage| storage.to_string())
+                .description
+                .clone()
                 .unwrap_or_else(|| String::from("Unknown storage"))
         })
         .collect::<Vec<_>>();
@@ -110,8 +89,8 @@ pub async fn prompt_for_storages(
         .unwrap();
 
     if selection == 0 {
-        Ok(Box::<[StorageId]>::from(storage_ids).into())
+        Ok(storages)
     } else {
-        Ok(vec![storage_ids[selection - 1]])
+        Ok(vec![storages.remove(selection - 1)])
     }
 }

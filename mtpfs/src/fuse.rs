@@ -1,6 +1,3 @@
-use deku::DekuReader;
-use deku::ctx::Endian;
-use deku::reader::Reader;
 use fuser::{
     FUSE_ROOT_ID, FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
@@ -9,15 +6,13 @@ use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
 use indicatif::{ProgressBar, ProgressStyle};
 use libc::{ENOENT, ENOTDIR};
 use mtp::communication::SessionId;
-use mtp::device::Device;
-use mtp::device::storage::id::StorageId;
-use mtp::device::storage::info::StorageInfo;
 use mtp::error::Error;
-use mtp::object::types::properties::{ObjectFileName, ParentObject};
-use mtp::object::types::{ObjectFormatCode, ObjectHandle, PtpString};
+use mtp::high_level::fs::{FileSystem, FolderEntry};
+use mtp::high_level::storages::Storage;
+use mtp::object::types::ObjectHandle;
 use mtp::usb::DeviceHandle;
 use std::ffi::OsStr;
-use std::io::Cursor;
+use std::fmt::{Debug, Formatter};
 use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -83,12 +78,24 @@ const LOST_AND_FOUND_ATTR: FileAttr = FileAttr {
     flags: 0,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct INode {
     parent: u64,
     object_handle: ObjectHandle,
     attr: FileAttr,
     name: Arc<str>,
+}
+
+impl Debug for INode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("INode")
+            .field("inode", &self.attr.ino)
+            .field("kind", &self.attr.kind)
+            .field("parent", &self.parent)
+            .field("object_handle", &self.object_handle)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Default)]
@@ -106,8 +113,7 @@ struct FsProps {
 pub struct MtpFuse {
     device: Arc<Mutex<DeviceHandle>>,
     session_id: SessionId,
-    storage_id: StorageId,
-    storage: StorageInfo,
+    storage: Storage,
     dirty: Dirty,
 
     fs: Tree<INode>,
@@ -118,8 +124,7 @@ impl MtpFuse {
     pub fn new(
         device: Arc<Mutex<DeviceHandle>>,
         session_id: SessionId,
-        storage_id: StorageId,
-        storage: StorageInfo,
+        storage: Storage,
     ) -> MtpFuse {
         let root = INode {
             parent: FUSE_ROOT_ID,
@@ -136,7 +141,6 @@ impl MtpFuse {
         let mut ret = MtpFuse {
             device,
             session_id,
-            storage_id,
             storage,
             dirty: Dirty::default(),
             fs,
@@ -276,86 +280,94 @@ impl MtpFuse {
 
         self.reset_fs();
 
-        let mut all_directories = Vec::new();
+        let fs;
         {
             let mut device = self.device.lock().await;
 
-            let objects = match device
-                .get_object_handles(
-                    self.session_id,
-                    self.storage_id,
-                    Some(ObjectFormatCode::Association),
-                    None,
-                )
-                .await?
-            {
-                Ok(objects) => objects.data.data,
-                Err(e) => {
-                    return Err(Error::Generic(e.into()));
-                },
-            };
-
-            let bar = ProgressBar::new(objects.len() as u64)
+            let spinner = ProgressBar::new_spinner()
                 .with_message("Loading all directories")
-                .with_style(ProgressStyle::with_template("{msg} {bar} {pos}/{len}").unwrap());
+                .with_style(ProgressStyle::with_template("{spinner} {msg}").unwrap());
 
-            for object in objects.iter().copied() {
-                bar.inc(1);
+            fs = FileSystem::load_with_callback(
+                &mut *device,
+                self.session_id,
+                self.storage.id,
+                |_| spinner.tick(),
+            )
+            .await?;
+            spinner.finish_and_clear();
+        }
 
-                let parent_response = device
-                    .get_object_prop_value::<ParentObject>(self.session_id, object)
-                    .await?;
+        let mut root_inodes = Vec::new();
+        for entry in &fs.contents {
+            let ino = self.next_inode();
+            self.insert(
+                FUSE_ROOT_ID,
+                FileAttr {
+                    ino,
+                    size: 0,
+                    blocks: 0,
+                    atime: SystemTime::UNIX_EPOCH,
+                    mtime: SystemTime::UNIX_EPOCH,
+                    ctime: SystemTime::UNIX_EPOCH,
+                    crtime: SystemTime::UNIX_EPOCH,
+                    kind: FileType::Directory,
+                    perm: 0o777,
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    blksize: 0,
+                    flags: 0,
+                },
+                entry.id,
+                entry.name.clone(),
+            );
 
-                let parent = match parent_response {
-                    Ok(parent) => {
-                        if parent.data.data == [0; 4] {
-                            None
-                        } else {
-                            Some(ObjectHandle::from(u32::from_le_bytes(
-                                parent.data.data.try_into().unwrap(),
-                            )))
-                        }
-                    },
-                    Err(e) => {
-                        log::warn!("Failed to get parent object, skipping: {e}");
-                        continue;
-                    },
-                };
+            root_inodes.push(ino);
+        }
 
-                let name_response = device
-                    .get_object_prop_value::<ObjectFileName>(self.session_id, object)
-                    .await?;
-
-                match name_response {
-                    Ok(name) => {
-                        all_directories.push((
-                            parent,
-                            object,
-                            PtpString::from_reader_with_ctx(
-                                &mut Reader::new(Cursor::new(name.data.data)),
-                                Endian::Little,
-                            )
-                            .unwrap()
-                            .to_string(),
-                        ));
-                    },
-                    Err(e) => {
-                        log::warn!("Failed to get object name, skipping: {e}");
-                        continue;
-                    },
-                }
+        for (root, inode) in fs.contents.iter().zip(root_inodes.into_iter()) {
+            for child in &root.children {
+                self.insert_entry(inode, child);
             }
         }
 
-        // Sort the directories, so that all objects with parents are created after the parent
-        all_directories.sort_by_key(|(parent, ..)| parent.is_some());
+        Ok(())
+    }
 
-        for (parent, object, name) in all_directories {
-            let Some(parent) = parent else {
+    fn insert_entry(&mut self, parent_inode: u64, entry: &FolderEntry) {
+        match entry {
+            FolderEntry::File(file) => {
                 self.insert(
-                    FUSE_ROOT_ID,
+                    parent_inode,
                     FileAttr {
                         ino: self.next_inode(),
+                        size: 0,
+                        blocks: 0,
+                        atime: SystemTime::UNIX_EPOCH,
+                        mtime: SystemTime::UNIX_EPOCH,
+                        ctime: SystemTime::UNIX_EPOCH,
+                        crtime: SystemTime::UNIX_EPOCH,
+                        kind: FileType::RegularFile,
+                        perm: 0o777,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                        blksize: 0,
+                        flags: 0,
+                    },
+                    file.id,
+                    file.name.clone(),
+                );
+            },
+            FolderEntry::Folder(folder) => {
+                let ino = self.next_inode();
+                self.insert(
+                    parent_inode,
+                    FileAttr {
+                        ino,
                         size: 0,
                         blocks: 0,
                         atime: SystemTime::UNIX_EPOCH,
@@ -371,14 +383,15 @@ impl MtpFuse {
                         blksize: 0,
                         flags: 0,
                     },
-                    object,
-                    name,
+                    folder.id,
+                    folder.name.clone(),
                 );
-                continue;
-            };
-        }
 
-        Ok(())
+                for child in &folder.children {
+                    self.insert_entry(ino, child);
+                }
+            },
+        }
     }
 
     async fn children_of(

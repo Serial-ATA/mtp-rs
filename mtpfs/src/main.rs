@@ -29,29 +29,16 @@ async fn main() -> Result<(), Error> {
 
     let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
 
-    let mut storage_info = Vec::with_capacity(storages.len());
-    for storage in &storages {
-        match handle.get_storage_info(session_id, *storage).await? {
-            Ok(info) => {
-                storage_info.push(info.data.data);
-            },
-            Err(e) => {
-                log::error!("Failed to get storage info: {e}");
-                return Err(Error::Generic(e.into()));
-            },
-        }
-    }
-
     let device = Arc::new(Mutex::new(handle));
 
-    let mut storage_paths = Vec::with_capacity(storage_info.len());
+    let mut storage_paths = Vec::with_capacity(storages.len());
     let mut sessions = FuturesUnordered::new();
-    for (info, id) in storage_info.into_iter().zip(storages.into_iter()) {
-        let name = info
-            .storage_description
+    for storage in storages {
+        let name = storage
+            .description
             .as_ref()
             .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
-        let fs = MtpFuse::new(device.clone(), session_id, id, info);
+        let fs = MtpFuse::new(device.clone(), session_id, storage);
 
         let target = mount_point.join(&name);
         if !target.exists() {
