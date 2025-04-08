@@ -166,10 +166,6 @@ impl MtpFuse {
         ret
     }
 
-    fn next_inode(&self) -> u64 {
-        (self.props.node_ids.len() + 1) as u64
-    }
-
     fn get_node_id(&self, inode: u64) -> Option<&NodeId> {
         self.props.node_ids.get((inode - FUSE_ROOT_ID) as usize)
     }
@@ -185,10 +181,8 @@ impl MtpFuse {
         mut attr: FileAttr,
         object_handle: ObjectHandle,
         name: String,
-    ) {
-        let Some(parent) = self.get_node_id(parent_inode).cloned() else {
-            return;
-        };
+    ) -> Option<u64> {
+        let parent = self.get_node_id(parent_inode).cloned()?;
 
         let inode = self.props.next_inode.fetch_add(1, Ordering::Relaxed);
         attr.ino = inode;
@@ -206,6 +200,7 @@ impl MtpFuse {
             .unwrap();
 
         self.props.node_ids.push(new_inode_id);
+        Some(inode)
     }
 
     fn stat(&self, inode: u64, _file_handle: Option<u64>) -> Option<FileAttr> {
@@ -265,7 +260,7 @@ impl MtpFuse {
 
         self.props
             .next_inode
-            .store(FUSE_ROOT_ID + 2, Ordering::Relaxed);
+            .store(FUSE_ROOT_ID + 3, Ordering::Relaxed);
     }
 
     async fn update_files_if_needed(&mut self) -> Result<(), Error> {
@@ -300,11 +295,10 @@ impl MtpFuse {
 
         let mut root_inodes = Vec::new();
         for entry in &fs.contents {
-            let ino = self.next_inode();
-            self.insert(
+            let Some(ino) = self.insert(
                 FUSE_ROOT_ID,
                 FileAttr {
-                    ino,
+                    ino: 0,
                     size: 0,
                     blocks: 0,
                     atime: SystemTime::UNIX_EPOCH,
@@ -322,7 +316,9 @@ impl MtpFuse {
                 },
                 entry.id,
                 entry.name.clone(),
-            );
+            ) else {
+                continue;
+            };
 
             root_inodes.push(ino);
         }
@@ -342,7 +338,7 @@ impl MtpFuse {
                 self.insert(
                     parent_inode,
                     FileAttr {
-                        ino: self.next_inode(),
+                        ino: 0,
                         size: 0,
                         blocks: 0,
                         atime: SystemTime::UNIX_EPOCH,
@@ -363,11 +359,10 @@ impl MtpFuse {
                 );
             },
             FolderEntry::Folder(folder) => {
-                let ino = self.next_inode();
-                self.insert(
+                let Some(ino) = self.insert(
                     parent_inode,
                     FileAttr {
-                        ino,
+                        ino: 0,
                         size: 0,
                         blocks: 0,
                         atime: SystemTime::UNIX_EPOCH,
@@ -385,7 +380,9 @@ impl MtpFuse {
                     },
                     folder.id,
                     folder.name.clone(),
-                );
+                ) else {
+                    return;
+                };
 
                 for child in &folder.children {
                     self.insert_entry(ino, child);
