@@ -5,9 +5,7 @@ use crate::fuse::MtpFuse;
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use mtp::device::Device;
 use mtp::error::Error;
-use mtp::object::types::ObjectFormatCode;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -61,7 +59,7 @@ async fn main() -> Result<(), Error> {
                 &[
                     MountOption::AutoUnmount,
                     MountOption::AllowOther,
-                    MountOption::DirSync,
+                    MountOption::Sync,
                 ],
             ) {
                 log::error!("Mount failed: {e}");

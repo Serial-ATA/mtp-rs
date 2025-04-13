@@ -1,13 +1,11 @@
 use crate::communication::SessionId;
 use crate::device::storage::id::StorageId;
 use crate::device::{Device, PtpIo};
-use crate::error::{MtpError, MtpErrorKind};
+use crate::error::{Error, MtpError};
 use crate::object::info::ProtectionStatus;
 use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -36,6 +34,7 @@ impl File {
     ) -> Result<std::fs::File, <D as PtpIo>::Error>
     where
         D: Device,
+        <D as PtpIo>::Error: From<Error>,
         <D as PtpIo>::Error: From<MtpError>,
     {
         let object = device
@@ -44,8 +43,8 @@ impl File {
             .map_err(Into::<MtpError>::into)?;
         let file_data = object.data.data;
 
-        let mut tmp = tempfile::tempfile().map_err(Into::<MtpError>::into)?;
-        tmp.write_all(&file_data).map_err(Into::<MtpError>::into)?;
+        let mut tmp = tempfile::tempfile().map_err(Into::<Error>::into)?;
+        tmp.write_all(&file_data).map_err(Into::<Error>::into)?;
 
         Ok(tmp)
     }
@@ -73,9 +72,7 @@ impl File {
                 .property_can_be_modified::<ObjectFileName>(session_id, self.format)
                 .await
         )? {
-            return Err(
-                MtpError::new(MtpErrorKind::Generic("Property cannot be modified".into())).into(),
-            );
+            return Err(MtpError::Generic("Property cannot be modified".into()).into());
         }
 
         let name = PtpString::try_from(name.into())?;

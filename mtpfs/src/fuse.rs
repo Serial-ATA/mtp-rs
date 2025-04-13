@@ -6,7 +6,7 @@ use std::iter;
 use std::mem::ManuallyDrop;
 use std::os::fd::{FromRawFd, IntoRawFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use fuser::{
@@ -17,7 +17,8 @@ use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
 use indicatif::{ProgressBar, ProgressStyle};
 use libc::{EINVAL, EIO, ENOENT, ENOTDIR};
 use mtp::communication::SessionId;
-use mtp::error::{Error, MtpErrorKind};
+use mtp::error::Error;
+use mtp::high_level::DateTimeExt;
 use mtp::high_level::fs::{FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
 use mtp::object::types::{DateTime, ObjectHandle};
@@ -124,15 +125,25 @@ impl Debug for INode {
     }
 }
 
-#[derive(Default)]
 struct Dirty {
     playlists: bool,
     lost_and_found: bool,
+    fs: bool,
+}
+
+impl Dirty {
+    fn new() -> Self {
+        // Everything needs an initial refresh
+        Self {
+            playlists: true,
+            lost_and_found: true,
+            fs: true,
+        }
+    }
 }
 
 struct FsInner {
     node_ids: Vec<NodeId>,
-    files_changed: AtomicBool,
     next_inode: AtomicU64,
     tree: Tree<INode>,
 }
@@ -311,11 +322,10 @@ impl MtpFuse {
             device,
             session_id,
             storage,
-            dirty: Dirty::default(),
+            dirty: Dirty::new(),
             fs: None,
             inner: FsInner {
                 node_ids,
-                files_changed: AtomicBool::new(true),
                 next_inode: AtomicU64::new(FUSE_ROOT_ID + 1),
                 tree: fs,
             },
@@ -357,7 +367,7 @@ impl MtpFuse {
             return Some(LOST_AND_FOUND_ATTR);
         }
 
-        self.inner.get(inode).map(|(inode, _)| inode.attr.clone())
+        self.inner.get(inode).map(|(inode, _)| inode.attr)
     }
 
     fn playlists(&mut self) -> impl Iterator<Item = (String, FileAttr)> {
@@ -377,15 +387,11 @@ impl MtpFuse {
     }
 
     async fn update_files_if_needed(&mut self) -> Result<(), Error> {
-        if self
-            .inner
-            .files_changed
-            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
-        {
+        if !self.dirty.fs {
             return Ok(()); // Already up to date
         }
 
+        self.dirty.fs = false;
         self.inner.reset();
 
         let fs;
@@ -436,21 +442,13 @@ impl MtpFuse {
             root_inodes.push(ino);
         }
 
-        self.fs = Some(fs);
-
-        for (root, inode) in self
-            .fs
-            .as_mut()
-            .unwrap()
-            .contents
-            .iter()
-            .zip(root_inodes.into_iter())
-        {
+        for (root, inode) in fs.contents.iter().zip(root_inodes.into_iter()) {
             for child in root.children.iter().cloned() {
                 self.inner.insert_entry(inode, child)
             }
         }
 
+        self.fs = Some(fs);
         Ok(())
     }
 
@@ -627,16 +625,14 @@ impl Filesystem for MtpFuse {
             match file.open(&mut *device, self.session_id).await {
                 Ok(fd) => reply.opened(fd.into_raw_fd() as u64, flags as u32),
                 Err(e) => {
-                    let Error::Core(err) = e else {
+                    let Error::Io(err) = e else {
                         reply.error(EIO);
                         return;
                     };
 
-                    if let MtpErrorKind::Io(e) = err.kind() {
-                        if let Some(errno) = e.raw_os_error() {
-                            reply.error(errno);
-                            return;
-                        }
+                    if let Some(errno) = err.raw_os_error() {
+                        reply.error(errno);
+                        return;
                     }
 
                     reply.error(EIO);

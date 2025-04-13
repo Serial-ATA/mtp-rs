@@ -4,9 +4,6 @@ use crate::device::storage::info::{AccessCapability, FilesystemType, StorageType
 use crate::device::{Device, PtpIo};
 use crate::error::MtpError;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-
 /// An easier-to-use variant of [`StorageInfo`]
 ///
 /// This has the same contents as [`StorageInfo`], but with the [`PtpString`]s pre-converted to

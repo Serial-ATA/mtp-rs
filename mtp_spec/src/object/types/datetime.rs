@@ -1,4 +1,4 @@
-use crate::error::{MtpError, MtpErrorKind};
+use crate::error::{MtpError, err};
 use crate::object::types::PtpString;
 
 use alloc::borrow::Cow;
@@ -68,38 +68,41 @@ impl FromStr for DateTime {
             }
 
             if s.len() < 2 {
-                return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                    "A DateTime segment must be at least 2 characters long",
-                )));
+                err!(
+                    BadDateTime,
+                    "A DateTime segment must be at least 2 characters long"
+                );
             }
 
             let segment = &s[..2];
             *s = &s[2..];
 
-            let ret = segment.parse::<u8>().map_err(|_| {
-                MtpError::new(MtpErrorKind::BadDateTime(
-                    "A DateTime string must contain only digits",
-                ))
-            })?;
+            let Ok(ret) = segment.parse::<u8>() else {
+                err!(BadDateTime, "A DateTime string must contain only digits");
+            };
 
             Ok(Some(ret))
         }
 
         if s.len() < 4 {
-            return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                "A DateTime string must be at least 4 characters long",
-            )));
+            err!(
+                BadDateTime,
+                "A DateTime string must be at least 4 characters long"
+            );
         }
 
         let year = &s[..4];
         s = &s[4..];
 
+        let Ok(year) = year.parse() else {
+            err!(
+                BadDateTime,
+                "A DateTime string must start with a 4-digit year"
+            );
+        };
+
         let mut datetime = DateTime {
-            year: year.parse().map_err(|_| {
-                MtpError::new(MtpErrorKind::BadDateTime(
-                    "A DateTime string must start with a 4-digit year",
-                ))
-            })?,
+            year,
             month: None,
             day: None,
             hour: None,
@@ -125,9 +128,10 @@ impl FromStr for DateTime {
                     break 'segments;
                 }
 
-                return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                    "Expected a 'T' marking the start of the time segment",
-                )));
+                err!(
+                    BadDateTime,
+                    "Expected a 'T' marking the start of the time segment"
+                );
             }
 
             s = &s[1..];
@@ -153,15 +157,14 @@ impl FromStr for DateTime {
 
             let mut remaining_chars = s.chars();
             if remaining_chars.next() != Some('.') {
-                return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                    "Expected a period marking the start of the decisecond segment",
-                )));
+                err!(
+                    BadDateTime,
+                    "Expected a period marking the start of the decisecond segment"
+                );
             }
 
             let Some(deciseconds) = remaining_chars.next() else {
-                return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                    "Expected a decisecond digit",
-                )));
+                err!(BadDateTime, "Expected a decisecond digit");
             };
             datetime.decisecond = deciseconds.to_digit(10).map(|d| d as u8);
         }
@@ -171,9 +174,7 @@ impl FromStr for DateTime {
         //       that the time zone is unspecified.
 
         if !datetime.validate() {
-            return Err(MtpError::new(MtpErrorKind::BadDateTime(
-                "DateTime string contains invalid segments",
-            )));
+            err!(BadDateTime, "DateTime string contains invalid segments");
         }
 
         Ok(datetime)
@@ -260,34 +261,7 @@ fn verify_field(field: Option<u8>, limit: u8, parent: Option<u8>) -> bool {
     if let Some(field) = field {
         return parent.is_some() && field <= limit;
     }
-    return true; // Field does not exist, so it's valid
-}
-
-impl DateTime {
-    #[cfg(feature = "time")]
-    pub fn as_systemtime(self) -> Option<std::time::SystemTime> {
-        if self.year < 1900 {
-            return None;
-        }
-
-        let mut tm = libc::tm {
-            tm_sec: self.second.unwrap_or(0) as _,
-            tm_min: self.minute.unwrap_or(0) as _,
-            tm_hour: self.hour.unwrap_or(0) as _,
-            tm_mday: self.day.unwrap_or(0) as _,
-            tm_mon: self.month.unwrap_or(0) as _,
-            tm_year: self.year as _,
-            tm_wday: 0,
-            tm_yday: 0,
-            tm_isdst: -1,
-            tm_gmtoff: 0,
-            tm_zone: c"".as_ptr() as _,
-        };
-
-        let time = unsafe { libc::mktime(&mut tm) };
-
-        std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(time as u64))
-    }
+    true // Field does not exist, so it's valid
 }
 
 impl DateTime {

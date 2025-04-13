@@ -271,7 +271,7 @@ macro_rules! parse_operations {
 
 			impl From<[<$name Error>]> for crate::error::MtpError {
 				fn from(value: [<$name Error>]) -> Self {
-					crate::error::MtpError::new(crate::error::MtpErrorKind::Generic(value.into()))
+					crate::error::MtpError::Generic(value.into())
 				}
 			}
 		}

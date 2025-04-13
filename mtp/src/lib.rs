@@ -6,3 +6,4 @@ pub mod error;
 pub mod usb;
 
 pub use mtp_spec::*;
+pub mod high_level;

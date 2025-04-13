@@ -8,12 +8,11 @@
 //!
 //! [`mtp`]: https://crates.io/crates/mtp
 
-#![cfg_attr(not(any(feature = "fs", feature = "time")), no_std)]
+#![no_std]
 
 extern crate alloc;
 
 pub mod communication;
 pub mod device;
 pub mod error;
-pub mod high_level;
 pub mod object;

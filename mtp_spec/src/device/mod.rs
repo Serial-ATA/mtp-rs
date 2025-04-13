@@ -56,11 +56,11 @@ where
         T: ObjectProperty,
     {
         async move {
-            let desc = self
+            let _desc = self
                 .get_object_prop_desc::<T>(session_id, format)
                 .await?
                 .map_err(Into::<crate::error::MtpError>::into)?;
-            dbg!(desc.data.data);
+            // TODO: actually check the GetSet field
 
             Ok(true)
         }
