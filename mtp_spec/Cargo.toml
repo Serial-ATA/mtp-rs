@@ -16,5 +16,17 @@ deku = { workspace = true, default-features = false, features = ["alloc", "loggi
 log.workspace = true
 futures-core.workspace = true
 
+# FS
+tempfile = { version = "3", optional = true }
+
+# Time
+libc = { version = "0.2", optional = true }
+
 [dev-dependencies]
 test-log = "0.2.16"
+
+[features]
+default = ["fs", "time"]
+
+fs = ["dep:tempfile"]
+time = ["dep:libc"]

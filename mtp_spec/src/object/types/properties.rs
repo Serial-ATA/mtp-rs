@@ -7,16 +7,18 @@ use crate::object::types::{
 use alloc::borrow::Cow;
 use alloc::format;
 
-use deku::DekuReader;
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
+use deku::{DekuReader, DekuWriter};
 
 /// Marker trait for object properties
 pub trait ObjectProperty:
-    sealed::Sealed + Eq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
+    sealed::Sealed + Send + Eq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
 {
     /// The raw datacode for this property
     const CODE: u16;
+
+    type DataType: DekuWriter<Endian>;
 }
 
 mod sealed {
@@ -55,6 +57,8 @@ macro_rules! define_object_property_descriptions {
 			#[deku(id = $code)]
 			$name = $code,
 			)*
+			#[deku(id_pat = "_")]
+			SomethingElse,
 		}
 
 		impl ArrayEncodable for ObjectPropertyCode {}
@@ -76,6 +80,8 @@ macro_rules! define_object_property_descriptions {
 
 			impl ObjectProperty for $name {
 				const CODE: u16 = $code;
+
+				type DataType = $datatype;
 			}
 
 			define_object_property_descriptions!(@FORM_ENUM $($form_tt)*);
@@ -275,7 +281,10 @@ define_object_property_descriptions! {
         form: u32
     }
 
-    /// The write-protection status of the binary component of the object
+    /// The file name of the object
+    ///
+    /// This may or may not reference the actual file name of the object on the device, and does not
+    /// contain path information.
     pub struct ObjectFileName {
         properties: {
             data_type: PtpString,

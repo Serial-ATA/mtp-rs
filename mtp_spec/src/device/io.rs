@@ -4,7 +4,7 @@ use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 
 use alloc::vec::Vec;
-
+use deku::ctx::Endian;
 use futures_core::Stream;
 
 /// I/O abstraction for MTP devices
@@ -12,7 +12,7 @@ use futures_core::Stream;
 /// Any implementation of this trait also acts as an [`Event`] stream.
 ///
 /// See [`Device`](super::Device) for a higher-level interface for sending operations.
-pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> {
+pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> + Send {
     /// Implementation-specific errors that can occur during I/O operations
     type Error: core::error::Error;
 
@@ -28,13 +28,17 @@ pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> {
     /// session IDs monotonically increasing.
     #[must_use]
     fn next_session_id(&mut self) -> SessionId;
+    /// Get the endianness of the current device
+    ///
+    /// The value of this is expected to be consistent for the duration of the session.
+    fn endian(&self) -> Endian;
 
     /// Send the operation to the device and wait for a response
     fn send_operation<O>(
         &mut self,
         operation: O,
         data: Option<Vec<u8>>,
-    ) -> impl Future<Output = Result<Response<O>, Self::Error>>
+    ) -> impl Future<Output = Result<Response<O>, Self::Error>> + Send
     where
         O: DynOperation,
         for<'a> SerializedOperation<'a>: From<&'a O>,
@@ -69,7 +73,7 @@ pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> {
         &mut self,
         operation: O,
         data: Option<Vec<u8>>,
-    ) -> impl Future<Output = Result<Response<O>, Self::Error>>
+    ) -> impl Future<Output = Result<Response<O>, Self::Error>> + Send
     where
         O: DynOperation,
         for<'a> SerializedOperation<'a>: From<&'a O>;

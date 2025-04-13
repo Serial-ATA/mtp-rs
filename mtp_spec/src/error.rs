@@ -36,6 +36,9 @@ pub enum MtpErrorKind {
     BadDateTime(&'static str),
     /// General serialization/deserialization errors
     Serialization(deku::DekuError),
+    Generic(Box<dyn core::error::Error>),
+    #[cfg(feature = "fs")]
+    Io(std::io::Error),
 }
 
 impl Display for MtpErrorKind {
@@ -44,6 +47,9 @@ impl Display for MtpErrorKind {
             MtpErrorKind::StringContainsNull => write!(f, "String contains null bytes"),
             MtpErrorKind::BadDateTime(reason) => write!(f, "Bad DateTime string: {}", reason),
             MtpErrorKind::Serialization(error) => write!(f, "Serialization error: {}", error),
+            MtpErrorKind::Generic(error) => write!(f, "{error}"),
+            #[cfg(feature = "fs")]
+            MtpErrorKind::Io(error) => write!(f, "{error}"),
         }
     }
 }
@@ -57,6 +63,10 @@ impl MtpError {
     /// Create a new `MtpError`
     pub fn new(kind: MtpErrorKind) -> MtpError {
         MtpError { kind }
+    }
+
+    pub fn kind(&self) -> &MtpErrorKind {
+        &self.kind
     }
 }
 
@@ -77,5 +87,12 @@ impl core::error::Error for MtpError {}
 impl From<deku::DekuError> for MtpError {
     fn from(error: deku::DekuError) -> Self {
         MtpError::new(MtpErrorKind::Serialization(error))
+    }
+}
+
+#[cfg(feature = "fs")]
+impl From<std::io::Error> for MtpError {
+    fn from(error: std::io::Error) -> Self {
+        MtpError::new(MtpErrorKind::Io(error))
     }
 }

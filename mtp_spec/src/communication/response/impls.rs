@@ -226,15 +226,6 @@ define_response! {
 }
 
 define_response! {
-    /// Response to the [`SetObjectPropValue`] operation.
-    pub struct SetObjectPropValue[][] {
-        // TODO: Determine what this even is
-        #[deku(read_all)]
-        data: Vec<u8>,
-    }
-}
-
-define_response! {
     /// Response to the [`GetObjectReferences`] operation.
     pub struct GetObjectReferences[][] {
         data: Array<ObjectHandle>,

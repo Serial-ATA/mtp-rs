@@ -56,7 +56,7 @@ impl SerializedOperation<'_> {
 }
 
 /// Common methods for all [`operations`](crate::communication::operation)
-pub trait DynOperation
+pub trait DynOperation: Send
 where
     for<'a> SerializedOperation<'a>: From<&'a Self>,
 {
@@ -82,12 +82,8 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_data(bytes: &[u8]) -> Result<Self::Response, MtpError> {
-        // TODO: Endian needs to be provided from some global context
-        match Self::Response::from_reader_with_ctx(
-            &mut Reader::new(Cursor::new(bytes)),
-            Endian::Little,
-        ) {
+    fn decode_data(bytes: &[u8], endian: Endian) -> Result<Self::Response, MtpError> {
+        match Self::Response::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), endian) {
             Ok(response) => Ok(response),
             Err(err) => Err(err.into()),
         }
@@ -99,13 +95,9 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_err(bytes: &[u8], code: u16) -> Result<Self::Error, MtpError> {
-        // TODO: Endian needs to be provided from some global context
-        Self::Error::from_reader_with_ctx(
-            &mut Reader::new(Cursor::new(bytes)),
-            (Endian::Little, code),
-        )
-        .map_err(Into::into)
+    fn decode_err(bytes: &[u8], endian: Endian, code: u16) -> Result<Self::Error, MtpError> {
+        Self::Error::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), (endian, code))
+            .map_err(Into::into)
     }
 }
 

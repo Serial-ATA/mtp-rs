@@ -7,6 +7,7 @@ use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use mtp::device::Device;
 use mtp::error::Error;
+use mtp::object::types::ObjectFormatCode;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;

@@ -240,6 +240,7 @@ macro_rules! parse_operations {
 		}
 
 		paste::paste! {
+			// TODO: Need a generic variant. Some operations may return 0x2002 (General error) for example
 			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
 			#[derive(Debug, deku::DekuRead)]
 			#[deku(
@@ -267,6 +268,12 @@ macro_rules! parse_operations {
 			}
 
 			impl core::error::Error for [<$name Error>] {}
+
+			impl From<[<$name Error>]> for crate::error::MtpError {
+				fn from(value: [<$name Error>]) -> Self {
+					crate::error::MtpError::new(crate::error::MtpErrorKind::Generic(value.into()))
+				}
+			}
 		}
 
 		parse_operations!(
@@ -1030,7 +1037,7 @@ define_operations! {
         visible_parameters: (object: ObjectHandle),
         operation_parameters: (object, Parameter::new(T::CODE as u32)),
         data_direction: Some(DataDirection::InitiatorToResponder),
-        response: response::SetObjectPropValue,
+        response: response::Empty,
         valid_error_codes: [
             SessionNotOpen,
             InvalidTransactionId,

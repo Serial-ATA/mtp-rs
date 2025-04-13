@@ -8,7 +8,7 @@
 //!
 //! [`mtp`]: https://crates.io/crates/mtp
 
-#![no_std]
+#![cfg_attr(not(any(feature = "fs", feature = "time")), no_std)]
 
 extern crate alloc;
 

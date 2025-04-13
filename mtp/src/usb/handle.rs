@@ -107,6 +107,12 @@ impl PtpIo for DeviceHandle {
         SessionId::new(1)
     }
 
+    #[inline]
+    fn endian(&self) -> Endian {
+        // TODO: Needs to be provided from some global context
+        Endian::Little
+    }
+
     async fn __send_operation<O>(
         &mut self,
         operation: O,
@@ -151,7 +157,7 @@ impl PtpIo for DeviceHandle {
                 ContainerType::Command,
                 op.code(),
                 op.transaction_id(),
-                op.encode_parameters(Endian::Little)?, /* TODO: Needs to be provided from some global context */
+                op.encode_parameters(self.endian())?,
             );
             command_buf = command_container
                 .to_bytes()
@@ -184,7 +190,7 @@ impl PtpIo for DeviceHandle {
 
                 // Error was returned
                 if data_phase.type_ == ContainerType::Response {
-                    let err = O::decode_err(&data_phase.payload, data_phase.code)?;
+                    let err = O::decode_err(&data_phase.payload, self.endian(), data_phase.code)?;
                     return Ok(Response::Err(err));
                 }
 
@@ -204,13 +210,13 @@ impl PtpIo for DeviceHandle {
         let response = response_container;
 
         if response.code != CODE_OK {
-            let err = O::decode_err(&response.payload, response.code)?;
+            let err = O::decode_err(&response.payload, self.endian(), response.code)?;
             return Ok(Response::Err(err));
         }
 
         match responder_data {
             Some(data) => {
-                let data = O::decode_data(&data)?;
+                let data = O::decode_data(&data, self.endian())?;
                 Ok(Response::Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,
@@ -219,7 +225,7 @@ impl PtpIo for DeviceHandle {
             None => {
                 // This case will only ever be hit for `()` anyway. The data we give it will
                 // never be read.
-                let data = O::decode_data(&[])?;
+                let data = O::decode_data(&[], self.endian())?;
                 Ok(Response::Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,

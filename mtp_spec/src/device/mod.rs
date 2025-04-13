@@ -25,7 +25,9 @@ use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
 
 use alloc::vec::Vec;
-use deku::DekuContainerWrite;
+use deku::no_std_io::Cursor;
+use deku::writer::Writer;
+use deku::{DekuContainerWrite, DekuWriter};
 
 pub mod info;
 pub mod property_describing;
@@ -44,11 +46,31 @@ pub trait Device: PtpIo
 where
     <Self as PtpIo>::Error: From<crate::error::MtpError>,
 {
+    /// Whether the [`ObjectProperty`] `T` is writeable for the given `format`
+    fn property_can_be_modified<T>(
+        &mut self,
+        session_id: SessionId,
+        format: ObjectFormatCode,
+    ) -> impl Future<Output = Result<bool, <Self as PtpIo>::Error>>
+    where
+        T: ObjectProperty,
+    {
+        async move {
+            let desc = self
+                .get_object_prop_desc::<T>(session_id, format)
+                .await?
+                .map_err(Into::<crate::error::MtpError>::into)?;
+            dbg!(desc.data.data);
+
+            Ok(true)
+        }
+    }
+
     /// Send a [`GetDeviceInfo`] operation
     fn get_device_info(
         &mut self,
         session_id: Option<SessionId>,
-    ) -> impl Future<Output = Result<Response<GetDeviceInfo>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetDeviceInfo>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = if session_id.is_some() {
                 self.next_transaction_id()
@@ -82,7 +104,7 @@ where
     fn close_session(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<CloseSession>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<CloseSession>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(CloseSession::new(transaction_id, session_id), None)
@@ -94,7 +116,7 @@ where
     fn get_storage_ids(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<GetStorageIDs>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetStorageIDs>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetStorageIDs::new(transaction_id, session_id), None)
@@ -107,7 +129,7 @@ where
         &mut self,
         session_id: SessionId,
         storage: StorageId,
-    ) -> impl Future<Output = Result<Response<GetStorageInfo>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetStorageInfo>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -125,7 +147,7 @@ where
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<GetNumObjects>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetNumObjects>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -143,7 +165,8 @@ where
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<GetObjectHandles>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetObjectHandles>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -159,7 +182,7 @@ where
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectInfo>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetObjectInfo>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetObjectInfo::new(transaction_id, session_id, object), None)
@@ -172,7 +195,7 @@ where
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObject>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetObject>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetObject::new(transaction_id, session_id, object), None)
@@ -185,7 +208,7 @@ where
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetThumb>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetThumb>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetThumb::new(transaction_id, session_id, object), None)
@@ -199,7 +222,7 @@ where
         session_id: SessionId,
         object: ObjectHandle,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<DeleteObject>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<DeleteObject>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -222,7 +245,7 @@ where
         storage: Option<StorageId>,
         parent: Option<ObjectHandle>,
         object_info: ObjectInfo,
-    ) -> impl Future<Output = Result<Response<SendObjectInfo>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SendObjectInfo>, <Self as PtpIo>::Error>> + Send {
         async move {
             let encoded_object_info = object_info
                 .to_bytes()
@@ -262,7 +285,8 @@ where
         session_id: SessionId,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<InitiateCapture>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<InitiateCapture>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -279,7 +303,7 @@ where
         session_id: SessionId,
         storage: StorageId,
         fs: FilesystemType,
-    ) -> impl Future<Output = Result<Response<FormatStore>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<FormatStore>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -294,7 +318,7 @@ where
     fn reset_device(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<ResetDevice>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<ResetDevice>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(ResetDevice::new(transaction_id, session_id), None)
@@ -307,7 +331,7 @@ where
         &mut self,
         session_id: SessionId,
         test_type: SelfTestType,
-    ) -> impl Future<Output = Result<Response<SelfTest>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SelfTest>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(SelfTest::new(transaction_id, session_id, test_type), None)
@@ -321,7 +345,8 @@ where
         session_id: SessionId,
         object: ObjectHandle,
         status: ProtectionStatus,
-    ) -> impl Future<Output = Result<Response<SetObjectProtection>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SetObjectProtection>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -336,7 +361,7 @@ where
     fn power_down(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<PowerDown>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<PowerDown>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(PowerDown::new(transaction_id, session_id), None)
@@ -349,7 +374,8 @@ where
         &mut self,
         session_id: SessionId,
         code: DevicePropCode,
-    ) -> impl Future<Output = Result<Response<GetDevicePropDesc>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetDevicePropDesc>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -365,7 +391,8 @@ where
         &mut self,
         session_id: SessionId,
         code: DevicePropCode,
-    ) -> impl Future<Output = Result<Response<GetDevicePropValue>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetDevicePropValue>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -382,7 +409,8 @@ where
         session_id: SessionId,
         code: DevicePropCode,
         value: Vec<u8>,
-    ) -> impl Future<Output = Result<Response<SetDevicePropValue>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SetDevicePropValue>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -398,7 +426,8 @@ where
         &mut self,
         session_id: SessionId,
         code: DevicePropCode,
-    ) -> impl Future<Output = Result<Response<ResetDevicePropValue>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<ResetDevicePropValue>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -414,7 +443,8 @@ where
         &mut self,
         session_id: SessionId,
         transaction_id: TransactionId,
-    ) -> impl Future<Output = Result<Response<TerminateOpenCapture>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<TerminateOpenCapture>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let next_transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -432,7 +462,7 @@ where
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<MoveObject>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<MoveObject>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -450,7 +480,7 @@ where
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<CopyObject>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<CopyObject>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -468,7 +498,8 @@ where
         object: ObjectHandle,
         offset: u32,
         len: u32,
-    ) -> impl Future<Output = Result<Response<GetPartialObject>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetPartialObject>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -485,7 +516,8 @@ where
         session_id: SessionId,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<InitiateOpenCapture>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<InitiateOpenCapture>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -556,15 +588,22 @@ where
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
+        value: T::DataType,
     ) -> impl Future<Output = Result<Response<SetObjectPropValue<T>>, <Self as PtpIo>::Error>>
     where
         T: ObjectProperty,
     {
         async move {
+            let mut encoded_value = Cursor::new(Vec::new());
+            let mut writer = Writer::new(&mut encoded_value);
+            value
+                .to_writer(&mut writer, self.endian())
+                .map_err(Into::<crate::error::MtpError>::into)?;
+
             let transaction_id = self.next_transaction_id();
             self.send_operation(
                 SetObjectPropValue::<T>::new(transaction_id, session_id, object),
-                None,
+                Some(encoded_value.into_inner()),
             )
             .await
         }
@@ -575,7 +614,8 @@ where
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectReferences>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetObjectReferences>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -592,7 +632,8 @@ where
         session_id: SessionId,
         object: ObjectHandle,
         references: Array<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<SetObjectReferences>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SetObjectReferences>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let encoded_references = references
                 .to_bytes()
@@ -612,7 +653,7 @@ where
         &mut self,
         session_id: SessionId,
         skip: u32,
-    ) -> impl Future<Output = Result<Response<Skip>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<Skip>, <Self as PtpIo>::Error>> + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(Skip::new(transaction_id, session_id, skip), None)
@@ -633,7 +674,8 @@ where
         property: ObjectPropertyCode,
         group: Option<u32>,
         depth: Option<u32>,
-    ) -> impl Future<Output = Result<Response<GetObjectPropList>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<GetObjectPropList>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -657,7 +699,8 @@ where
         &mut self,
         session_id: SessionId,
         props: Vec<u8>, // TODO: Actually define the ObjectPropList
-    ) -> impl Future<Output = Result<Response<SetObjectPropList>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SetObjectPropList>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -693,7 +736,8 @@ where
         parent: Option<ObjectHandle>,
         format: ObjectFormatCode,
         size: u64,
-    ) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> + Send
+    {
         async move {
             let high = (size >> 32) as u32;
             let low = size as u32;

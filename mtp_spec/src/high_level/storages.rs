@@ -7,6 +7,15 @@ use crate::error::MtpError;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+/// An easier-to-use variant of [`StorageInfo`]
+///
+/// This has the same contents as [`StorageInfo`], but with the [`PtpString`]s pre-converted to
+/// [`String`]s.
+///
+/// These are obtained from [`DeviceStorageExt::storages()`].
+///
+/// [`StorageInfo`]: crate::device::storage::info::StorageInfo
+/// [`PtpString`]: crate::object::types::PtpString
 pub struct Storage {
     /// The device-specific ID of the storage
     pub id: StorageId,
@@ -33,10 +42,10 @@ where
     <Self as PtpIo>::Error: From<MtpError>,
 {
     /// Get all [`Storage`]s on the device
-    async fn storages(
+    fn storages(
         &mut self,
         session_id: SessionId,
-    ) -> Result<Vec<Storage>, <Self as PtpIo>::Error>
+    ) -> impl Future<Output = Result<Vec<Storage>, <Self as PtpIo>::Error>> + Send
     where
         Self: Device,
         <Self as PtpIo>::Error: From<MtpError>;
@@ -51,17 +60,19 @@ where
         &mut self,
         session_id: SessionId,
     ) -> Result<Vec<Storage>, <D as PtpIo>::Error> {
-        let storage_ids = match self.get_storage_ids(session_id).await? {
-            Ok(storages) => storages.data.data,
-            Err(e) => todo!(),
-        };
+        let storage_ids_response = self
+            .get_storage_ids(session_id)
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+        let storage_ids = storage_ids_response.data.data;
 
         let mut storages = Vec::with_capacity(storage_ids.len());
         for storage_id in storage_ids.iter().copied() {
-            let storage_info = match self.get_storage_info(session_id, storage_id).await? {
-                Ok(info) => info.data.data,
-                Err(e) => todo!(),
-            };
+            let storage_info_response = self
+                .get_storage_info(session_id, storage_id)
+                .await?
+                .map_err(Into::<MtpError>::into)?;
+            let storage_info = storage_info_response.data.data;
 
             storages.push(Storage {
                 id: storage_id,
