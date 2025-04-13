@@ -1,4 +1,3 @@
-use super::ResponseFlags;
 use crate::device::info::DeviceInfo;
 use crate::device::property_describing::{DevicePropDesc, PropertyValueWrapper};
 use crate::device::storage::id::StorageId;
@@ -71,26 +70,16 @@ macro_rules! define_response {
 				),*
 			)?
 		}
-
-		impl $($generics)* $crate::communication::response::ResponseFlags for $name $($generics)* $($where_clause)* {}
-
-		impl $($generics)* super::sealed::Sealed for $name $($generics)* $($where_clause)* {}
 	}
 }
 
 pub(super) use {define_response, replace_expr};
 
-/// Empty response, device has nothing to provide
-#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
-#[deku(
-    endian = "_endian",
-    ctx = "_endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
-)]
-pub struct Empty;
-
-impl ResponseFlags for Empty {
-    const EXPECTS_DATA: bool = false;
+define_response! {
+    /// Empty response, responder has nothing to provide
+    pub struct Empty[][] {
+        data: (),
+    }
 }
 
 define_response! {

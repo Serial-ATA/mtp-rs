@@ -100,7 +100,7 @@ impl Entry {
     fn name(&self) -> &str {
         match self {
             Self::Real(entry) => entry.name(),
-            Self::Injected(entry) => &*entry.name,
+            Self::Injected(entry) => &entry.name,
             Self::Empty => unreachable!(),
         }
     }
@@ -452,27 +452,17 @@ impl MtpFuse {
         Ok(())
     }
 
-    async fn children_of(&self, inode: u64) -> Result<Option<impl Iterator<Item = &INode>>, Error> {
-        let Some((_, node_id)) = self.inner.get(inode) else {
-            return Ok(None);
-        };
+    fn children_of(&self, inode: u64) -> Option<impl Iterator<Item = &INode>> {
+        let (_, node_id) = self.inner.get(inode)?;
 
         let children = self.inner.tree.children(node_id).unwrap();
-
-        Ok(Some(children.map(|node| node.data())))
+        Some(children.map(Node::data))
     }
 
-    async fn _lookup(&self, parent: u64, name: &OsStr) -> Result<&INode, i32> {
-        let result = self.children_of(parent).await;
-
-        let children;
-        match result {
-            Ok(Some(c)) => children = c,
-            Ok(None) => {
-                return Err(ENOENT);
-            },
-            Err(_) => return Err(EIO),
-        }
+    fn _lookup(&self, parent: u64, name: &OsStr) -> Result<&INode, i32> {
+        let Some(children) = self.children_of(parent) else {
+            return Err(ENOENT);
+        };
 
         for child in children {
             if name.to_str() == Some(child.entry.name()) {
@@ -492,7 +482,7 @@ impl MtpFuse {
     ) -> Result<(), i32> {
         let mut device = self.device.lock().await;
 
-        let inode = self._lookup(parent, name).await?;
+        let inode = self._lookup(parent, name)?;
 
         let Entry::Real(entry) = &inode.entry else {
             return Err(EINVAL);
@@ -527,10 +517,10 @@ impl Filesystem for MtpFuse {
         log::info!("Closing filesystem");
     }
 
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let result = futures::executor::block_on(async move {
             self.update_files_if_needed().await.map_err(|_| EIO)?;
-            self._lookup(parent, name).await
+            self._lookup(parent, name)
         });
         match result {
             Ok(entry) => {
@@ -561,11 +551,11 @@ impl Filesystem for MtpFuse {
         todo!()
     }
 
-    fn unlink(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
+    fn unlink(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
         todo!()
     }
 
-    fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
+    fn rmdir(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
         todo!()
     }
 
@@ -595,7 +585,7 @@ impl Filesystem for MtpFuse {
 
     fn link(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         _ino: u64,
         _newparent: u64,
         _newname: &OsStr,
@@ -604,7 +594,7 @@ impl Filesystem for MtpFuse {
         todo!()
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
         let Some((inode, _)) = self.inner.get(ino) else {
             reply.error(ENOENT);
             return;
@@ -686,13 +676,20 @@ impl Filesystem for MtpFuse {
         todo!()
     }
 
-    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        reply: ReplyEmpty,
+    ) {
         reply.ok()
     }
 
     fn release(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         _ino: u64,
         fh: u64,
         _flags: i32,
@@ -704,7 +701,14 @@ impl Filesystem for MtpFuse {
         reply.ok();
     }
 
-    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, _reply: ReplyEmpty) {
+    fn fsync(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _datasync: bool,
+        _reply: ReplyEmpty,
+    ) {
         todo!()
     }
 
@@ -724,7 +728,7 @@ impl Filesystem for MtpFuse {
 
     fn readdir(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         ino: u64,
         _fh: u64,
         offset: i64,
@@ -748,17 +752,10 @@ impl Filesystem for MtpFuse {
             return;
         }
 
-        let result = futures::executor::block_on(async move { self.children_of(ino).await });
-
-        let children;
-        match result {
-            Ok(Some(c)) => children = c,
-            Ok(None) => {
-                reply.error(ENOENT);
-                return;
-            },
-            Err(e) => todo!(),
-        }
+        let Some(children) = self.children_of(ino) else {
+            reply.error(ENOENT);
+            return;
+        };
 
         for (inode, offset) in children.skip(offset as usize).zip(offset..) {
             if reply.add(
@@ -775,13 +772,13 @@ impl Filesystem for MtpFuse {
         reply.ok();
     }
 
-    // fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
+    // fn releasedir(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
     //     todo!()
     // }
 
     fn fsyncdir(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         _ino: u64,
         _fh: u64,
         _datasync: bool,
@@ -790,9 +787,9 @@ impl Filesystem for MtpFuse {
         todo!()
     }
 
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        let blocks = self.storage.max_capacity / BLOCK_SIZE as u64;
-        let blocks_free = self.storage.free_space / BLOCK_SIZE as u64;
+    fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
+        let blocks = self.storage.max_capacity / u64::from(BLOCK_SIZE);
+        let blocks_free = self.storage.free_space / u64::from(BLOCK_SIZE);
         let blocks_available = blocks_free;
         let files_free = self.storage.free_space_in_objects / BLOCK_SIZE;
         reply.statfs(
@@ -800,7 +797,7 @@ impl Filesystem for MtpFuse {
             blocks_free,
             blocks_available,
             0,
-            files_free as u64,
+            u64::from(files_free),
             BLOCK_SIZE,
             0,
             0,

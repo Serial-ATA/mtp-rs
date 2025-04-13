@@ -1,4 +1,3 @@
-use crate::communication::response::ResponseFlags;
 use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::MtpError;
 use crate::object::types::ArrayEncodable;
@@ -32,7 +31,7 @@ impl SerializedOperation<'_> {
         let mut buf = Vec::with_capacity(size_of_val(self.parameters));
 
         let mut writer = Writer::new(Cursor::new(&mut buf));
-        for param in self.parameters.iter() {
+        for param in self.parameters {
             param.to_writer(&mut writer, endian)?;
         }
 
@@ -64,7 +63,7 @@ where
     const DATA_DIRECTION: Option<DataDirection>;
 
     /// The response type for this operation, see [`response`](crate::communication::response)
-    type Response: Clone + Debug + Eq + PartialEq + ResponseFlags + for<'b> DekuReader<'b, Endian>;
+    type Response: Clone + Debug + Eq + PartialEq + for<'b> DekuReader<'b, Endian>;
 
     /// The error type for this operation
     ///

@@ -13,23 +13,23 @@ readme.workspace = true
 [dependencies]
 mtp_spec.workspace = true
 
-tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 deku = { workspace = true, features = ["alloc", "logging"] }
 log.workspace = true
 futures.workspace = true
 
 # USB
-bitflags = { version = "2", optional = true }
-nusb = { version = "0.1", optional = true }
+bitflags = { workspace = true, optional = true }
+nusb = { workspace = true, optional = true }
 
 # FS
-tempfile = { version = "3", optional = true }
+tempfile = { workspace = true, optional = true }
 
 # Time
-libc = { version = "0.2", optional = true }
+libc = { workspace = true, optional = true }
 
 [dev-dependencies]
-test-log = "0.2.16"
+test-log.workspace = true
 
 [features]
 default = ["usb", "fs", "time"]

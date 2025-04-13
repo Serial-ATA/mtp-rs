@@ -1,3 +1,5 @@
+//! A FUSE filesystem for MTP-compatible devices
+
 mod fuse;
 mod prompts;
 

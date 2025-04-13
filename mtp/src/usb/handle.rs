@@ -9,7 +9,7 @@ use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
 use futures::Stream;
 use mtp_spec::communication::event::Event;
 use mtp_spec::communication::operation::{DataDirection, DynOperation, SerializedOperation};
-use mtp_spec::communication::response::{CODE_OK, Response, ResponseFlags, SuccessResponse};
+use mtp_spec::communication::response::{CODE_OK, Response, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
@@ -185,8 +185,7 @@ impl PtpIo for DeviceHandle {
                 .await?;
             },
             Some(DataDirection::ResponderToInitiator) => {
-                let data_phase =
-                    get_data_from_responder::<<O as DynOperation>::Response>(self).await?;
+                let data_phase = get_data_from_responder(self).await?;
 
                 // Error was returned
                 if data_phase.type_ == ContainerType::Response {
@@ -275,7 +274,7 @@ impl UsbContainer {
     }
 }
 
-async fn get_data_from_responder<T: ResponseFlags>(
+async fn get_data_from_responder(
     handle: &mut DeviceHandle,
 ) -> Result<UsbContainer, crate::error::Error> {
     log::trace!("Attempting to get data from responder");

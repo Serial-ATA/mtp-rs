@@ -3,9 +3,7 @@ resolver = "2"
 members = [
 	"mtp",
 	"mtp_spec",
-]
-exclude = [
-	"mtpfs"
+	"mtpfs",
 ]
 
 [workspace.package]
@@ -22,6 +20,22 @@ deku = { git = "https://github.com/Serial-ATA/deku.git", branch = "misc", defaul
 log = "0.4"
 futures = "0.3"
 futures-core = { version = "0.3", default-features = false }
+test-log = "0.2.17"
+paste = "1.0.15"
+libc = "0.2"
+tokio = "1.44.2"
+
+# mtp
+nusb = "0.1.13"
+bitflags = "2.9.0"
+tempfile = "3.19.1"
+
+# mtpfs
+env_logger = "0.11.8"
+indicatif = "0.17.11"
+dialoguer = "0.11.0"
+fuser = "0.15.1"
+id_tree = "1.8.0"
 
 [workspace.lints.rust]
 missing_docs = "deny"

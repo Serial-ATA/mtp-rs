@@ -38,7 +38,7 @@ pub struct PtpString(
 
 impl PtpString {
     /// In some contexts, empty strings are used to signify no value. Convert them to `Option`s.
-    pub fn parse_optional(string: PtpString) -> Result<Option<PtpString>, DekuError> {
+    pub(crate) fn parse_optional(string: PtpString) -> Result<Option<PtpString>, DekuError> {
         if string.is_empty() {
             Ok(None)
         } else {

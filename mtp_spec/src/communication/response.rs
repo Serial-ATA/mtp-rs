@@ -397,14 +397,3 @@ impl Display for ErrorResponse {
 }
 
 impl Error for ErrorResponse {}
-
-pub trait ResponseFlags: sealed::Sealed {
-    /// Hint to the decoder whether to expect data with this response.
-    const EXPECTS_DATA: bool = true;
-}
-
-mod sealed {
-    pub trait Sealed {}
-
-    impl Sealed for super::impls::Empty {}
-}

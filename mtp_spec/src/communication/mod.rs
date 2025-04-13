@@ -69,7 +69,7 @@ impl SessionId {
     pub const NONE: Self = SessionId(0);
 
     /// A session identifier representing all current sessions.
-    pub const ALL: Self = SessionId(0xFFFFFF);
+    pub const ALL: Self = SessionId(0xFFF_FFF);
 
     /// Create a new session identifier.
     ///

@@ -51,8 +51,11 @@ pub struct DeviceInfo {
     /// This string is used to identify any extension sets applied to MTP
     pub mtp_extensions: PtpString,
     pub functional_mode: FunctionalMode,
+    /// All operations that the device claims to support
     pub operations_supported: Array<Operation>,
+    /// All events that the device claims to support
     pub events_supported: Array<EventCode>,
+    /// All device properties that the device claims to support
     pub device_properties_supported: Array<u16>,
     pub capture_formats: Array<ObjectFormatCode>,
     pub playback_formats: Array<ObjectFormatCode>,
