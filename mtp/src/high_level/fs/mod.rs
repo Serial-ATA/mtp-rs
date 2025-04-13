@@ -1,3 +1,6 @@
+mod device_ext;
+pub use device_ext::*;
+
 use crate::communication::SessionId;
 use crate::device::storage::id::StorageId;
 use crate::device::{Device, PtpIo};

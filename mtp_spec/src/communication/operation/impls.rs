@@ -1203,7 +1203,7 @@ define_operations! {
     ///
     /// NOTES:
     ///
-    /// * If `destination` is unspecified, the responder will determine the store to palce it in.
+    /// * If `destination` is unspecified, the responder will determine the store to place it in.
     /// * If `parent` is specified, `destination` **must** also be specified. If it is unspecified,
     ///   the responder will determine the store to place it in.
     pub struct SendObjectPropList {

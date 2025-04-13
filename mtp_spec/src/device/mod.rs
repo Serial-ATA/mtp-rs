@@ -21,8 +21,9 @@ use crate::communication::{SessionId, TransactionId};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
+use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializeableProperty};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
+use alloc::boxed::Box;
 
 use alloc::vec::Vec;
 use deku::no_std_io::Cursor;
@@ -729,16 +730,29 @@ where
     }
 
     /// Send a [`SendObjectPropList`] operation
-    fn send_object_prop_list(
+    fn send_object_prop_list<'a>(
         &mut self,
         session_id: SessionId,
         destination: Option<StorageId>,
         parent: Option<ObjectHandle>,
         format: ObjectFormatCode,
         size: u64,
+        properties: impl IntoIterator<Item = Box<dyn SerializeableProperty>> + Send,
     ) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> + Send
     {
         async move {
+            let mut object_prop_list = Cursor::new(Vec::new());
+
+            let mut writer = Writer::new(&mut object_prop_list);
+            for property in properties
+                .into_iter()
+                .map(|p| p.serialize(ObjectHandle::NONE))
+            {
+                property
+                    .to_writer(&mut writer, self.endian())
+                    .map_err(Into::<crate::error::MtpError>::into)?;
+            }
+
             let high = (size >> 32) as u32;
             let low = size as u32;
 
@@ -753,7 +767,7 @@ where
                     high,
                     low,
                 ),
-                None,
+                Some(object_prop_list.into_inner()),
             )
             .await
         }

@@ -19,7 +19,7 @@ use libc::{EINVAL, EIO, ENOENT, ENOTDIR};
 use mtp::communication::SessionId;
 use mtp::error::Error;
 use mtp::high_level::DateTimeExt;
-use mtp::high_level::fs::{FileSystem, FolderEntry};
+use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
@@ -198,40 +198,38 @@ impl FsInner {
             .entry = entry;
     }
 
-    fn insert_entry(&mut self, parent_inode: u64, entry: Arc<FolderEntry>) {
+    fn insert_entry(&mut self, parent_inode: u64, entry: Arc<FolderEntry>) -> Option<u64> {
         match &*entry {
-            FolderEntry::File(file) => {
-                self.insert(
-                    parent_inode,
-                    FileAttr {
-                        ino: 0,
-                        size: file.size,
-                        blocks: 0,
-                        atime: SystemTime::UNIX_EPOCH,
-                        mtime: file
-                            .date_modified
-                            .and_then(DateTime::as_systemtime)
-                            .unwrap_or(SystemTime::UNIX_EPOCH),
-                        ctime: SystemTime::UNIX_EPOCH,
-                        crtime: file
-                            .date_created
-                            .and_then(DateTime::as_systemtime)
-                            .unwrap_or(SystemTime::UNIX_EPOCH),
-                        kind: FileType::RegularFile,
-                        perm: 0o777,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                        blksize: 0,
-                        flags: 0,
-                    },
-                    file.id,
-                    Entry::Real(entry),
-                );
-            },
+            FolderEntry::File(file) => self.insert(
+                parent_inode,
+                FileAttr {
+                    ino: 0,
+                    size: file.size,
+                    blocks: 0,
+                    atime: SystemTime::UNIX_EPOCH,
+                    mtime: file
+                        .date_modified
+                        .and_then(DateTime::as_systemtime)
+                        .unwrap_or(SystemTime::UNIX_EPOCH),
+                    ctime: SystemTime::UNIX_EPOCH,
+                    crtime: file
+                        .date_created
+                        .and_then(DateTime::as_systemtime)
+                        .unwrap_or(SystemTime::UNIX_EPOCH),
+                    kind: FileType::RegularFile,
+                    perm: 0o777,
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    blksize: 0,
+                    flags: 0,
+                },
+                file.id,
+                Entry::Real(entry),
+            ),
             FolderEntry::Folder(folder) => {
-                let Some(ino) = self.insert(
+                let ino = self.insert(
                     parent_inode,
                     FileAttr {
                         ino: 0,
@@ -258,15 +256,14 @@ impl FsInner {
                     },
                     folder.id,
                     Entry::Empty,
-                ) else {
-                    return;
-                };
+                )?;
 
                 for child in folder.children.iter().cloned() {
                     self.insert_entry(ino, child);
                 }
 
                 self.update_entry(ino, Entry::Real(entry));
+                Some(ino)
             },
         }
     }
@@ -444,7 +441,7 @@ impl MtpFuse {
 
         for (root, inode) in fs.contents.iter().zip(root_inodes.into_iter()) {
             for child in root.children.iter().cloned() {
-                self.inner.insert_entry(inode, child)
+                self.inner.insert_entry(inode, child);
             }
         }
 
@@ -542,13 +539,66 @@ impl Filesystem for MtpFuse {
     fn mkdir(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
+        parent: u64,
+        name: &OsStr,
         _mode: u32,
         _umask: u32,
-        _reply: ReplyEntry,
+        reply: ReplyEntry,
     ) {
-        todo!()
+        let Some((inode, _)) = self.inner.get(parent) else {
+            reply.error(ENOENT);
+            return;
+        };
+
+        let Some(name) = name.to_str() else {
+            reply.error(EINVAL);
+            return;
+        };
+
+        let parent_dir;
+        if inode.attr.ino == FUSE_ROOT_ID {
+            parent_dir = None;
+        } else {
+            let Entry::Real(entry) = &inode.entry else {
+                reply.error(EINVAL);
+                return;
+            };
+
+            let FolderEntry::Folder(dir) = &**entry else {
+                reply.error(EINVAL);
+                return;
+            };
+
+            parent_dir = Some(dir)
+        }
+
+        let result = futures::executor::block_on(async {
+            let mut device = self.device.lock().await;
+            device.mkdir(self.session_id, parent_dir, name).await
+        });
+
+        match result {
+            Ok(folder) => {
+                let Some(inode) = self
+                    .inner
+                    .insert_entry(parent, Arc::new(FolderEntry::Folder(folder)))
+                else {
+                    reply.error(ENOENT);
+                    return;
+                };
+
+                let Some((inode, _)) = self.inner.get(inode) else {
+                    reply.error(ENOENT);
+                    return;
+                };
+
+                reply.entry(&TTL, &inode.attr, 0);
+            },
+            Err(_) => {
+                reply.error(EIO);
+                return;
+            },
+        }
     }
 
     fn unlink(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
@@ -772,9 +822,16 @@ impl Filesystem for MtpFuse {
         reply.ok();
     }
 
-    // fn releasedir(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
-    //     todo!()
-    // }
+    fn releasedir(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _flags: i32,
+        reply: ReplyEmpty,
+    ) {
+        reply.ok()
+    }
 
     fn fsyncdir(
         &mut self,
@@ -782,9 +839,9 @@ impl Filesystem for MtpFuse {
         _ino: u64,
         _fh: u64,
         _datasync: bool,
-        _reply: ReplyEmpty,
+        reply: ReplyEmpty,
     ) {
-        todo!()
+        reply.ok()
     }
 
     fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {

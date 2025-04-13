@@ -30,7 +30,7 @@ pub struct PropertyValueWrapper {
 )]
 pub enum PropertyValue {
     #[deku(id = "0x0000")]
-    Undefined,
+    Undefined(#[deku(read_all)] Vec<u8>),
     #[deku(id = "0x0001")]
     I8(i8),
     #[deku(id = "0x0002")]
@@ -74,7 +74,7 @@ pub enum PropertyValue {
     #[deku(id = "0xFFFF")]
     String(PtpString),
     #[deku(id_pat = "_")]
-    Reserved,
+    Reserved(#[deku(read_all)] Vec<u8>),
 }
 
 #[repr(u8)]

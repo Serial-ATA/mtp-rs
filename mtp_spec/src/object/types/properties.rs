@@ -1,12 +1,12 @@
 use crate::communication::Parameter;
-use crate::device::property_describing::GetSet;
+use crate::device::property_describing::{GetSet, PropertyValue};
 use crate::object::types::{
     Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PtpString,
 };
 
 use alloc::borrow::Cow;
 use alloc::format;
-
+use alloc::vec::Vec;
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
 use deku::{DekuReader, DekuWriter};
@@ -27,6 +27,39 @@ mod sealed {
     pub trait Sealed {}
 
     impl<T: ObjectProperty> Sealed for T {}
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, deku::DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct SerializedProperty {
+    code: u16,
+    data_type: u16,
+    object: ObjectHandle,
+    // Passing in a dummy data type, doesn't actually matter for writing
+    #[deku(ctx = "0")]
+    value: PropertyValue,
+}
+
+pub trait SerializeableProperty: Send {
+    fn serialize(&self, object: ObjectHandle) -> SerializedProperty;
+}
+
+impl<P> SerializeableProperty for P
+where
+    P: ObjectProperty,
+{
+    fn serialize(&self, object: ObjectHandle) -> SerializedProperty {
+        SerializedProperty {
+            code: P::CODE,
+            data_type: 0, // TODO
+            object,
+            value: PropertyValue::I8(0), // TODO
+        }
+    }
 }
 
 macro_rules! define_object_property_descriptions {
