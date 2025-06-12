@@ -1,6 +1,11 @@
 use mtp_spec::object::types::DateTime;
 
 pub trait DateTimeExt {
+    /// Convert a [`DateTime`] to [`SystemTime`](std::time::SystemTime)
+    ///
+    /// This is useful for altering filesystem timestamps on the host-side.
+    ///
+    /// This will return `None` if `year < 1900`.
     fn as_systemtime(self) -> Option<std::time::SystemTime>;
 }
 

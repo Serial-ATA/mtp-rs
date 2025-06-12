@@ -25,7 +25,7 @@ impl ObjectHandle {
 
     /// In some contexts, we want to convert empty handles to `None` when parsing.
     pub(crate) fn parse_optional(handle: ObjectHandle) -> Result<Option<ObjectHandle>, DekuError> {
-        if handle.0 == 0 {
+        if handle == Self::NONE {
             Ok(None)
         } else {
             Ok(Some(handle))

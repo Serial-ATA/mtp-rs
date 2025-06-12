@@ -39,6 +39,11 @@ where
     <Self as PtpIo>::Error: From<MtpError>,
 {
     /// Get all [`Storage`]s on the device
+    ///
+    /// This is a combination of the [`GetStorageIDs`] and [`GetStorageInfo`] operations.
+    ///
+    /// [`GetStorageIDs`]: crate::communication::operation::GetStorageIDs
+    /// [`GetStorageInfo`]: crate::communication::operation::GetStorageInfo
     fn storages(
         &mut self,
         session_id: SessionId,

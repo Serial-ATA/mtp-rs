@@ -22,6 +22,23 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///
 /// NOTE: When converting a `String` to a `PtpString`, the string will be truncated if it exceeds the
 ///       maximum length.
+///
+/// ## Usage
+///
+/// ```rust
+/// use mtp_spec::object::types::PtpString;
+///
+/// // Converting `String`s to `PtpString`
+/// let some_text = String::from("foo");
+/// let some_text_ptp = PtpString::try_from(some_text).expect("string contains no null bytes");
+///
+/// let some_long_text = "X".repeat(300);
+/// let some_long_text_ptp =
+///     PtpString::try_from(some_long_text).expect("string contains no null bytes");
+///
+/// // `some_long_text` was truncated to 254 bytes + 1 for the null terminator
+/// assert_eq!(some_long_text_ptp.len(), 255);
+/// ```
 #[derive(Default, Clone, Eq, PartialEq, Hash, DekuRead, DekuWrite)]
 #[deku(
     endian = "endian",

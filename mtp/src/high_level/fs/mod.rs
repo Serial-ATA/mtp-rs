@@ -17,6 +17,10 @@ use deku::ctx::Endian;
 use deku::no_std_io::Cursor;
 use deku::prelude::Reader;
 
+/// Representation of a file on an MTP-compatible device
+///
+/// Note that it is **not** guaranteed that a device will support any or all of the operations available
+/// on `File`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct File {
     pub storage_id: StorageId,
@@ -30,6 +34,18 @@ pub struct File {
 }
 
 impl File {
+    /// Open the file
+    ///
+    /// This will fetch the data from the device, and then write it to a temp file. The returned handle
+    /// is **temporary**, be sure to copy data to another file if persistence is needed.
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support fetching object data (either for this object or in general)
+    /// * The object no longer exists on the device
+    /// * Any errors from the transport backend
     pub async fn open<D>(
         &self,
         device: &mut D,
@@ -52,6 +68,15 @@ impl File {
         Ok(tmp)
     }
 
+    /// Attempt to rename this file on the device
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support renaming
+    /// * The object no longer exists on the device
+    /// * Any errors from the transport backend
     pub async fn rename<D, N>(
         &self,
         device: &mut D,
@@ -98,6 +123,10 @@ impl File {
     }
 }
 
+/// Representation of a folder on an MTP-compatible device
+///
+/// Note that it is **not** guaranteed that a device will support any or all of the operations available
+/// on `Folder`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Folder {
     pub id: ObjectHandle,
@@ -111,6 +140,15 @@ pub struct Folder {
 }
 
 impl Folder {
+    /// Attempt to rename this folder on the device
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support renaming
+    /// * The object no longer exists on the device
+    /// * Any errors from the transport backend
     pub async fn rename<D, N>(
         &self,
         device: &mut D,
@@ -149,6 +187,7 @@ pub enum FolderEntry {
 }
 
 impl FolderEntry {
+    /// Get the name of this entry
     pub fn name(&self) -> &str {
         match self {
             FolderEntry::File(f) => &f.name,
@@ -156,6 +195,11 @@ impl FolderEntry {
         }
     }
 
+    /// Attempt to rename this entry on the device
+    ///
+    /// # Errors
+    ///
+    /// See [`File::rename()`] and [`Folder::rename()`]
     pub async fn rename<D, N>(
         &self,
         device: &mut D,
@@ -185,6 +229,12 @@ pub struct FileSystem {
 }
 
 impl FileSystem {
+    /// Load a `FileSystem` from the given `storage_id`
+    ///
+    /// Note that the speed of this depends entirely on the device and the numbers of files on the storage.
+    /// See [Performance Considerations].
+    ///
+    /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn load<D>(
         device: &mut D,
         session_id: SessionId,
@@ -197,6 +247,15 @@ impl FileSystem {
         Self::load_with_callback(device, session_id, storage_id, |_| {}).await
     }
 
+    /// Load a `FileSystem` from the given `storage_id`
+    ///
+    /// This takes a callback that will be called for *every* [`ObjectHandle`] that is received during
+    /// the load.
+    ///
+    /// Note that the speed of this depends entirely on the device and the numbers of files on the storage.
+    /// See [Performance Considerations].
+    ///
+    /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn load_with_callback<D, F>(
         device: &mut D,
         session_id: SessionId,
@@ -218,6 +277,12 @@ impl FileSystem {
         Ok(ret)
     }
 
+    /// Refresh the `FileSystem` to match the new state of the device
+    ///
+    /// Note that the speed of this depends entirely on the device and the numbers of files on the storage.
+    /// See [Performance Considerations].
+    ///
+    /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn refresh<D>(&mut self, device: &mut D) -> Result<(), <D as PtpIo>::Error>
     where
         D: Device,
@@ -226,6 +291,15 @@ impl FileSystem {
         self.refresh_with_callback(device, |_| {}).await
     }
 
+    /// Refresh the `FileSystem` to match the new state of the device
+    ///
+    /// This takes a callback that will be called for *every* [`ObjectHandle`] that is received during
+    /// the load.
+    ///
+    /// Note that the speed of this depends entirely on the device and the numbers of files on the storage.
+    /// See [Performance Considerations].
+    ///
+    /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn refresh_with_callback<D>(
         &mut self,
         device: &mut D,

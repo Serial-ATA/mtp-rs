@@ -24,6 +24,44 @@ use deku::{DekuError, DekuReader, DekuWriter};
 /// - `s` is the decisecond
 ///
 /// It can optionally have `Z` appended to the end to indicate UTC, or `+/-hhmm` to indicate a timezone offset.
+///
+/// ## Usage
+///
+/// `DateTime` can be constructed in three ways:
+///
+/// 1. Manually
+///
+/// ```rust
+/// use mtp_spec::object::types::DateTime;
+///
+/// let dt = DateTime {
+///     year: 1984,
+///     month: Some(1),
+///     day: Some(2),
+///     hour: Some(3),
+///     minute: Some(4),
+///     second: Some(5),
+///     decisecond: Some(6),
+/// };
+/// ```
+///
+/// 2. From a `str`
+/// ```rust
+/// use mtp_spec::object::types::DateTime;
+///
+/// let dt: DateTime = "19840102T030405.6".parse().expect("valid DateTime");
+/// ```
+///
+/// 3. From a [`PtpString`]
+///
+/// ```rust
+/// use mtp_spec::object::types::{DateTime, PtpString};
+///
+/// let ptp_string =
+///     PtpString::try_from(String::from("19840102T030405.6")).expect("valid PtpString");
+///
+/// let dt: DateTime = "19840102T030405.6".parse().expect("valid DateTime");
+/// ```
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[allow(missing_docs)]
 pub struct DateTime {
@@ -186,19 +224,19 @@ impl Display for DateTime {
         write!(f, "{:04}", self.year)?;
 
         if let Some(month) = self.month {
-            write!(f, "-{:02}", month)?;
+            write!(f, "{:02}", month)?;
 
             if let Some(day) = self.day {
-                write!(f, "-{:02}", day)?;
+                write!(f, "{:02}", day)?;
 
                 if let Some(hour) = self.hour {
                     write!(f, "T{:02}", hour)?;
 
                     if let Some(minute) = self.minute {
-                        write!(f, ":{:02}", minute)?;
+                        write!(f, "{:02}", minute)?;
 
                         if let Some(second) = self.second {
-                            write!(f, ":{:02}", second)?;
+                            write!(f, "{:02}", second)?;
 
                             if let Some(decisecond) = self.decisecond {
                                 write!(f, ".{:01}", decisecond)?;

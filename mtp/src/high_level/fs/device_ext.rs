@@ -8,6 +8,10 @@ use mtp_spec::object::types::ObjectFormatCode;
 use mtp_spec::object::types::properties::{Name, ObjectFileName, SerializeableProperty};
 use std::future::Future;
 
+/// Filesystem extension trait for [`Device`]s
+///
+/// This provides higher-level methods to perform operations on MTP-compatible devices as if they
+/// were real filesystems.
 pub trait DeviceFsExt {
     fn mkdir(
         &mut self,

@@ -1,3 +1,47 @@
+//! USB transport backend for MTP
+//!
+//! ## Important Items
+//!
+//! Be sure to check out the docs of the following items:
+//!
+//! * [`device_list()`]
+//! * [`Device`]
+//! * [`DeviceHandle`]
+//!
+//! ## Usage
+//!
+//! This is a simple program that will find all connected MTP-eligible devices and print out their
+//! storage devices.
+//!
+//! ```rust,no_run
+//! use mtp::high_level::storages::DeviceStorageExt;
+//! use mtp::usb::device_list;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> mtp::error::Result<()> {
+//! let mut all_mtp_devices = device_list()?;
+//! for maybe_device in all_mtp_devices {
+//!     let device = maybe_device?;
+//!
+//!     println!(
+//!         "Storages for device '{:?}':",
+//!         device.info().product_string()
+//!     );
+//!     let (mut handle, session_id) = device.open().await?;
+//!     let all_storages = handle.storages(session_id).await?;
+//!
+//!     for storage in all_storages {
+//!         println!(
+//!             "{} ({}/{} bytes free)",
+//!             storage.description.unwrap_or(String::from("Unnamed")),
+//!             storage.free_space,
+//!             storage.max_capacity
+//!         )
+//!     }
+//! }
+//! # Ok(()) }
+//! ```
+
 mod handle;
 pub use handle::*;
 

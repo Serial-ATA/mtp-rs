@@ -11,7 +11,7 @@ pub use nusb;
 use nusb::descriptors::language_id::US_ENGLISH;
 use nusb::transfer::{Direction, EndpointType};
 
-/// An un-opened, potentially MTP-capable device
+/// An unopened, potentially MTP-capable device
 ///
 /// These are returned by [`device_list()`]
 ///
@@ -305,6 +305,24 @@ impl Device {
 ///
 /// * An error occurred while attempting to determine MTP eligibility
 /// * See [`nusb::list_devices`]
+///
+/// # Examples
+///
+/// ```rust
+/// use mtp::usb::device_list;
+///
+/// # #[tokio::main]
+/// # async fn main() -> mtp::error::Result<()> {
+/// let devices = device_list()?;
+/// for maybe_device in devices {
+///     let device = maybe_device?;
+///     println!(
+///         "{:?} is an MTP compatible device",
+///         device.info().product_string()
+///     );
+/// }
+/// # Ok(()) }
+/// ```
 pub fn device_list()
 -> Result<impl Iterator<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
     let all_devices = nusb::list_devices()?;

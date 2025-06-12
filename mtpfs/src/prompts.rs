@@ -32,7 +32,7 @@ pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
     }
 
     let mut devices = mtp::usb::device_list()?
-        .filter_map(|device| device.ok())
+        .filter_map(Result::ok)
         .collect::<Vec<_>>();
 
     if devices.is_empty() {
