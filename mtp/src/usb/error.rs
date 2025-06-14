@@ -16,6 +16,8 @@ pub enum UsbError {
     Transfer(nusb::transfer::TransferError),
     /// A USB operation timed out
     Timeout,
+    /// The device replied with too much data (more than it claimed to have)
+    TooMuchData,
 }
 
 impl Display for UsbError {
@@ -25,6 +27,7 @@ impl Display for UsbError {
             Self::Native(error) => write!(f, "{error}"),
             Self::Transfer(error) => write!(f, "{error}"),
             Self::Timeout => write!(f, "Operation timed out"),
+            Self::TooMuchData => write!(f, "Device replied with more data than claimed"),
         }
     }
 }

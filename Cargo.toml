@@ -14,6 +14,7 @@ repository = "https://github.com/Serial-ATA/mtp-rs"
 readme = "README.md"
 
 [workspace.dependencies]
+mtp = { path = "mtp" }
 mtp_spec = { path = "mtp_spec" }
 
 deku = { git = "https://github.com/Serial-ATA/deku.git", branch = "misc", default-features = false }

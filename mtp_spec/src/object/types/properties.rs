@@ -6,7 +6,6 @@ use crate::object::types::{
 
 use alloc::borrow::Cow;
 use alloc::format;
-use alloc::vec::Vec;
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
 use deku::{DekuReader, DekuWriter};

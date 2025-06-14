@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    let mount_point = Path::new("/home/alex/mount");
+    let mount_point = Path::new("/home/alex/mountss");
 
     let device = prompts::prompt_for_device()?;
 
@@ -55,44 +55,33 @@ async fn main() -> Result<(), Error> {
         storage_paths.push(target.clone());
 
         sessions.push(tokio::task::spawn(async move {
-            if let Err(e) = fuser::mount2(
-                fs,
-                target,
-                &[
-                    MountOption::AutoUnmount,
-                    MountOption::AllowOther,
-                    MountOption::Sync,
-                ],
-            ) {
+            if let Err(e) = fuser::mount2(fs, target, &[MountOption::AllowOther, MountOption::Sync])
+            {
                 log::error!("Mount failed: {e}");
             }
         }));
     }
 
-    loop {
-        tokio::select! {
-            _ = sessions.next() => {
-                sessions.clear();
+    tokio::select! {
+        _ = sessions.next() => {
+            sessions.clear();
 
-                for path in &storage_paths {
-                    if let Err(e) = std::fs::remove_dir_all(path) {
-                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
-                    }
+            for path in &storage_paths {
+                if let Err(e) = std::fs::remove_dir_all(path) {
+                    log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
                 }
+            }
 
-                std::process::exit(1);
-            },
-            _ = tokio::signal::ctrl_c() => {
-                log::info!("Shutting down");
-                sessions.clear();
+            std::process::exit(1);
+        },
+        _ = tokio::signal::ctrl_c() => {
+            log::info!("Shutting down");
+            sessions.clear();
 
-                for path in &storage_paths {
-                    if let Err(e) = std::fs::remove_dir_all(path) {
-                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
-                    }
+            for path in &storage_paths {
+                if let Err(e) = std::fs::remove_dir_all(path) {
+                    log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
                 }
-
-                break;
             }
         }
     }

@@ -314,7 +314,7 @@ async fn get_data_from_responder(
         while remaining > 0 {
             let data = next_packet(handle).await?;
             let Some(r) = remaining.checked_sub(data.len() as u32) else {
-                todo!("Error, device sent too much data");
+                return Err(UsbError::TooMuchData.into());
             };
             remaining = r;
 

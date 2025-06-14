@@ -7,15 +7,16 @@ use std::mem::ManuallyDrop;
 use std::os::fd::{FromRawFd, IntoRawFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use fuser::{
-    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
 use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
 use indicatif::{ProgressBar, ProgressStyle};
-use libc::{EINVAL, EIO, ENOENT, ENOTDIR};
+use libc::{EINVAL, EIO, ENOENT, ENOTDIR, c_int};
+use log::info;
 use mtp::communication::SessionId;
 use mtp::error::Error;
 use mtp::high_level::DateTimeExt;
@@ -142,6 +143,7 @@ impl Dirty {
     }
 }
 
+#[derive(Default)]
 struct FsInner {
     node_ids: Vec<NodeId>,
     next_inode: AtomicU64,
@@ -392,6 +394,7 @@ impl MtpFuse {
         self.inner.reset();
 
         let fs;
+        let start = Instant::now();
         {
             let mut device = self.device.lock().await;
 
@@ -445,6 +448,21 @@ impl MtpFuse {
             }
         }
 
+        let storage_name = self
+            .storage
+            .description
+            .as_deref()
+            .unwrap_or(self.storage.volume_identifier.as_str());
+
+        let load_time = start.elapsed();
+        let load_time_seconds = load_time.as_secs() % 60;
+
+        info!(
+            "Finished loading filesystem for storage `{storage_name}` in {:02}:{:02}",
+            (load_time.as_secs() - load_time_seconds) / 60,
+            load_time_seconds
+        );
+
         self.fs = Some(fs);
         Ok(())
     }
@@ -456,7 +474,7 @@ impl MtpFuse {
         Some(children.map(Node::data))
     }
 
-    fn _lookup(&self, parent: u64, name: &OsStr) -> Result<&INode, i32> {
+    fn lookup_(&self, parent: u64, name: &OsStr) -> Result<&INode, i32> {
         let Some(children) = self.children_of(parent) else {
             return Err(ENOENT);
         };
@@ -479,7 +497,7 @@ impl MtpFuse {
     ) -> Result<(), i32> {
         let mut device = self.device.lock().await;
 
-        let inode = self._lookup(parent, name)?;
+        let inode = self.lookup_(parent, name)?;
 
         let Entry::Real(entry) = &inode.entry else {
             return Err(EINVAL);
@@ -510,14 +528,22 @@ impl MtpFuse {
 }
 
 impl Filesystem for MtpFuse {
+    fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
+        futures::executor::block_on(
+            async move { self.update_files_if_needed().await.map_err(|_| EIO) },
+        )
+    }
+
     fn destroy(&mut self) {
         log::info!("Closing filesystem");
+        self.inner = FsInner::default();
+        let _ = self.fs.take();
     }
 
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let result = futures::executor::block_on(async move {
             self.update_files_if_needed().await.map_err(|_| EIO)?;
-            self._lookup(parent, name)
+            self.lookup_(parent, name)
         });
         match result {
             Ok(entry) => {
@@ -601,12 +627,38 @@ impl Filesystem for MtpFuse {
         }
     }
 
-    fn unlink(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
-        todo!()
+    // TODO: Figure out why the lookups still resolve in rmdir and unlink even after destroy() is called
+    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        match self.lookup_(parent, name) {
+            Ok(entry) => {
+                if entry.attr.kind != FileType::RegularFile {
+                    reply.error(EINVAL);
+                    return;
+                }
+
+                reply.ok();
+            },
+            Err(e) => reply.error(e),
+        }
     }
 
-    fn rmdir(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _reply: ReplyEmpty) {
-        todo!()
+    fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        match self.lookup_(parent, name) {
+            Ok(entry) => {
+                if entry.attr.ino == PLAYLISTS_NODE_ID {
+                    reply.ok();
+                    return;
+                }
+
+                if entry.attr.ino == LOST_AND_FOUND_NODE_ID {
+                    reply.ok();
+                    return;
+                }
+
+                reply.ok();
+            },
+            Err(e) => reply.error(e),
+        }
     }
 
     fn rename(

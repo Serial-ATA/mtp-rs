@@ -1,13 +1,17 @@
 [package]
 name = "mtpfs"
 version = "0.1.0"
-edition = "2024"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
-mtp = { path = "../mtp", features = ["usb"] }
+mtp = { workspace = true, features = ["usb"] }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync"] }
 fuser.workspace = true

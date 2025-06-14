@@ -1,4 +1,4 @@
-use crate::error::{MtpError, err};
+use crate::error::MtpError;
 use crate::object::types::PtpString;
 
 use alloc::borrow::Cow;
@@ -96,6 +96,54 @@ impl TryFrom<PtpString> for DateTime {
     }
 }
 
+/// Errors that can occur while parsing a [`DateTime`]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum DateTimeError {
+    /// The string has a segment too short to be
+    BadSegmentLength,
+    /// A segment contains non-digit characters
+    NonDigit,
+    /// The string doesn't meet the minimum length of 4 characters
+    TooShort,
+    /// The string is missing a year (the only required field)
+    MissingYear,
+    /// The string has more content after the `day`, but is missing a time marker (`T`)
+    MissingTimeMarker,
+    /// The string has more content after the `second`, but is missing a decisecond marker (`.`)
+    MissingDecisecondMarker,
+    /// The string has a decisecond marker, but no digit
+    MissingDecisecond,
+    /// One or more fields are malformed (i.e. `month > 12`, `hour > 23`, etc.)
+    FailedValidation,
+}
+
+impl Display for DateTimeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            DateTimeError::BadSegmentLength => {
+                f.write_str("A DateTime segment must be at least 2 characters long")
+            },
+            DateTimeError::NonDigit => f.write_str("A DateTime segment must contain only digits"),
+            DateTimeError::TooShort => {
+                f.write_str("A DateTime string must be at least 4 characters long")
+            },
+            DateTimeError::MissingYear => {
+                f.write_str("A DateTime string must start with a 4-digit year")
+            },
+            DateTimeError::MissingTimeMarker => {
+                f.write_str("Expected a 'T' marking the start of the time segment")
+            },
+            DateTimeError::MissingDecisecondMarker => {
+                f.write_str("Expected a period marking the start of the decisecond segment")
+            },
+            DateTimeError::MissingDecisecond => f.write_str("Expected a decisecond digit"),
+            DateTimeError::FailedValidation => {
+                f.write_str("DateTime string contains invalid segments")
+            },
+        }
+    }
+}
+
 impl FromStr for DateTime {
     type Err = MtpError;
 
@@ -106,37 +154,28 @@ impl FromStr for DateTime {
             }
 
             if s.len() < 2 {
-                err!(
-                    BadDateTime,
-                    "A DateTime segment must be at least 2 characters long"
-                );
+                return Err(DateTimeError::BadSegmentLength.into());
             }
 
             let segment = &s[..2];
             *s = &s[2..];
 
             let Ok(ret) = segment.parse::<u8>() else {
-                err!(BadDateTime, "A DateTime string must contain only digits");
+                return Err(DateTimeError::NonDigit.into());
             };
 
             Ok(Some(ret))
         }
 
         if s.len() < 4 {
-            err!(
-                BadDateTime,
-                "A DateTime string must be at least 4 characters long"
-            );
+            return Err(DateTimeError::TooShort.into());
         }
 
         let year = &s[..4];
         s = &s[4..];
 
         let Ok(year) = year.parse() else {
-            err!(
-                BadDateTime,
-                "A DateTime string must start with a 4-digit year"
-            );
+            return Err(DateTimeError::MissingYear.into());
         };
 
         let mut datetime = DateTime {
@@ -166,10 +205,7 @@ impl FromStr for DateTime {
                     break 'segments;
                 }
 
-                err!(
-                    BadDateTime,
-                    "Expected a 'T' marking the start of the time segment"
-                );
+                return Err(DateTimeError::MissingTimeMarker.into());
             }
 
             s = &s[1..];
@@ -195,14 +231,11 @@ impl FromStr for DateTime {
 
             let mut remaining_chars = s.chars();
             if remaining_chars.next() != Some('.') {
-                err!(
-                    BadDateTime,
-                    "Expected a period marking the start of the decisecond segment"
-                );
+                return Err(DateTimeError::MissingDecisecondMarker.into());
             }
 
             let Some(deciseconds) = remaining_chars.next() else {
-                err!(BadDateTime, "Expected a decisecond digit");
+                return Err(DateTimeError::MissingDecisecond.into());
             };
             datetime.decisecond = deciseconds.to_digit(10).map(|d| d as u8);
         }
@@ -212,7 +245,7 @@ impl FromStr for DateTime {
         //       that the time zone is unspecified.
 
         if !datetime.validate() {
-            err!(BadDateTime, "DateTime string contains invalid segments");
+            return Err(DateTimeError::FailedValidation.into());
         }
 
         Ok(datetime)

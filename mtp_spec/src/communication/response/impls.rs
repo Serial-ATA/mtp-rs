@@ -59,14 +59,14 @@ macro_rules! define_response {
 		)]
 		pub struct $name $($generics)* $($where_clause)* {
 			$(
-			$(#[$deku_meta])*
-			/// The decoded data from the responder
-			pub data: $data,
+				$(#[$deku_meta])*
+				/// The decoded data from the responder
+				pub data: $data,
 			)?
 			$(
 				$(
-				$(#[$param_meta])*
-				pub $param: $ty
+					$(#[$param_meta])*
+					pub $param: $ty
 				),*
 			)?
 		}

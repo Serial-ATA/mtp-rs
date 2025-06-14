@@ -46,7 +46,10 @@ macro_rules! parse_operations {
 	// Base case, done parsing
 	(@ON_STRUCT OPERATIONS_ENUM: [
 		pub enum Operation {
-			$($variants:tt)*
+			$(
+				$(#[$attr:meta])*
+				$variant:ident = $code:literal
+			),* $(,)?
 		}
 	]) => {
 		/// All operation codes
@@ -59,9 +62,26 @@ macro_rules! parse_operations {
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
 		pub enum Operation {
-			$($variants)*
+			$(
+				$(#[$attr])*
+				$variant = $code,
+			)*
 			#[deku(id_pat = "o if (0x9000_u16..=0x97FF_u16).contains(&o)")]
-			VenderSpecific(u16),
+			VendorSpecific(u16),
+		}
+
+		impl TryFrom<u16> for Operation {
+			type Error = ();
+
+			fn try_from(value: u16) -> core::result::Result<Self, Self::Error> {
+				match value {
+					$(
+						$code => Ok(Operation::$variant),
+					)*
+					_ if (0x9000_u16..=0x97FF_u16).contains(&value) => Ok(Operation::VendorSpecific(value)),
+					_ => Err(())
+				}
+			}
 		}
 	};
 

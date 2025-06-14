@@ -1,7 +1,7 @@
 //! MTP specification implementation
 //!
 //! This crate defines all of the datatypes, operations, responses, and events defined by the MTP
-//! specification. It is fully `#[no_std]` compatible, and is intended to be used by higher-level crates
+//! specification. It is fully `#[no_std]` compatible and is intended to be used by higher-level crates
 //! providing transport implementations.
 //!
 //! See the [`mtp`] crate for an implementation of MTP over USB.

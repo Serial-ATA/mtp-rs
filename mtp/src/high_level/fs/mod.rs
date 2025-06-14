@@ -16,6 +16,7 @@ use deku::DekuReader;
 use deku::ctx::Endian;
 use deku::no_std_io::Cursor;
 use deku::prelude::Reader;
+use mtp_spec::object::types::properties::ObjectPropertyCode;
 
 /// Representation of a file on an MTP-compatible device
 ///
@@ -46,6 +47,47 @@ impl File {
     /// * The device doesn't support fetching object data (either for this object or in general)
     /// * The object no longer exists on the device
     /// * Any errors from the transport backend
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use mtp::high_level::fs::{FileSystem, FolderEntry};
+    /// use mtp::high_level::storages::DeviceStorageExt;
+    /// use mtp::usb::device_list;
+    ///
+    /// # async fn main() -> mtp::error::Result<()> {
+    /// // Get the first MTP-eligible device
+    /// use std::io::Read;
+    /// let device = device_list()?.next().expect("No devices");
+    /// let (mut handle, session_id) = device?.open().await?;
+    ///
+    /// // Get whatever the first storage happens to be
+    /// let storages = handle.storages(session_id).await?;
+    /// let storage = storages.first().expect("no storages");
+    ///
+    /// // Load the storage and find the first file
+    /// let fs = FileSystem::load(&mut handle, session_id, storage.id).await?;
+    /// 'outer: for folder in fs.contents {
+    ///     for child in folder.children {
+    ///         let FolderEntry::File(file) = child else {
+    ///             continue;
+    ///         };
+    ///
+    ///         // Print out whatever the first file's contents happen to be
+    ///         let mut open_file = file.open(&mut handle, session_id).await?;
+    ///
+    ///         println!("Contents of: {}", file.name);
+    ///
+    ///         let mut contents = Vec::new();
+    ///         open_file.read_to_end(&mut contents)?;
+    ///
+    ///         println!("{:X?}", contents);
+    ///         break 'outer;
+    ///     }
+    /// }
+    ///
+    /// # Ok(()) }
+    /// ```
     pub async fn open<D>(
         &self,
         device: &mut D,
@@ -100,7 +142,7 @@ impl File {
                 .property_can_be_modified::<ObjectFileName>(session_id, self.format)
                 .await
         )? {
-            return Err(MtpError::Generic("Property cannot be modified".into()).into());
+            return Err(MtpError::CannotModify(ObjectPropertyCode::ObjectFileName).into());
         }
 
         let name = PtpString::try_from(name.into())?;

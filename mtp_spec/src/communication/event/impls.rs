@@ -65,6 +65,8 @@ macro_rules! accumulate_events {
 			}
 		]
 	) => {
+		/// This exists to provide the conversion step of determining whether an event is
+		/// [`Event::VendorSpecific`] or [`Event::Unknown`]
 		#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead)]
 		#[repr(u16)]
 		#[deku(
@@ -659,7 +661,7 @@ define_events! {
         storage_id: StorageId,
     }
 
-    /// A new store object has been added to the device.
+    /// The indicated stores are no longer available.
     ///
     /// If the store that has been removed is only a single logical store within a physical store, the
     /// entire [`StorageId`] shall be sent, which indicates that any other logical stores on that physical
