@@ -3,7 +3,7 @@ use crate::device::property_describing::{DevicePropDesc, PropertyValueWrapper};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::StorageInfo;
 use crate::object::info::{ObjectInfo, Thumbnail};
-use crate::object::types::properties::ObjectPropertyCode;
+use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectHandle};
 
 use alloc::vec::Vec;
@@ -207,10 +207,8 @@ define_response! {
 
 define_response! {
     /// Response to the [`GetObjectPropValue`] operation.
-    pub struct GetObjectPropValue[][] {
-        // TODO: Determine what this even is
-        #[deku(read_all)]
-        data: Vec<u8>,
+    pub struct GetObjectPropValue[<T>][where T: ObjectProperty] {
+        data: T::DataType,
     }
 }
 

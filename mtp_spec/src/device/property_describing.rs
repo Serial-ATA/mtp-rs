@@ -1,4 +1,4 @@
-use crate::object::types::{Array, PtpString};
+use crate::object::types::{PropertyValue, PtpString};
 
 use alloc::format;
 use alloc::vec::Vec;
@@ -19,62 +19,6 @@ pub struct PropertyValueWrapper {
     data_type: u16,
     #[deku(ctx = "*data_type")]
     value: PropertyValue,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(
-    id = "data_type",
-    id_endian = "endian",
-    endian = "endian",
-    ctx = "endian: deku::ctx::Endian, data_type: u16"
-)]
-pub enum PropertyValue {
-    #[deku(id = "0x0000")]
-    Undefined(#[deku(read_all)] Vec<u8>),
-    #[deku(id = "0x0001")]
-    I8(i8),
-    #[deku(id = "0x0002")]
-    U8(u8),
-    #[deku(id = "0x0003")]
-    I16(i16),
-    #[deku(id = "0x0004")]
-    U16(u16),
-    #[deku(id = "0x0005")]
-    I32(i32),
-    #[deku(id = "0x0006")]
-    U32(u32),
-    #[deku(id = "0x0007")]
-    I64(i64),
-    #[deku(id = "0x0008")]
-    U64(u64),
-    #[deku(id = "0x0009")]
-    I128(i128),
-    #[deku(id = "0x000A")]
-    U128(u128),
-    #[deku(id = "0x4001")]
-    I8Array(Array<i8>),
-    #[deku(id = "0x4002")]
-    U8Array(Array<u8>),
-    #[deku(id = "0x4003")]
-    I16Array(Array<i16>),
-    #[deku(id = "0x4004")]
-    U16Array(Array<u16>),
-    #[deku(id = "0x4005")]
-    I32Array(Array<i32>),
-    #[deku(id = "0x4006")]
-    U32Array(Array<u32>),
-    #[deku(id = "0x4007")]
-    I64Array(Array<i64>),
-    #[deku(id = "0x4008")]
-    U64Array(Array<u64>),
-    #[deku(id = "0x4009")]
-    I128Array(Array<i128>),
-    #[deku(id = "0x400A")]
-    U128Array(Array<u128>),
-    #[deku(id = "0xFFFF")]
-    String(PtpString),
-    #[deku(id_pat = "_")]
-    Reserved(#[deku(read_all)] Vec<u8>),
 }
 
 #[repr(u8)]

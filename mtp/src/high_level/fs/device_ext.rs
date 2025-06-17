@@ -41,21 +41,21 @@ where
         <Self as PtpIo>::Error: From<Error>,
         <Self as PtpIo>::Error: From<MtpError>,
     {
-        // let storage = parent.map(|p| p.storage_id);
-        // let parent_object = parent.map(|p| p.id);
-        //
+        let storage = parent.map(|p| p.storage_id);
+        let parent_object = parent.map(|p| p.id);
+
         // // TODO
-        // // let prop_list = [
-        // //     Box::new(ObjectFileName {}) as Box<dyn SerializeableProperty>,
-        // //     Box::new(Name {}) as Box<dyn SerializeableProperty>,
-        // // ];
+        // let prop_list = [
+        //     Box::new(ObjectFileName {}) as Box<dyn SerializeableProperty>,
+        //     Box::new(Name {}) as Box<dyn SerializeableProperty>,
+        // ];
         // self.send_object_prop_list(
         //     session_id,
         //     storage,
         //     parent_object,
         //     ObjectFormatCode::Association,
         //     0,
-        //     core::iter::empty(),
+        //     prop_list,
         // )
         // .await?
         // .map_err(Into::<MtpError>::into)?;

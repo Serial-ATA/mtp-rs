@@ -12,10 +12,6 @@ use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 use std::io::Write;
 use std::sync::Arc;
 
-use deku::DekuReader;
-use deku::ctx::Endian;
-use deku::no_std_io::Cursor;
-use deku::prelude::Reader;
 use mtp_spec::object::types::properties::ObjectPropertyCode;
 
 /// Representation of a file on an MTP-compatible device
@@ -367,13 +363,10 @@ impl FileSystem {
 
             let parent = match parent_response {
                 Ok(parent) => {
-                    if parent.data.data == [0; 4] {
+                    if parent.data.data == ObjectHandle::NONE {
                         None
                     } else {
-                        // TODO
-                        Some(ObjectHandle::from(u32::from_le_bytes(
-                            parent.data.data.try_into().unwrap(),
-                        )))
+                        Some(parent.data.data)
                     }
                 },
                 Err(e) => {
@@ -386,41 +379,25 @@ impl FileSystem {
                 .get_object_prop_value::<ObjectFileName>(self.session_id, object)
                 .await?;
 
-            let name;
-            match name_response {
-                Ok(name_) => {
-                    // TODO
-                    name = PtpString::from_reader_with_ctx(
-                        &mut Reader::new(Cursor::new(name_.data.data)),
-                        Endian::Little,
-                    )
-                    .map_err(Into::<MtpError>::into)?
-                    .to_string();
-                },
+            let name = match name_response {
+                Ok(name) => name.data.data,
                 Err(e) => {
                     log::warn!("Failed to get object name, skipping: {e}");
                     continue;
                 },
-            }
+            };
 
             let format_response = device
                 .get_object_prop_value::<ObjectFormat>(self.session_id, object)
                 .await?;
 
-            let format;
-            match format_response {
-                Ok(format_) => {
-                    format = ObjectFormatCode::from_reader_with_ctx(
-                        &mut Reader::new(Cursor::new(format_.data.data)),
-                        Endian::Little,
-                    )
-                    .map_err(Into::<MtpError>::into)?;
-                },
+            let format = match format_response {
+                Ok(format) => format.data.data,
                 Err(e) => {
                     log::warn!("Failed to get object format, skipping: {e}");
                     continue;
                 },
-            }
+            };
 
             match parent {
                 Some(parent) => match format {
@@ -430,7 +407,7 @@ impl FileSystem {
                             FolderEntry::Folder(Folder {
                                 storage_id: self.storage_id,
                                 id: object,
-                                name,
+                                name: name.to_string(),
                                 format,
                                 protection_status: ProtectionStatus::ReadOnly,
                                 date_created: None,
@@ -444,24 +421,20 @@ impl FileSystem {
                             .get_object_prop_value::<ObjectSize>(self.session_id, object)
                             .await?;
 
-                        let size;
-                        match size_response {
-                            Ok(size_) => {
-                                // TODO
-                                size = u64::from_le_bytes(size_.data.data.try_into().unwrap());
-                            },
+                        let size = match size_response {
+                            Ok(size) => size.data.data,
                             Err(e) => {
                                 log::warn!("Failed to get object size, skipping: {e}");
                                 continue;
                             },
-                        }
+                        };
 
                         entries.push((
                             parent,
                             FolderEntry::File(File {
                                 storage_id: self.storage_id,
                                 id: object,
-                                name,
+                                name: name.to_string(),
                                 size,
                                 format,
                                 protection_status: ProtectionStatus::ReadOnly,
@@ -475,7 +448,7 @@ impl FileSystem {
                     self.contents.push(Folder {
                         storage_id: self.storage_id,
                         id: object,
-                        name,
+                        name: name.to_string(),
                         format,
                         protection_status: ProtectionStatus::ReadOnly,
                         date_created: None,

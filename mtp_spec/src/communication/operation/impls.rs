@@ -1038,7 +1038,7 @@ define_operations! {
         visible_parameters: (object: ObjectHandle),
         operation_parameters: (object, Parameter::new(T::CODE as u32)),
         data_direction: Some(DataDirection::ResponderToInitiator),
-        response: response::GetObjectPropValue,
+        response: response::GetObjectPropValue<T>,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -1133,7 +1133,6 @@ define_operations! {
     //
     // Defined in Appendix E
 
-    // TODO: Optional parameters
     /// Get a list containing all specified object properties
     ///
     /// This is a more optimized way of accessing object properties without needing to individually

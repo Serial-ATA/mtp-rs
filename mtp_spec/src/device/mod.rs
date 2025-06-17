@@ -43,10 +43,7 @@ pub use io::*;
 /// [`operations`] directly.
 ///
 /// [`operations`]: crate::communication::operation
-pub trait Device: PtpIo
-where
-    <Self as PtpIo>::Error: From<crate::error::MtpError>,
-{
+pub trait Device: PtpIo {
     /// Whether the [`ObjectProperty`] `T` is writeable for the given `format`
     fn property_can_be_modified<T>(
         &mut self,

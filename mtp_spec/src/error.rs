@@ -1,5 +1,6 @@
 //! Errors that can occur during MTP operations
 
+use crate::communication::operation::DataDirection;
 use crate::object::types::DateTimeError;
 use crate::object::types::properties::ObjectPropertyCode;
 
@@ -36,6 +37,12 @@ pub enum MtpError {
     BadDateTime(DateTimeError),
     /// Attempt to modify a property that the device does not allow modifying
     CannotModify(ObjectPropertyCode),
+    /// Attempting to send data to a responder, when the data direction is [`DataDirection::ResponderToInitiator`]
+    WrongDataDirection,
+    /// Attempted to provide data for an operation whose data direction is `None`
+    UnexpectedDataProvided,
+    /// Attempting to send an operation whose data direction is [`DataDirection::InitiatorToResponder`], but providing no data
+    NoDataProvided,
     /// General serialization/deserialization errors
     Serialization(deku::DekuError),
     Generic(Box<dyn core::error::Error>),
@@ -50,6 +57,18 @@ impl Display for MtpError {
                 f,
                 "Device does not support modifying the `{code:?}` property"
             ),
+            MtpError::WrongDataDirection => write!(
+                f,
+                "Attempted to send data with an operation whose data direction is responder -> \
+                 initiator"
+            ),
+            MtpError::UnexpectedDataProvided => write!(
+                f,
+                "Data provided for operation when data direction is `None`"
+            ),
+            MtpError::NoDataProvided => {
+                write!(f, "Expected data for operation, but none was provided")
+            },
             MtpError::Serialization(error) => write!(f, "Serialization error: {}", error),
             MtpError::Generic(error) => write!(f, "{error}"),
         }

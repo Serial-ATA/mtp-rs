@@ -2,8 +2,10 @@ use crate::communication::event::Event;
 use crate::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
+use crate::error::MtpError;
 
 use alloc::vec::Vec;
+
 use deku::ctx::Endian;
 use futures_core::Stream;
 
@@ -14,7 +16,7 @@ use futures_core::Stream;
 /// See [`Device`](super::Device) for a higher-level interface for sending operations.
 pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> + Send {
     /// Implementation-specific errors that can occur during I/O operations
-    type Error: core::error::Error;
+    type Error: core::error::Error + From<MtpError>;
 
     /// Get the next transaction ID
     ///
@@ -47,16 +49,16 @@ pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> + Send {
             match &data {
                 Some(_) => match O::DATA_DIRECTION {
                     Some(DataDirection::ResponderToInitiator) => {
-                        todo!("error, wrong data direction")
+                        return Err(MtpError::WrongDataDirection.into());
                     },
                     None => {
-                        todo!("error, provided data when not expected")
+                        return Err(MtpError::UnexpectedDataProvided.into());
                     },
                     _ => {},
                 },
                 None => {
                     if O::DATA_DIRECTION == Some(DataDirection::InitiatorToResponder) {
-                        todo!("error, missing data when expected")
+                        return Err(MtpError::NoDataProvided.into());
                     }
                 },
             }

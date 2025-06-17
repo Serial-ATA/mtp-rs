@@ -1,7 +1,8 @@
 use crate::communication::Parameter;
-use crate::device::property_describing::{GetSet, PropertyValue};
+use crate::device::property_describing::GetSet;
 use crate::object::types::{
-    Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PtpString,
+    Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType,
+    PropertyValue, PtpString,
 };
 
 use alloc::borrow::Cow;
@@ -17,7 +18,12 @@ pub trait ObjectProperty:
     /// The raw datacode for this property
     const CODE: u16;
 
-    type DataType: DekuWriter<Endian>;
+    type DataType: Eq
+        + core::fmt::Debug
+        + Clone
+        + PropertyDataType
+        + for<'a> DekuReader<'a, Endian>
+        + DekuWriter<Endian>;
 }
 
 mod sealed {
@@ -54,7 +60,7 @@ where
     fn serialize(&self, object: ObjectHandle) -> SerializedProperty {
         SerializedProperty {
             code: P::CODE,
-            data_type: 0, // TODO
+            data_type: P::DataType::CODE,
             object,
             value: PropertyValue::I8(0), // TODO
         }
@@ -138,8 +144,13 @@ macro_rules! define_object_property_descriptions {
 						))))
 					}
 
-					// TODO: Verify
-					let _data_type = u16::from_reader_with_ctx(reader, ctx)?;
+					let data_type = u16::from_reader_with_ctx(reader, ctx)?;
+					if data_type != <Self as ObjectProperty>::DataType::CODE {
+						return Err(deku::DekuError::Assertion(Cow::Owned(format!(
+							"Expected datatype code {}, got {data_type}", <Self as ObjectProperty>::DataType::CODE
+						))))
+					}
+
 					let get_set = GetSet::from_reader_with_ctx(reader, ctx)?;
 					if get_set != $get_set {
 						return Err(deku::DekuError::Assertion(Cow::Owned(format!(
@@ -254,12 +265,12 @@ define_object_property_descriptions! {
     /// [`ObjectInfo`]: crate::object::info::ObjectInfo
     pub struct ObjectFormat {
         properties: {
-            data_type: u16,
+            data_type: ObjectFormatCode,
             get_set: GetSet::ReadOnly,
             valid_forms: [None]
         },
         code: 0xDC02,
-        form: u16
+        form: ObjectFormatCode
     }
 
     /// The write-protection status of the binary component of the object
