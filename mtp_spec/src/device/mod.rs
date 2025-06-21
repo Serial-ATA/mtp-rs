@@ -18,14 +18,16 @@ use crate::communication::operation::{
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
+use crate::device::property_describing::GetSet;
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializeableProperty};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
-use alloc::boxed::Box;
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
+
 use deku::no_std_io::Cursor;
 use deku::writer::Writer;
 use deku::{DekuContainerWrite, DekuWriter};
@@ -54,13 +56,12 @@ pub trait Device: PtpIo {
         T: ObjectProperty,
     {
         async move {
-            let _desc = self
+            let desc = self
                 .get_object_prop_desc::<T>(session_id, format)
                 .await?
                 .map_err(Into::<crate::error::MtpError>::into)?;
-            // TODO: actually check the GetSet field
 
-            Ok(true)
+            Ok(desc.data.data.get_set() == GetSet::ReadWrite)
         }
     }
 

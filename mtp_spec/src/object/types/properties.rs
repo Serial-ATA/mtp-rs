@@ -7,6 +7,7 @@ use crate::object::types::{
 
 use alloc::borrow::Cow;
 use alloc::format;
+
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
 use deku::{DekuReader, DekuWriter};
@@ -18,12 +19,12 @@ pub trait ObjectProperty:
     /// The raw datacode for this property
     const CODE: u16;
 
-    type DataType: Eq
-        + core::fmt::Debug
-        + Clone
-        + PropertyDataType
-        + for<'a> DekuReader<'a, Endian>
-        + DekuWriter<Endian>;
+    type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian>;
+
+    /// The read/write status of the property
+    ///
+    /// This is, in most cases, dependent on the device.
+    fn get_set(&self) -> GetSet;
 }
 
 mod sealed {
@@ -74,7 +75,7 @@ macro_rules! define_object_property_descriptions {
 			pub struct $name:ident {
 				properties: {
 					data_type: $datatype:ty,
-					get_set: $get_set:expr,
+					$(get_set: $get_set:expr,)?
 					valid_forms: [$($form:ident),* $(,)?]
 				},
 				code: $code:literal,
@@ -111,15 +112,20 @@ macro_rules! define_object_property_descriptions {
 			$(#[$meta])*
 			#[derive(Clone, Debug, PartialEq, Eq)]
 			pub struct $name {
-				default_value: $datatype,
-				group_code: u32,
-				form: define_object_property_descriptions!(@FORM_TY $($form_tt)*),
+				pub default_value: $datatype,
+				pub group_code: u32,
+				pub get_set: GetSet,
+				pub form: define_object_property_descriptions!(@FORM_TY $($form_tt)*),
 			}
 
 			impl ObjectProperty for $name {
 				const CODE: u16 = $code;
 
 				type DataType = $datatype;
+
+				fn get_set(&self) -> GetSet {
+					self.get_set
+				}
 			}
 
 			define_object_property_descriptions!(@FORM_ENUM $($form_tt)*);
@@ -152,11 +158,13 @@ macro_rules! define_object_property_descriptions {
 					}
 
 					let get_set = GetSet::from_reader_with_ctx(reader, ctx)?;
-					if get_set != $get_set {
-						return Err(deku::DekuError::Assertion(Cow::Owned(format!(
-							"Expected get_set to be {:?}, got {get_set:?}", $get_set
-						))))
-					}
+					$(
+						if get_set != $get_set {
+							return Err(deku::DekuError::Assertion(Cow::Owned(format!(
+								"Expected get_set to be {:?}, got {get_set:?}", $get_set
+							))))
+						}
+					)?
 
 					let default_value = <$datatype>::from_reader_with_ctx(reader, ctx)?;
 					let group_code = u32::from_reader_with_ctx(reader, ctx)?;
@@ -173,6 +181,7 @@ macro_rules! define_object_property_descriptions {
 					Ok(Self {
 						default_value,
 						group_code,
+						get_set,
 						form,
 					})
 				}
@@ -301,7 +310,6 @@ define_object_property_descriptions! {
     pub struct AssociationType {
         properties: {
             data_type: crate::object::types::AssociationType,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC05,
@@ -317,7 +325,6 @@ define_object_property_descriptions! {
     pub struct AssociationDesc {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC06,
@@ -347,7 +354,6 @@ define_object_property_descriptions! {
     pub struct DateCreated {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [DateTime]
         },
         code: 0xDC08,
@@ -358,7 +364,6 @@ define_object_property_descriptions! {
     pub struct DateModified {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [DateTime]
         },
         code: 0xDC09,
@@ -369,7 +374,6 @@ define_object_property_descriptions! {
     pub struct Keywords {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC0A,
@@ -408,7 +412,6 @@ define_object_property_descriptions! {
     pub struct Hidden {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC0D,
@@ -428,7 +431,6 @@ define_object_property_descriptions! {
     pub struct SystemObject {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC0E,
@@ -462,7 +464,6 @@ define_object_property_descriptions! {
     pub struct SyncId {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC42,
@@ -476,7 +477,6 @@ define_object_property_descriptions! {
     pub struct PropertyBag {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [LongString]
         },
         code: 0xDC43,
@@ -490,7 +490,6 @@ define_object_property_descriptions! {
     pub struct Name {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC44,
@@ -504,7 +503,6 @@ define_object_property_descriptions! {
     pub struct CreatedBy {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC45,
@@ -519,7 +517,6 @@ define_object_property_descriptions! {
     pub struct Artist {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC46,
@@ -532,7 +529,6 @@ define_object_property_descriptions! {
     pub struct DateAuthored {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [DateTime]
         },
         code: 0xDC47,
@@ -543,7 +539,6 @@ define_object_property_descriptions! {
     pub struct Description {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [LongString]
         },
         code: 0xDC48,
@@ -561,7 +556,6 @@ define_object_property_descriptions! {
     pub struct UrlReference {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [RegularExpression]
         },
         code: 0xDC49,
@@ -584,7 +578,6 @@ define_object_property_descriptions! {
     pub struct LanguageLocale {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [RegularExpression]
         },
         code: 0xDC4A,
@@ -595,7 +588,6 @@ define_object_property_descriptions! {
     pub struct CopyrightInformation {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [LongString]
         },
         code: 0xDC4B,
@@ -612,7 +604,6 @@ define_object_property_descriptions! {
     pub struct Source {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC4C,
@@ -626,7 +617,6 @@ define_object_property_descriptions! {
     pub struct OriginLocation {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [RegularExpression]
         },
         code: 0xDC4D,
@@ -651,7 +641,6 @@ define_object_property_descriptions! {
     pub struct NonConsumable {
         properties: {
             data_type: u8,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC4F,
@@ -674,7 +663,6 @@ define_object_property_descriptions! {
     pub struct ProducerSerialNumber {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC51,
@@ -685,7 +673,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleFormat {
         properties: {
             data_type: ObjectFormatCode,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC81,
@@ -696,7 +683,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleSize {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC82,
@@ -707,7 +693,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleHeight {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC83,
@@ -718,7 +703,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleWidth {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC84,
@@ -729,7 +713,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleDuration {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC85,
@@ -740,7 +723,6 @@ define_object_property_descriptions! {
     pub struct RepresentativeSampleData {
         properties: {
             data_type: Array<u8>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [ByteArray]
         },
         code: 0xDC86,
@@ -756,7 +738,6 @@ define_object_property_descriptions! {
     pub struct Width {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC87,
@@ -772,7 +753,6 @@ define_object_property_descriptions! {
     pub struct Height {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC88,
@@ -788,7 +768,6 @@ define_object_property_descriptions! {
     pub struct Duration {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range] // TODO: Range formless?
         },
         code: 0xDC89,
@@ -805,7 +784,6 @@ define_object_property_descriptions! {
     pub struct Rating {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Range]
         },
         code: 0xDC8A,
@@ -822,7 +800,6 @@ define_object_property_descriptions! {
     pub struct Track {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC8B,
@@ -836,7 +813,6 @@ define_object_property_descriptions! {
     pub struct Genre {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC8C,
@@ -849,7 +825,6 @@ define_object_property_descriptions! {
     pub struct Credits {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [LongString]
         },
         code: 0xDC8D,
@@ -862,7 +837,6 @@ define_object_property_descriptions! {
     pub struct Lyrics {
         properties: {
             data_type: Array<u16>,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [LongString]
         },
         code: 0xDC8E,
@@ -881,7 +855,6 @@ define_object_property_descriptions! {
     pub struct SubscriptionContentId {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [RegularExpression]
         },
         code: 0xDC8F,
@@ -894,7 +867,6 @@ define_object_property_descriptions! {
     pub struct ProducedBy {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC90,
@@ -905,7 +877,6 @@ define_object_property_descriptions! {
     pub struct UseCount {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC91,
@@ -916,7 +887,6 @@ define_object_property_descriptions! {
     pub struct SkipCount {
         properties: {
             data_type: u32,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC92,
@@ -927,7 +897,6 @@ define_object_property_descriptions! {
     pub struct LastAccessed {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [DateTime]
         },
         code: 0xDC93,
@@ -943,7 +912,6 @@ define_object_property_descriptions! {
     pub struct ParentalRating {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC94,
@@ -954,7 +922,6 @@ define_object_property_descriptions! {
     pub struct MetaGenre {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [Enumeration]
         },
         code: 0xDC95,
@@ -1012,7 +979,6 @@ define_object_property_descriptions! {
     pub struct Composer {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC96,
@@ -1029,7 +995,6 @@ define_object_property_descriptions! {
     pub struct EffectiveRating {
         properties: {
             data_type: u16,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC97,
@@ -1040,7 +1005,6 @@ define_object_property_descriptions! {
     pub struct Subtitle {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly, // TODO: device-defined
             valid_forms: [None]
         },
         code: 0xDC98,

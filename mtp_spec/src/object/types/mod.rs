@@ -76,7 +76,7 @@ pub enum PropertyValue {
 }
 
 /// Marker trait for types that are valid for use as an [`ObjectProperty`] value
-pub trait PropertyDataType {
+pub trait PropertyDataType: Eq + core::fmt::Debug + Clone {
     /// The raw datacode for this datatype
     const CODE: u16;
 }
