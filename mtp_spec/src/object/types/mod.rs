@@ -75,6 +75,138 @@ pub enum PropertyValue {
     Reserved(#[deku(read_all)] Vec<u8>),
 }
 
+impl From<Vec<u8>> for PropertyValue {
+    fn from(v: Vec<u8>) -> Self {
+        Self::Undefined(v)
+    }
+}
+
+impl From<i8> for PropertyValue {
+    fn from(v: i8) -> Self {
+        Self::I8(v)
+    }
+}
+
+impl From<u8> for PropertyValue {
+    fn from(v: u8) -> Self {
+        Self::U8(v)
+    }
+}
+
+impl From<i16> for PropertyValue {
+    fn from(v: i16) -> Self {
+        Self::I16(v)
+    }
+}
+
+impl From<u16> for PropertyValue {
+    fn from(v: u16) -> Self {
+        Self::U16(v)
+    }
+}
+
+impl From<i32> for PropertyValue {
+    fn from(v: i32) -> Self {
+        Self::I32(v)
+    }
+}
+
+impl From<u32> for PropertyValue {
+    fn from(v: u32) -> Self {
+        Self::U32(v)
+    }
+}
+
+impl From<i64> for PropertyValue {
+    fn from(v: i64) -> Self {
+        Self::I64(v)
+    }
+}
+
+impl From<u64> for PropertyValue {
+    fn from(v: u64) -> Self {
+        Self::U64(v)
+    }
+}
+
+impl From<i128> for PropertyValue {
+    fn from(v: i128) -> Self {
+        Self::I128(v)
+    }
+}
+
+impl From<u128> for PropertyValue {
+    fn from(v: u128) -> Self {
+        Self::U128(v)
+    }
+}
+
+impl From<Array<i8>> for PropertyValue {
+    fn from(v: Array<i8>) -> Self {
+        Self::I8Array(v)
+    }
+}
+
+impl From<Array<u8>> for PropertyValue {
+    fn from(v: Array<u8>) -> Self {
+        Self::U8Array(v)
+    }
+}
+
+impl From<Array<i16>> for PropertyValue {
+    fn from(v: Array<i16>) -> Self {
+        Self::I16Array(v)
+    }
+}
+
+impl From<Array<u16>> for PropertyValue {
+    fn from(v: Array<u16>) -> Self {
+        Self::U16Array(v)
+    }
+}
+
+impl From<Array<i32>> for PropertyValue {
+    fn from(v: Array<i32>) -> Self {
+        Self::I32Array(v)
+    }
+}
+
+impl From<Array<u32>> for PropertyValue {
+    fn from(v: Array<u32>) -> Self {
+        Self::U32Array(v)
+    }
+}
+
+impl From<Array<i64>> for PropertyValue {
+    fn from(v: Array<i64>) -> Self {
+        Self::I64Array(v)
+    }
+}
+
+impl From<Array<u64>> for PropertyValue {
+    fn from(v: Array<u64>) -> Self {
+        Self::U64Array(v)
+    }
+}
+
+impl From<Array<i128>> for PropertyValue {
+    fn from(v: Array<i128>) -> Self {
+        Self::I128Array(v)
+    }
+}
+
+impl From<Array<u128>> for PropertyValue {
+    fn from(v: Array<u128>) -> Self {
+        Self::U128Array(v)
+    }
+}
+
+impl From<PtpString> for PropertyValue {
+    fn from(v: PtpString) -> Self {
+        Self::String(v)
+    }
+}
+
 /// Marker trait for types that are valid for use as an [`ObjectProperty`] value
 pub trait PropertyDataType: Eq + core::fmt::Debug + Clone {
     /// The raw datacode for this datatype

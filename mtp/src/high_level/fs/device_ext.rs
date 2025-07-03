@@ -1,12 +1,14 @@
 use super::Folder;
 use crate::error::Error;
 
+use std::future::Future;
+
 use mtp_spec::communication::SessionId;
+use mtp_spec::device::storage::id::StorageId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
-use mtp_spec::object::types::ObjectFormatCode;
-use mtp_spec::object::types::properties::{Name, ObjectFileName, SerializeableProperty};
-use std::future::Future;
+use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
+use mtp_spec::object::types::{AssociationType, ObjectFormatCode, PtpString};
 
 /// Filesystem extension trait for [`Device`]s
 ///
@@ -17,7 +19,7 @@ pub trait DeviceFsExt {
         &mut self,
         session_id: SessionId,
         parent: Option<&Folder>,
-        name: &str,
+        name: String,
     ) -> impl Future<Output = Result<Folder, <Self as PtpIo>::Error>> + Send
     where
         Self: Device,
@@ -34,7 +36,7 @@ where
         &mut self,
         session_id: SessionId,
         parent: Option<&Folder>,
-        name: &str,
+        name: String,
     ) -> Result<Folder, <Self as PtpIo>::Error>
     where
         Self: Device,
@@ -44,22 +46,43 @@ where
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
 
-        // // TODO
-        // let prop_list = [
-        //     Box::new(ObjectFileName {}) as Box<dyn SerializeableProperty>,
-        //     Box::new(Name {}) as Box<dyn SerializeableProperty>,
-        // ];
-        // self.send_object_prop_list(
-        //     session_id,
-        //     storage,
-        //     parent_object,
-        //     ObjectFormatCode::Association,
-        //     0,
-        //     prop_list,
-        // )
-        // .await?
-        // .map_err(Into::<MtpError>::into)?;
+        let name_ptp = PtpString::try_from(name.clone())?;
+        let response = self
+            .send_object_info(
+                session_id,
+                storage,
+                parent_object,
+                ObjectInfo {
+                    storage_id: storage.unwrap_or(StorageId::DEFAULT_STORE),
+                    object_format: ObjectFormatCode::Association,
+                    protection_status: ProtectionStatus::NoProtection,
+                    compressed_size: 0,
+                    thumbnail: None,
+                    parent_object,
+                    association_type: Some(AssociationType::GenericFolder),
+                    sequence_number: 0,
+                    filename: name_ptp,
+                    date_created: None,
+                    date_modified: None,
+                    keywords: Default::default(),
+                },
+            )
+            .await?
+            .map_err(Into::<MtpError>::into)?;
 
-        todo!()
+        self.send_object(session_id, Vec::new())
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+
+        Ok(Folder {
+            id: response.data.reserved_handle,
+            storage_id: response.data.storage_id,
+            name,
+            format: ObjectFormatCode::Association,
+            protection_status: ProtectionStatus::NoProtection,
+            date_created: None,
+            date_modified: None,
+            children: vec![],
+        })
     }
 }

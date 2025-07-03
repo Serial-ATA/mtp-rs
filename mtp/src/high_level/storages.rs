@@ -20,7 +20,7 @@ pub struct Storage {
     pub ty: StorageType,
     /// The logical file system in use on the storage
     pub filesystem_type: FilesystemType,
-    /// Globally-applicable write-protection affecting this storage
+    /// Globally applicable write-protection affecting this storage
     pub access_capability: AccessCapability,
     /// The maximum capacity of the storage (**in bytes**).
     pub max_capacity: u64,

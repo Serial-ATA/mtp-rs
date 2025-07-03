@@ -21,22 +21,20 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite};
     ctx_default = "deku::ctx::Endian::Big"
 )]
 pub enum ProtectionStatus {
-    /// This object has no protection; it may be modified or deleted arbitrarily and its properties may be modified freely.
+    /// This object has no protection; it may be modified or deleted arbitrarily, and its properties
+    /// may be modified freely.
     #[deku(id = "0x0000")]
     NoProtection = 0x0000,
-    /// This object cannot be deleted or modified; none of the properties of
-    /// this object can be modified by the initiator. (However, properties can be modified
-    /// by the device that contains the object.)
+    /// This object cannot be deleted or modified; none of the properties of this object can be modified
+    /// by the initiator. (However, properties can be modified by the device that contains the object.)
     #[deku(id = "0x0001")]
     ReadOnly = 0x0001,
-    /// This object’s binary component cannot be deleted or modified;
-    /// however; any object properties may be modified if allowed by the object property
-    /// constraints.
+    /// This object’s binary component cannot be deleted or modified; however, any object properties
+    /// may be modified if allowed by the object property constraints.
     #[deku(id = "0x8002")]
     ReadOnlyData = 0x8002,
-    /// This object’s properties may be read and modified, and it
-    /// may be moved or deleted on the device, but this object’s binary data may not be
-    /// retrieved from the device using a [`GetObject`] operation.
+    /// This object’s properties may be read and modified, and it may be moved or deleted on the device,
+    /// but this object’s binary data may not be retrieved from the device using a [`GetObject`] operation.
     ///
     /// [`GetObject`]: crate::communication::operation::GetObject
     #[deku(id = "0x8003")]
@@ -153,6 +151,7 @@ impl DekuReader<'_, ()> for ObjectInfo {
     }
 }
 
+// Parsing of ObjectInfo is extra complicated due to Samsung writing 64-bit compressed sizes for some reason ??
 impl DekuReader<'_, Endian> for ObjectInfo {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,

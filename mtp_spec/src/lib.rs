@@ -7,8 +7,16 @@
 //! See the [`mtp`] crate for an implementation of MTP over USB.
 //!
 //! [`mtp`]: https://crates.io/crates/mtp
+//!
+//! ## Features
+//!
+//! * `time` - Adds [`DateTime::as_systemtime()`] to convert [`DateTime`] into [`SystemTime`] (*enabled by default*)
+//!     * NOTE: This enables `std`
+//!
+//! [`DateTime`]: object::types::DateTime
+//! [`SystemTime`]: std::time::SystemTime
 
-#![no_std]
+#![cfg_attr(not(feature = "time"), no_std)]
 
 extern crate alloc;
 

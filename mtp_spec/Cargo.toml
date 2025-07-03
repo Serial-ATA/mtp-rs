@@ -16,6 +16,10 @@ paste.workspace = true
 deku = { workspace = true, default-features = false, features = ["alloc", "logging"] }
 log.workspace = true
 futures-core.workspace = true
+libc = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-log.workspace = true
+
+[features]
+time = ["dep:libc"]

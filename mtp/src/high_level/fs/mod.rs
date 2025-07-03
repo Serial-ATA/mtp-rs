@@ -20,6 +20,7 @@ use mtp_spec::object::types::properties::ObjectPropertyCode;
 /// on `File`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct File {
+    /// The device-specific ID of the storage where this file lives
     pub storage_id: StorageId,
     pub id: ObjectHandle,
     pub name: String,
@@ -167,6 +168,7 @@ impl File {
 /// on `Folder`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Folder {
+    /// The device-specific ID of the storage where this folder lives
     pub id: ObjectHandle,
     pub storage_id: StorageId,
     pub name: String,

@@ -1,6 +1,5 @@
 //! Errors that can occur during MTP operations
 
-use crate::communication::operation::DataDirection;
 use crate::object::types::DateTimeError;
 use crate::object::types::properties::ObjectPropertyCode;
 

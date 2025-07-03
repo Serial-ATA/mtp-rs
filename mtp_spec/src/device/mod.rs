@@ -22,10 +22,9 @@ use crate::device::property_describing::GetSet;
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializeableProperty};
+use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializedProperty};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use deku::no_std_io::Cursor;
@@ -264,9 +263,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object_data: T,
-    ) -> impl Future<Output = Result<Response<SendObject>, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<Response<SendObject>, <Self as PtpIo>::Error>> + Send
     where
-        T: Into<Vec<u8>>,
+        T: Into<Vec<u8>> + Send,
     {
         async move {
             let transaction_id = self.next_transaction_id();
@@ -735,17 +734,14 @@ pub trait Device: PtpIo {
         parent: Option<ObjectHandle>,
         format: ObjectFormatCode,
         size: u64,
-        properties: impl IntoIterator<Item = Box<dyn SerializeableProperty>> + Send,
+        properties: impl IntoIterator<Item = SerializedProperty> + Send,
     ) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> + Send
     {
         async move {
             let mut object_prop_list = Cursor::new(Vec::new());
 
             let mut writer = Writer::new(&mut object_prop_list);
-            for property in properties
-                .into_iter()
-                .map(|p| p.serialize(ObjectHandle::NONE))
-            {
+            for property in properties.into_iter() {
                 property
                     .to_writer(&mut writer, self.endian())
                     .map_err(Into::<crate::error::MtpError>::into)?;

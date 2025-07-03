@@ -50,10 +50,7 @@
 //!
 //! * `usb` - The [`usb`] transport backend (*enabled by default*)
 //! * `fs` - Enables [`high_level::fs`] for easy filesystem operations (mkdir, rename, etc.) (*enabled by default*)
-//! * `time` - Enables [`DateTimeExt`](high_level::DateTimeExt) to convert [`DateTime`] to [`SystemTime`] (*enabled by default*)
-//!
-//! [`DateTime`]: object::types::DateTime
-//! [`SystemTime`]: std::time::SystemTime
+//! * `time` - Enables the `time` feature of [`mtp_spec`], see the `mtp_spec` crate docs (*enabled by default*)
 //!
 //! ## Logging
 //!

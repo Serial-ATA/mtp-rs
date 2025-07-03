@@ -19,7 +19,6 @@ use libc::{EINVAL, EIO, ENOENT, ENOTDIR, c_int};
 use log::info;
 use mtp::communication::SessionId;
 use mtp::error::Error;
-use mtp::high_level::DateTimeExt;
 use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
 use mtp::object::types::{DateTime, ObjectHandle};
@@ -600,7 +599,9 @@ impl Filesystem for MtpFuse {
 
         let result = futures::executor::block_on(async {
             let mut device = self.device.lock().await;
-            device.mkdir(self.session_id, parent_dir, name).await
+            device
+                .mkdir(self.session_id, parent_dir, name.to_string())
+                .await
         });
 
         match result {

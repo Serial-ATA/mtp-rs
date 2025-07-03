@@ -1,10 +1,11 @@
 use crate::error::{MtpError, err};
 
 use alloc::borrow::Cow;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::fmt::{Debug, Display, Formatter};
+use core::str::FromStr;
 
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
@@ -90,6 +91,14 @@ impl TryFrom<String> for PtpString {
         }
 
         Ok(Self(chars))
+    }
+}
+
+impl FromStr for PtpString {
+    type Err = MtpError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_string())
     }
 }
 

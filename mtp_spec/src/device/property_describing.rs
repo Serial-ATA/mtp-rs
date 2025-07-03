@@ -1,4 +1,4 @@
-use crate::object::types::{PropertyValue, PtpString};
+use crate::object::types::PropertyValue;
 
 use alloc::format;
 use alloc::vec::Vec;

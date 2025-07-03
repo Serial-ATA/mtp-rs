@@ -26,9 +26,6 @@ nusb = { workspace = true, optional = true }
 # FS
 tempfile = { workspace = true, optional = true }
 
-# Time
-libc = { workspace = true, optional = true }
-
 [dev-dependencies]
 test-log.workspace = true
 
@@ -40,4 +37,4 @@ usb = ["dep:nusb", "dep:bitflags"]
 
 # High-level features
 fs = ["dep:tempfile"]
-time = ["dep:libc"]
+time = ["mtp_spec/time"]

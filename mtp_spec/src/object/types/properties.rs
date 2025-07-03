@@ -50,20 +50,21 @@ pub struct SerializedProperty {
     value: PropertyValue,
 }
 
-pub trait SerializeableProperty: Send {
-    fn serialize(&self, object: ObjectHandle) -> SerializedProperty;
+pub trait SerializeableProperty<T>: Send {
+    fn serialize(object: ObjectHandle, value: T) -> SerializedProperty;
 }
 
-impl<P> SerializeableProperty for P
+impl<P> SerializeableProperty<P::DataType> for P
 where
     P: ObjectProperty,
+    P::DataType: Into<PropertyValue>,
 {
-    fn serialize(&self, object: ObjectHandle) -> SerializedProperty {
+    fn serialize(object: ObjectHandle, value: P::DataType) -> SerializedProperty {
         SerializedProperty {
             code: P::CODE,
             data_type: P::DataType::CODE,
             object,
-            value: PropertyValue::I8(0), // TODO
+            value: value.into(),
         }
     }
 }

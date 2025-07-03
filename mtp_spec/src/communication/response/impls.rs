@@ -142,7 +142,6 @@ define_response! {
 define_response! {
     /// Response to the [`SendObjectInfo`] operation.
     pub struct SendObjectInfo[][] {
-        data: ObjectInfo,
         parameters: (
             /// The storage id of the incoming object
             storage_id: StorageId,
