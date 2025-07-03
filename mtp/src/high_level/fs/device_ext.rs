@@ -4,7 +4,6 @@ use crate::error::Error;
 use std::future::Future;
 
 use mtp_spec::communication::SessionId;
-use mtp_spec::device::storage::id::StorageId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
@@ -53,18 +52,13 @@ where
                 storage,
                 parent_object,
                 ObjectInfo {
-                    storage_id: storage.unwrap_or(StorageId::DEFAULT_STORE),
+                    storage_id: storage.unwrap_or_default(),
                     object_format: ObjectFormatCode::Association,
                     protection_status: ProtectionStatus::NoProtection,
-                    compressed_size: 0,
-                    thumbnail: None,
                     parent_object,
                     association_type: Some(AssociationType::GenericFolder),
-                    sequence_number: 0,
                     filename: name_ptp,
-                    date_created: None,
-                    date_modified: None,
-                    keywords: Default::default(),
+                    ..Default::default()
                 },
             )
             .await?

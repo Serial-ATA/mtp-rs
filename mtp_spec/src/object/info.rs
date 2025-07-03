@@ -12,7 +12,7 @@ use deku::prelude::Reader;
 use deku::{DekuError, DekuRead, DekuReader, DekuWrite};
 
 /// The write-protection status of an object
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
 #[repr(u16)]
 #[deku(
     id_type = "u16",
@@ -24,6 +24,7 @@ pub enum ProtectionStatus {
     /// This object has no protection; it may be modified or deleted arbitrarily, and its properties
     /// may be modified freely.
     #[deku(id = "0x0000")]
+    #[default]
     NoProtection = 0x0000,
     /// This object cannot be deleted or modified; none of the properties of this object can be modified
     /// by the initiator. (However, properties can be modified by the device that contains the object.)
@@ -101,7 +102,7 @@ impl Thumbnail {
 }
 
 /// Information about an object residing on the responder
-#[derive(Clone, Debug, Eq, PartialEq, DekuWrite)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, DekuWrite)]
 #[deku(
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",

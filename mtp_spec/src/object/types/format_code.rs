@@ -19,6 +19,7 @@ macro_rules! format_codes {
 			Copy,
 			Clone,
 			Debug,
+			Default,
 			Eq,
 			PartialEq,
 			Ord,
@@ -70,6 +71,7 @@ macro_rules! format_codes {
 
 format_codes!(
     /// Undefined object
+    #[default]
     Undefined = 0x3000,
     /// Association (for example, a folder)
     Association = 0x3001,

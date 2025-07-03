@@ -15,6 +15,12 @@ impl StorageId {
     pub const DEFAULT_STORE: Self = StorageId(0x0000_0000);
 }
 
+impl Default for StorageId {
+    fn default() -> Self {
+        StorageId::DEFAULT_STORE
+    }
+}
+
 impl From<u32> for StorageId {
     fn from(value: u32) -> Self {
         StorageId(value)
