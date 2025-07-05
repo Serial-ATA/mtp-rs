@@ -63,7 +63,7 @@ where
     const DATA_DIRECTION: Option<DataDirection>;
 
     /// The response type for this operation, see [`response`](crate::communication::response)
-    type Response: Clone + Debug + Eq + PartialEq + for<'b> DekuReader<'b, Endian>;
+    type Response: Clone + Debug + PartialEq + for<'b> DekuReader<'b, Endian>;
 
     /// The error type for this operation
     ///

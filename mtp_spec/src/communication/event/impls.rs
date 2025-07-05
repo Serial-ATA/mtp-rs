@@ -1,9 +1,25 @@
 use crate::communication::TransactionId;
+use crate::device::properties::DevicePropertyCode;
 use crate::device::storage::id::StorageId;
+use crate::object::types::properties::ObjectPropertyCode;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
-use deku::DekuError;
+use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
+use deku::{DekuError, DekuReader};
+
+// Attempt to parse something, ignoring errors if it is missing
+macro_rules! try_parse {
+    ($reader:ident, $ty:ty, $ctx:expr) => {
+        match <$ty>::from_reader_with_ctx($reader, $ctx) {
+            Ok(v) => v,
+            Err(DekuError::Incomplete(size)) if size.byte_size() == size_of::<$ty>() => {
+                <$ty>::default()
+            },
+            Err(e) => return Err(e),
+        }
+    };
+}
 
 macro_rules! define_events {
 	(
@@ -101,6 +117,26 @@ macro_rules! accumulate_events {
 			}
 		}
 
+		// special impl for specifying the code in the ctx.
+		// USB containers specify the code for us outside of the normal event dataset
+		impl DekuReader<'_, (Endian, u16)> for EventsParser {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut deku::reader::Reader<R>,
+				(endian, code): (Endian, u16),
+			) -> Result<Self, DekuError> {
+				match code {
+					0x4000..=0x4fff | 0xc800..=0xcfff => accumulate_events!(@PARSE_WITH_CODE reader, endian, code, $($parser_variants)*),
+					_ => {
+						let param1 = u32::from_reader_with_ctx(reader, endian)?;
+						let param2 = u32::from_reader_with_ctx(reader, endian)?;
+						let param3 = u32::from_reader_with_ctx(reader, endian)?;
+
+						Ok(EventsParser::Unknown { code, param1, param2, param3 })
+					}
+				}
+			}
+		}
+
 		/// A notification of an event, from either party
 		///
 		/// Events differ from operations, in that they need no acknowledgement or action.
@@ -137,6 +173,16 @@ macro_rules! accumulate_events {
 				_: (),
 			) -> Result<Self, DekuError> {
 				let event = EventsParser::from_reader_with_ctx(reader, ())?;
+				Ok(event.into())
+			}
+		}
+
+		impl deku::DekuReader<'_, (Endian, u16)> for Event {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut deku::reader::Reader<R>,
+				ctx: (Endian, u16),
+			) -> Result<Self, DekuError> {
+				let event = EventsParser::from_reader_with_ctx(reader, ctx)?;
 				Ok(event.into())
 			}
 		}
@@ -212,6 +258,41 @@ macro_rules! accumulate_events {
 		}
 	};
 
+	(@PARSE_WITH_CODE
+		$reader:ident,
+		$endian:ident,
+		$code:ident,
+
+		$(
+			#[deku(id = $event_code:literal)]
+			$(#[$_meta:meta])*
+			$variant:ident {
+				$param1:ident: $param1_ty:ty,
+				$param2:ident: $param2_ty:ty,
+				$param3:ident: $param3_ty:ty,
+			},
+		)*
+	) => {
+		match $code {
+			$(
+			$event_code => {
+				let param1 = try_parse!($reader, $param1_ty, $endian);
+				let param2 = try_parse!($reader, $param2_ty, $endian);
+				let param3 = try_parse!($reader, $param3_ty, $endian);
+
+				Ok(EventsParser::$variant { $param1: param1, $param2: param2, $param3: param3 })
+			}
+			)*
+			_ => {
+				let param1 = try_parse!($reader, u32, $endian);
+				let param2 = try_parse!($reader, u32, $endian);
+				let param3 = try_parse!($reader, u32, $endian);
+
+				Ok(EventsParser::Unknown { code: $code, param1, param2, param3 })
+			}
+		}
+	};
+
 	// Event with 0 parameters
 	(
 		EVENTS_PARSER_ENUM: [
@@ -264,7 +345,7 @@ macro_rules! accumulate_events {
 					$name {
 						__param1: u32,
 						__param2: u32,
-						__param3: u32
+						__param3: u32,
 					},
 				}
 
@@ -360,7 +441,7 @@ macro_rules! accumulate_events {
 					$name {
 						$param: $ty,
 						__param2: u32,
-						__param3: u32
+						__param3: u32,
 					},
 				}
 
@@ -461,7 +542,7 @@ macro_rules! accumulate_events {
 					$name {
 						$param: $ty,
 						$param2: $ty2,
-						__param3: u32
+						__param3: u32,
 					},
 				}
 
@@ -678,7 +759,7 @@ define_events! {
     /// A property changed on the device due to something external to this session.
     pub struct DevicePropChanged {
         code: 0x4006,
-        storage_id: u32,
+        prop_code: DevicePropertyCode,
     }
 
     /// The ObjectInfo dataset for a particular object has changed, and it should be requested again.
@@ -754,13 +835,13 @@ define_events! {
     pub struct ObjectPropChanged {
         code: 0xC801,
         object: ObjectHandle,
-        prop_code: u32,
+        prop_code: ObjectPropertyCode,
     }
 
     /// An object property description dataset has been updated, indicating some change on the device
     pub struct ObjectPropDescChanged {
         code: 0xC802,
-        prop_code: u32,
+        prop_code: ObjectPropertyCode,
         format: ObjectFormatCode
     }
 

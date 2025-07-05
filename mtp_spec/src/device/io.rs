@@ -14,9 +14,10 @@ use futures_core::Stream;
 /// Any implementation of this trait also acts as an [`Event`] stream.
 ///
 /// See [`Device`](super::Device) for a higher-level interface for sending operations.
-pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> + Send {
+pub trait PtpIo: Send {
     /// Implementation-specific errors that can occur during I/O operations
     type Error: core::error::Error + From<MtpError>;
+    type EventStream: Stream<Item = Result<Event, Self::Error>>;
 
     /// Get the next transaction ID
     ///
@@ -34,6 +35,7 @@ pub trait PtpIo: Stream<Item = Result<Event, Self::Error>> + Send {
     ///
     /// The value of this is expected to be consistent for the duration of the session.
     fn endian(&self) -> Endian;
+    fn event_stream(&self) -> Self::EventStream;
 
     /// Send the operation to the device and wait for a response
     fn send_operation<O>(

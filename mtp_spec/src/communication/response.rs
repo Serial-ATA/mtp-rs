@@ -364,10 +364,10 @@ pub type Response<O> =
     Result<SuccessResponse<<O as DynOperation>::Response>, <O as DynOperation>::Error>;
 
 /// The result of a successful operation
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SuccessResponse<T>
 where
-    T: Clone + Debug + Eq + PartialEq,
+    T: Clone + Debug + PartialEq,
 {
     /// The data returned by the responder
     pub data: T,

@@ -1,5 +1,5 @@
 use crate::device::info::DeviceInfo;
-use crate::device::property_describing::{DevicePropDesc, PropertyValueWrapper};
+use crate::device::properties::{DevicePropDesc, PropertyValueWrapper};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::StorageInfo;
 use crate::object::info::{ObjectInfo, Thumbnail};
@@ -7,6 +7,7 @@ use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectHandle};
 
 use alloc::vec::Vec;
+
 use deku::ctx::Endian;
 
 macro_rules! replace_expr {
@@ -50,7 +51,7 @@ macro_rules! define_response {
 		)?
 
 		$(#[$meta])*
-		#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead)]
+		#[derive(Clone, Debug, PartialEq, deku::DekuRead)]
 		#[allow(missing_docs)]
 		#[deku(
 			endian = "_endian",

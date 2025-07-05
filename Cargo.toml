@@ -25,6 +25,7 @@ test-log = "0.2.17"
 paste = "1.0.15"
 libc = "0.2"
 tokio = "1.44.2"
+tokio-stream = "0.1.17"
 
 # mtp
 nusb = "0.1.13"

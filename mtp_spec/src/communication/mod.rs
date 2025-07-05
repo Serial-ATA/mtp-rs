@@ -125,6 +125,12 @@ impl From<SessionId> for Parameter {
 #[repr(transparent)]
 pub struct TransactionId(u32);
 
+impl Default for TransactionId {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl TransactionId {
     /// A transaction identifier for operations with no active session.
     pub const NONE: Self = TransactionId(0);

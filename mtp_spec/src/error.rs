@@ -3,7 +3,7 @@
 use crate::object::types::DateTimeError;
 use crate::object::types::properties::ObjectPropertyCode;
 
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::fmt::{Debug, Display};
 
 // Shorthand for return Err(MtpError::Foo)
@@ -23,7 +23,7 @@ macro_rules! err {
 pub(crate) use err;
 
 /// Errors that can occur during MTP operations
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum MtpError {
     /// Attempting to deserialize a [`PtpString`] containing a null byte
@@ -44,7 +44,7 @@ pub enum MtpError {
     NoDataProvided,
     /// General serialization/deserialization errors
     Serialization(deku::DekuError),
-    Generic(Box<dyn core::error::Error>),
+    Generic(Arc<dyn core::error::Error + Send + Sync>),
 }
 
 impl Display for MtpError {

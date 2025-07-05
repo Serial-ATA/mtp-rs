@@ -5,6 +5,8 @@ use crate::object::info::ProtectionStatus;
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
+use alloc::sync::Arc;
+
 use deku::{DekuRead, DekuWrite};
 
 /// The direction in which data is transferred in an operation
@@ -291,7 +293,7 @@ macro_rules! parse_operations {
 
 			impl From<[<$name Error>]> for crate::error::MtpError {
 				fn from(value: [<$name Error>]) -> Self {
-					crate::error::MtpError::Generic(value.into())
+					crate::error::MtpError::Generic(Arc::new(value))
 				}
 			}
 		}

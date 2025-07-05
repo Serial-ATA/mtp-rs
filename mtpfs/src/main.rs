@@ -4,12 +4,15 @@ mod fuse;
 mod prompts;
 
 use crate::fuse::MtpFuse;
+
+use std::path::Path;
+use std::sync::Arc;
+
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use mtp::device::PtpIo;
 use mtp::error::Error;
-use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[tokio::main]
@@ -30,6 +33,7 @@ async fn main() -> Result<(), Error> {
 
     let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
 
+    let mut events = handle.event_stream();
     let device = Arc::new(Mutex::new(handle));
 
     let mut storage_paths = Vec::with_capacity(storages.len());
@@ -48,7 +52,7 @@ async fn main() -> Result<(), Error> {
                     "Failed to create mountpoint for storage `{name}` at {}: {e}",
                     target.display()
                 );
-                return Err(Error::Io(e));
+                return Err(Error::Io(Arc::new(e)));
             }
         }
 
@@ -62,25 +66,45 @@ async fn main() -> Result<(), Error> {
         }));
     }
 
-    tokio::select! {
-        _ = sessions.next() => {
-            sessions.clear();
+    loop {
+        tokio::select! {
+            _ = sessions.next() => {
+                sessions.clear();
 
-            for path in &storage_paths {
-                if let Err(e) = std::fs::remove_dir_all(path) {
-                    log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                for path in &storage_paths {
+                    if let Err(e) = std::fs::remove_dir_all(path) {
+                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                    }
                 }
-            }
 
-            std::process::exit(1);
-        },
-        _ = tokio::signal::ctrl_c() => {
-            log::info!("Shutting down");
-            sessions.clear();
+                std::process::exit(1);
+            },
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Shutting down");
+                sessions.clear();
 
-            for path in &storage_paths {
-                if let Err(e) = std::fs::remove_dir_all(path) {
-                    log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                for path in &storage_paths {
+                    if let Err(e) = std::fs::remove_dir_all(path) {
+                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                    }
+                }
+            },
+            event = events.next() => {
+                match event {
+                    Some(ev) => {
+                        match ev {
+                            Ok(ev) => {
+                                log::info!("Event received {:?}", ev);
+                            },
+                            Err(e) => {
+                                log::error!("Failed to receive event: {e}");
+                            }
+                        }
+                    },
+                    None => {
+                        log::error!("Event stream died, exiting...");
+                        break;
+                    },
                 }
             }
         }

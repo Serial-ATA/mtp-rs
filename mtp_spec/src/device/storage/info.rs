@@ -65,7 +65,7 @@ impl From<FilesystemType> for Parameter {
     }
 }
 
-/// Globally-applicable write-protection affecting a storage, as described in [`StorageInfo`]
+/// Globally applicable write-protection affecting a storage, as described in [`StorageInfo`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead)]
 #[repr(u16)]
 #[deku(

@@ -1,6 +1,7 @@
 use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
 
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::Error;
@@ -85,7 +86,7 @@ impl Device {
                 log::warn!("Session {} already open", e.session_id);
             },
             Err(e) => {
-                return Err(Error::Generic(e.into()));
+                return Err(Error::Generic(Arc::new(e)));
             },
         }
 

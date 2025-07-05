@@ -20,6 +20,12 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 #[deku(endian = "little")]
 pub struct ObjectHandle(u32);
 
+impl Default for ObjectHandle {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl ObjectHandle {
     pub const NONE: Self = ObjectHandle(0);
 

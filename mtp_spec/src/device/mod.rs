@@ -18,7 +18,7 @@ use crate::communication::operation::{
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
-use crate::device::property_describing::GetSet;
+use crate::device::properties::GetSet;
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
@@ -32,7 +32,7 @@ use deku::writer::Writer;
 use deku::{DekuContainerWrite, DekuWriter};
 
 pub mod info;
-pub mod property_describing;
+pub mod properties;
 pub mod storage;
 
 mod io;

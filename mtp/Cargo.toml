@@ -14,8 +14,9 @@ readme.workspace = true
 [dependencies]
 mtp_spec.workspace = true
 
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
-deku = { workspace = true, features = ["alloc", "logging"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+deku = { workspace = true, features = ["std", "alloc", "logging"] }
 log.workspace = true
 futures.workspace = true
 

@@ -1,5 +1,5 @@
 use crate::communication::Parameter;
-use crate::device::property_describing::GetSet;
+use crate::device::properties::{GetSet, RangeForm};
 use crate::object::types::{
     Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType,
     PropertyValue, PtpString,
@@ -14,7 +14,7 @@ use deku::{DekuReader, DekuWriter};
 
 /// Marker trait for object properties
 pub trait ObjectProperty:
-    sealed::Sealed + Send + Eq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
+    sealed::Sealed + Send + PartialEq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
 {
     /// The raw datacode for this property
     const CODE: u16;
@@ -80,7 +80,7 @@ macro_rules! define_object_property_descriptions {
 					valid_forms: [$($form:ident),* $(,)?]
 				},
 				code: $code:literal,
-				form: $($form_tt:tt)*
+				$(form: $($form_tt:tt)* $(,)?)?
 			}
 		)*
 	) => {
@@ -109,14 +109,20 @@ macro_rules! define_object_property_descriptions {
 			}
 		}
 
+		impl Default for ObjectPropertyCode {
+			fn default() -> Self {
+				ObjectPropertyCode::SomethingElse
+			}
+		}
+
 		$(
 			$(#[$meta])*
-			#[derive(Clone, Debug, PartialEq, Eq)]
+			#[derive(Clone, Debug, PartialEq)]
 			pub struct $name {
 				pub default_value: $datatype,
 				pub group_code: u32,
 				pub get_set: GetSet,
-				pub form: define_object_property_descriptions!(@FORM_TY $($form_tt)*),
+				pub form: define_object_property_descriptions!(@FORM_TY ($($($form_tt)*)?) | $datatype),
 			}
 
 			impl ObjectProperty for $name {
@@ -129,7 +135,7 @@ macro_rules! define_object_property_descriptions {
 				}
 			}
 
-			define_object_property_descriptions!(@FORM_ENUM $($form_tt)*);
+			define_object_property_descriptions!(@FORM_ENUM $($($form_tt)*)?);
 
 			impl $name {
 				const VALID_FORMS: &'static [FormType] = &[$(FormType::$form),*];
@@ -177,7 +183,7 @@ macro_rules! define_object_property_descriptions {
 						))))
 					}
 
-					let form = define_object_property_descriptions!(@FORM_DEFINITION reader $($form_tt)*);
+					let form = define_object_property_descriptions!(@FORM_DEFINITION reader ctx ($($($form_tt)*)?) | $datatype);
 
 					Ok(Self {
 						default_value,
@@ -206,23 +212,30 @@ macro_rules! define_object_property_descriptions {
 	};
 
 	(@FORM_ENUM $_ty:ty) => {};
+	(@FORM_ENUM) => {};
 
-	(@FORM_DEFINITION $reader:ident enum $enum_name:ident {
+	(@FORM_DEFINITION $reader:ident $ctx:ident (enum $enum_name:ident {
 		$($_tt:tt)*
-	}) => {{
-		let form: $enum_name = <$enum_name>::from_reader_with_ctx($reader, ())?;
+	}) | $_data_type:ty) => {{
+		let form: $enum_name = <$enum_name>::from_reader_with_ctx($reader, $ctx)?;
 		form
 	}};
 
-	(@FORM_DEFINITION $reader:ident $ty:ty) => {{
-		let form: $ty = <$ty>::from_reader_with_ctx($reader, ())?;
+	(@FORM_DEFINITION $reader:ident $ctx:ident ($form:ty) | $_data_type:ty) => {{
+		let form: $form = <$form>::from_reader_with_ctx($reader, $ctx)?;
 		form
 	}};
 
-	(@FORM_TY enum $enum_name:ident {
+	(@FORM_DEFINITION $reader:ident $ctx:ident () | $data_type:ty) => {{
+		let form: $data_type = <$data_type>::from_reader_with_ctx($reader, $ctx)?;
+		form
+	}};
+
+	(@FORM_TY (enum $enum_name:ident {
 		$($_tt:tt)*
-	}) => { $enum_name };
-	(@FORM_TY $ty:ty) => { $ty };
+	}) | $_data_type:ty) => { $enum_name };
+	(@FORM_TY ($ty:ty) | $_data_type:ty) => { $ty };
+	(@FORM_TY () | $data_type:ty) => { $data_type };
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead)]
@@ -265,7 +278,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC01,
-        form: u32
     }
 
     /// The object format code describes this object
@@ -280,7 +292,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC02,
-        form: ObjectFormatCode
     }
 
     /// The write-protection status of the binary component of the object
@@ -291,7 +302,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC03,
-        form: crate::object::info::ProtectionStatus
     }
 
     /// The size of the binary component of the object, in bytes
@@ -302,7 +312,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC04,
-        form: u64
     }
 
     /// The [`AssociationType`] of the object
@@ -314,7 +323,6 @@ define_object_property_descriptions! {
             valid_forms: [Enumeration]
         },
         code: 0xDC05,
-        form: crate::object::types::AssociationType
     }
 
     /// Additional information about Association objects
@@ -329,7 +337,6 @@ define_object_property_descriptions! {
             valid_forms: [Enumeration]
         },
         code: 0xDC06,
-        form: u32
     }
 
     /// The file name of the object
@@ -378,7 +385,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC0A,
-        form: PtpString
     }
 
     /// The object handle of the parent of this object, if it exists in a hierarchy
@@ -391,7 +397,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC0B,
-        form: ObjectHandle
     }
 
     /// Objects formats allowed in this folder
@@ -404,7 +409,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC0C,
-        form: Array<ObjectFormatCode>
     }
 
     /// Objects formats allowed in this folder
@@ -458,7 +462,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC41,
-        form: u128
     }
 
     /// An identifier for retaining state between sessions, determined by the initiator
@@ -468,7 +471,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC42,
-        form: PtpString
     }
 
     /// An XML document specifying object properties
@@ -494,7 +496,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC44,
-        form: PtpString
     }
 
     /// The application, user, or organization that originally created the binary object
@@ -507,7 +508,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC45,
-        form: PtpString
     }
 
     /// The person or people who originally created this object
@@ -521,7 +521,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC46,
-        form: PtpString
     }
 
     /// The date and time when the content in this object was originally created
@@ -645,7 +644,10 @@ define_object_property_descriptions! {
             valid_forms: [Enumeration]
         },
         code: 0xDC4F,
-        form: DateTime // TODO
+        form: enum ConsumptionStatus {
+            Consumable = 0x00,
+            ForStorage = 0x01,
+        }
     }
 
     /// This object should be able to be understood, but for some reason, cannot be played
@@ -656,7 +658,10 @@ define_object_property_descriptions! {
             valid_forms: [Enumeration]
         },
         code: 0xDC50,
-        form: DateTime // TODO
+        form: enum CorruptOrUnplayableStatus {
+            No = 0x00,
+            Yes = 0x01,
+        }
     }
 
     /// The unique serial number of the device which originally created the binary object to which
@@ -677,7 +682,6 @@ define_object_property_descriptions! {
             valid_forms: [Enumeration]
         },
         code: 0xDC81,
-        form: ObjectFormatCode // TODO
     }
 
     /// The size in bytes of the representative sample for this object
@@ -687,7 +691,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC82,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The height of the representative sample for the object in pixels
@@ -697,7 +701,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC83,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The height of the representative sample for the object in pixels
@@ -707,7 +711,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC84,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The duration of the representative sample for the object in milliseconds
@@ -717,7 +721,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC85,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// A representative sample of the object
@@ -727,7 +731,6 @@ define_object_property_descriptions! {
             valid_forms: [ByteArray]
         },
         code: 0xDC86,
-        form: Array<u8> // TODO
     }
 
     /// The width of the object in pixels
@@ -742,7 +745,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC87,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The height of the object in pixels
@@ -757,7 +760,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC88,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The duration of the object in milliseconds
@@ -788,7 +791,7 @@ define_object_property_descriptions! {
             valid_forms: [Range]
         },
         code: 0xDC8A,
-        form: u16 // TODO
+        form: RangeForm<u16>
     }
 
     /// The track on which this object is found on its distribution media
@@ -804,7 +807,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC8B,
-        form: u16 // TODO
     }
 
     /// The genre of this object
@@ -881,7 +883,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC91,
-        form: u32
     }
 
     /// The number of times this object was set up to be played, but manually skipped by the user
@@ -891,7 +892,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC92,
-        form: u32
     }
 
     /// The date and time when this object was last viewed, accessed, or otherwise used, relative to a device's onboard clock
@@ -999,7 +999,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC97,
-        form: u16 // TODO
     }
 
     /// A further qualifier for the title, when it is ambiguous or general

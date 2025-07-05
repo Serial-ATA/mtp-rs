@@ -1,12 +1,17 @@
 use super::error::UsbError;
+use crate::error::Error;
 use crate::usb::UsbDeviceFlags;
+use std::io::Cursor;
+use std::pin::Pin;
 
-use std::task::Poll;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use deku::ctx::Endian;
-use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuWrite};
-use futures::Stream;
+use deku::reader::Reader;
+use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuReader, DekuWrite};
+use futures::{Stream, StreamExt};
 use mtp_spec::communication::event::Event;
 use mtp_spec::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use mtp_spec::communication::response::{CODE_OK, Response, SuccessResponse};
@@ -14,7 +19,11 @@ use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use nusb::transfer::{Queue, RequestBuffer};
+use tokio::sync::Mutex;
+use tokio::sync::broadcast::Sender;
+use tokio_stream::wrappers::BroadcastStream;
 
+#[derive(Copy, Clone, Debug)]
 pub(super) struct Endpoints {
     pub(super) bulk_in: u8,
     pub(super) bulk_in_buffer_size: usize,
@@ -35,9 +44,11 @@ pub struct DeviceHandle {
     endpoints: Endpoints,
     out_queue: Queue<Vec<u8>>,
     in_queue: Queue<RequestBuffer>,
-    interrupt_queue: Queue<RequestBuffer>,
     timeout: Duration,
     transaction_id: TransactionId,
+
+    event_tx: Sender<Result<Event, Error>>,
+    _events_task: tokio::task::JoinHandle<()>,
 }
 
 impl DeviceHandle {
@@ -56,6 +67,75 @@ impl DeviceHandle {
         let out_queue = interface.bulk_out_queue(endpoints.bulk_out);
         let in_queue = interface.bulk_in_queue(endpoints.bulk_in);
         let interrupt_queue = interface.interrupt_in_queue(endpoints.interrupt);
+
+        let (event_tx, event_rx) = tokio::sync::broadcast::channel(100);
+        let event_tx_clone = event_tx.clone();
+
+        // TODO: Actually determine the endianness of the device
+        let endian = Endian::Little;
+        let events_task = tokio::task::spawn(async move {
+            struct UsbEventStream {
+                endian: Endian,
+                endpoints: Endpoints,
+                interrupt_queue: Arc<Mutex<Queue<RequestBuffer>>>,
+            }
+
+            impl Stream for UsbEventStream {
+                type Item = Result<Event, crate::error::Error>;
+
+                fn poll_next(
+                    self: std::pin::Pin<&mut Self>,
+                    cx: &mut std::task::Context<'_>,
+                ) -> Poll<Option<Self::Item>> {
+                    let buffer_size = self.endpoints.interrupt_buffer_size;
+
+                    let Ok(mut interrupt_queue) = self.interrupt_queue.try_lock() else {
+                        return Poll::Pending;
+                    };
+
+                    let pending = interrupt_queue.pending();
+                    for _ in 0..(2usize.saturating_sub(pending)) {
+                        interrupt_queue.submit(RequestBuffer::new(buffer_size));
+                    }
+
+                    match interrupt_queue.poll_next(cx) {
+                        Poll::Ready(completion) => {
+                            match UsbContainer::from_bytes((&completion.data, 0)) {
+                                Ok((_, container)) => {
+                                    let mut reader = Reader::new(Cursor::new(container.payload));
+
+                                    Poll::Ready(Some(
+                                        Event::from_reader_with_ctx(
+                                            &mut reader,
+                                            (self.endian, container.code),
+                                        )
+                                        .map_err(Into::into),
+                                    ))
+                                },
+                                Err(e) => Poll::Ready(Some(Err(e.into()))),
+                            }
+                        },
+                        Poll::Pending => Poll::Pending,
+                    }
+                }
+            }
+
+            let mut event_stream = UsbEventStream {
+                endian,
+                endpoints,
+                interrupt_queue: Arc::new(Mutex::new(interrupt_queue)),
+            };
+
+            loop {
+                match event_stream.next().await {
+                    Some(event) => {
+                        let _ = event_tx_clone.send(event);
+                    },
+                    None => {},
+                }
+            }
+        });
+
         Self {
             _device: device,
             flags,
@@ -63,32 +143,27 @@ impl DeviceHandle {
             endpoints,
             out_queue,
             in_queue,
-            interrupt_queue,
             timeout,
             transaction_id: TransactionId::new(1),
+
+            event_tx,
+            _events_task: events_task,
         }
     }
 }
 
-impl Stream for DeviceHandle {
-    type Item = Result<Event, crate::error::Error>;
+pub struct EventStream {
+    recv: BroadcastStream<Result<Event, Error>>,
+}
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        let buffer_size = self.endpoints.interrupt_buffer_size;
+impl Stream for EventStream {
+    type Item = Result<Event, Error>;
 
-        let pending = self.interrupt_queue.pending();
-        for _ in 0..(2usize.saturating_sub(pending)) {
-            self.interrupt_queue.submit(RequestBuffer::new(buffer_size));
-        }
-
-        match self.interrupt_queue.poll_next(cx) {
-            Poll::Ready(completion) => match Event::try_from(completion.data) {
-                Ok(event) => Poll::Ready(Some(Ok(event))),
-                Err(e) => Poll::Ready(Some(Err(e.into()))),
-            },
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.recv.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok(event))) => Poll::Ready(Some(event)),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -96,6 +171,7 @@ impl Stream for DeviceHandle {
 
 impl PtpIo for DeviceHandle {
     type Error = crate::error::Error;
+    type EventStream = EventStream;
 
     fn next_transaction_id(&mut self) -> TransactionId {
         let next = self.transaction_id;
@@ -111,6 +187,12 @@ impl PtpIo for DeviceHandle {
     fn endian(&self) -> Endian {
         // TODO: Needs to be provided from some global context
         Endian::Little
+    }
+
+    fn event_stream(&self) -> Self::EventStream {
+        EventStream {
+            recv: self.event_tx.subscribe().into(),
+        }
     }
 
     async fn __send_operation<O>(
