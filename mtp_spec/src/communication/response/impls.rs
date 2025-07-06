@@ -1,5 +1,5 @@
 use crate::device::info::DeviceInfo;
-use crate::device::properties::{DevicePropDesc, PropertyValueWrapper};
+use crate::device::properties::{DevicePropDesc, DeviceProperty, PropertyValueWrapper};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::StorageInfo;
 use crate::object::info::{ObjectInfo, Thumbnail};
@@ -171,8 +171,8 @@ define_response! {
 
 define_response! {
     /// Response to the [`GetDevicePropValue`] operation.
-    pub struct GetDevicePropValue[][] {
-        data: PropertyValueWrapper,
+    pub struct GetDevicePropValue[<T>][where T: DeviceProperty] {
+        data: T::DataType,
     }
 }
 

@@ -3,6 +3,7 @@
 use crate::object::types::DateTimeError;
 use crate::object::types::properties::ObjectPropertyCode;
 
+use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::fmt::{Debug, Display};
 
@@ -44,6 +45,8 @@ pub enum MtpError {
     NoDataProvided,
     /// General serialization/deserialization errors
     Serialization(deku::DekuError),
+    /// Generic error for values received from misbehaving responders
+    ReceivedBadValue(Cow<'static, str>),
     Generic(Arc<dyn core::error::Error + Send + Sync>),
 }
 
@@ -68,7 +71,10 @@ impl Display for MtpError {
             MtpError::NoDataProvided => {
                 write!(f, "Expected data for operation, but none was provided")
             },
-            MtpError::Serialization(error) => write!(f, "Serialization error: {}", error),
+            MtpError::Serialization(error) => write!(f, "Serialization error: {error}"),
+            MtpError::ReceivedBadValue(reason) => {
+                write!(f, "Responder provided a bad value: {reason}")
+            },
             MtpError::Generic(error) => write!(f, "{error}"),
         }
     }

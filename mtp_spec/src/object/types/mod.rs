@@ -13,6 +13,7 @@ pub use format_code::*;
 pub use object_handle::*;
 pub use string::*;
 
+use crate::device::properties::PerceivedDeviceTypeValue;
 use crate::object::info::ProtectionStatus;
 
 use alloc::vec::Vec;
@@ -319,6 +320,15 @@ impl PropertyDataType for ProtectionStatus {
     const CODE: u16 = <u16 as PropertyDataType>::CODE;
 }
 
+impl PropertyDataType for PerceivedDeviceTypeValue {
+    const CODE: u16 = <u32 as PropertyDataType>::CODE;
+}
+
 impl PropertyDataType for Array<ObjectFormatCode> {
     const CODE: u16 = <Array<u16> as PropertyDataType>::CODE;
+}
+
+// Used for the "undefined" properties that exist for some reason...
+impl PropertyDataType for () {
+    const CODE: u16 = 0x0000;
 }

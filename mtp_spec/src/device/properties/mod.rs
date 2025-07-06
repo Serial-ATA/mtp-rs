@@ -1,11 +1,14 @@
 mod description;
+
 pub use description::*;
 
 mod impls;
 pub use impls::*;
 
 use deku::ctx::Endian;
-use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter, deku_derive};
+use deku::no_std_io::{Read, Seek};
+use deku::prelude::Reader;
+use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter, deku_derive};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
@@ -76,4 +79,21 @@ where
     Range(#[deku(ctx = "endian")] RangeForm<T>),
     #[deku(id = "0x02")]
     Enumeration(#[deku(ctx = "endian")] EnumerationForm<T>),
+}
+
+// For standalone decoding
+impl<T> DekuReader<'_, Endian> for Form<T>
+where
+    T: for<'a> DekuReader<'a, Endian> + DekuWriter<Endian> + Clone,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Endian,
+    ) -> Result<Self, DekuError>
+    where
+        Self: Sized,
+    {
+        let form_code = u8::from_reader_with_ctx(reader, ctx)?;
+        <Form<T>>::from_reader_with_ctx(reader, (ctx, form_code))
+    }
 }

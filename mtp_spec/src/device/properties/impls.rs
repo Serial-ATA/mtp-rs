@@ -1,8 +1,7 @@
 use crate::communication::Parameter;
-use crate::device::properties::{Form, FormType, GetSet};
+use crate::device::properties::{EnumerationForm, Form, FormType, GetSet, RangeForm};
 use crate::object::types::{
-    Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType,
-    PropertyValue, PtpString,
+    Array, ArrayEncodable, ObjectHandle, PropertyDataType, PropertyValue, PtpString,
 };
 
 use alloc::borrow::Cow;
@@ -10,7 +9,7 @@ use alloc::format;
 
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
-use deku::{DekuReader, DekuWriter};
+use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
 
 /// Marker trait for object properties
 pub trait DeviceProperty:
@@ -196,16 +195,16 @@ macro_rules! define_device_properties {
 		)*
 	};
 
-	(@FORM_ENUM enum $enum_name:ident {
+	(@FORM_ENUM $(#[$meta:meta])* enum $enum_name:ident {
 		$($body:tt)*
 	}) => {
 		#[derive(Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead)]
 		#[deku(
-			id_type = "u16",
 			id_endian = "endian",
 			ctx = "endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Big"
 		)]
+		$(#[$meta])*
 		pub enum $enum_name {
 			$($body)*
 		}
@@ -214,7 +213,7 @@ macro_rules! define_device_properties {
 	(@FORM_ENUM $_ty:ty) => {};
 	(@FORM_ENUM) => {};
 
-	(@FORM_DEFINITION $reader:ident $ctx:ident (enum $enum_name:ident {
+	(@FORM_DEFINITION $reader:ident $ctx:ident ($(#[$_meta:meta])* enum $enum_name:ident {
 		$($_tt:tt)*
 	}) | $_data_type:ty) => {{
 		let form: $enum_name = <$enum_name>::from_reader_with_ctx($reader, $ctx)?;
@@ -231,7 +230,7 @@ macro_rules! define_device_properties {
 		form
 	}};
 
-	(@FORM_TY (enum $enum_name:ident {
+	(@FORM_TY ($(#[$_meta:meta])* enum $enum_name:ident {
 		$($_tt:tt)*
 	}) | $_data_type:ty) => { $enum_name };
 	(@FORM_TY ($ty:ty) | $_data_type:ty) => { $ty };
@@ -269,7 +268,7 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x5002,
-        form: FunctionalMode
+        form: crate::device::info::FunctionalMode
     }
 
     /// The width and height of images captured by the responder
@@ -309,22 +308,630 @@ define_device_properties! {
         form: Form<u8>
     }
 
-    /// How the responder weights different color channels
+    /// How the device weights different color channels
     pub struct WhiteBalance {
         properties: {
             data_type: u16,
             valid_forms: [Enumeration]
         },
         code: 0x5005,
-        form: enum WhiteBalanceValue {
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum WhiteBalanceValue {
             #[deku(id = "0x0000")]
-            Undefined,
+            Undefined = 0x0000,
             /// The white balance is set directly by using the [`RgbGain`] property, and is static until changed.
             #[deku(id = "0x0001")]
-            Manual,
-            /// The responder attempts to set the white balance using some kind of automatic mechanism.
+            Manual = 0x0001,
+            /// The device attempts to set the white balance using some kind of automatic mechanism.
             #[deku(id = "0x0002")]
-            Automatic,
+            Automatic = 0x0002,
+            /// The user must press the capture button while pointing the device at a white field
+            #[deku(id = "0x0003")]
+            OnePushAutomatic = 0x0003,
+            /// The device attempts to set the white balance to a value that is appropriate for use in daylight conditions.
+            #[deku(id = "0x0004")]
+            Daylight = 0x0004,
+            /// The device attempts to set the white balance to a value that is appropriate for use in conditions with a florescent light source.
+            #[deku(id = "0x0005")]
+            Florescent = 0x0005,
+            /// The device attempts to set the white balance to a value that is appropriate for use in conditions with a tungsten light source.
+            #[deku(id = "0x0006")]
+            Tungsten = 0x0006,
+            /// The device attempts to set the white balance to a value that is appropriate for flash conditions.
+            #[deku(id = "0x0007")]
+            Flash = 0x0007,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
         }
     }
+
+    /// The current RGB gain setting of the responder
+    ///
+    /// The value is a [`PtpString`] in the form: `"R:G:B"` where each segment is a `u16`.
+    ///
+    /// An example value would be: `"4:2:3"` for a gain value of 4 for red, 2 for green, and 3 for blue.
+    ///
+    /// This can be represented in both [`RangeForm`] and [`EnumerationForm`]
+    ///
+    /// Examples:
+    /// * [`RangeForm`]
+    ///   * A minimum of `"1:1:1"`, and a maximum of `"65535:65535:65535"`, with a step of `"1:1:1"`
+    /// * [`EnumerationForm`]
+    ///   * `values` will be a list of all possible gain values
+    pub struct RgbGain {
+        properties: {
+            data_type: PtpString,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5006,
+        form: Form<PtpString>
+    }
+
+    /// The aperture setting of the lens, scaled by 100
+    ///
+    /// Setting this property may cause other properties (such as [`ExposureTime`] and [`ExposureIndex`]) to change.
+    pub struct FNumber {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x5007,
+        form: EnumerationForm<u16>
+    }
+
+    /// The 35 mm equivalent focal length in millimeters multiplied by 100
+    pub struct FocalLength {
+        properties: {
+            data_type: u32,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5008,
+        form: Form<u32>
+    }
+
+    /// The focus distance in millimeters
+    ///
+    /// A value of [`u16::MAX`] indicates a setting greater than 655 meters.
+    pub struct FocusDistance {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5009,
+        form: Form<u16>
+    }
+
+    /// The current focusing mode for image capture
+    pub struct FocusMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x500A,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum FocusModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            Manual = 0x0001,
+            #[deku(id = "0x0002")]
+            Automatic = 0x0002,
+            #[deku(id = "0x0003")]
+            AutomaticMacro = 0x0003,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The current exposure metering mode for image capture
+    pub struct ExposureMeteringMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x500B,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum ExposureMeteringModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            Average = 0x0001,
+            #[deku(id = "0x0002")]
+            CenterWeightedAverage = 0x0002,
+            #[deku(id = "0x0003")]
+            MultiSpot = 0x0003,
+            #[deku(id = "0x0004")]
+            CenterSpot = 0x0004,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The current flash mode for image capture
+    pub struct FlashMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x500C,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum FlashModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            AutoFlash = 0x0001,
+            #[deku(id = "0x0002")]
+            FlashOff = 0x0002,
+            #[deku(id = "0x0003")]
+            FillFlash = 0x0003,
+            #[deku(id = "0x0004")]
+            RedEyeAuto = 0x0004,
+            #[deku(id = "0x0005")]
+            RedEyeFill = 0x0005,
+            #[deku(id = "0x0006")]
+            ExternalSync = 0x0006,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The current shutter speed of the device in seconds, scaled by 10,000
+    pub struct ExposureTime {
+        properties: {
+            data_type: u32,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x500D,
+        form: Form<u32>
+    }
+
+    /// The exposure program mode settings of the device
+    ///
+    /// This corresponds to the "Exposure Program" tag within EXIF metadata.
+    pub struct ExposureProgramMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x500E,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum ExposureProgramModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            Manual = 0x0001,
+            #[deku(id = "0x0002")]
+            Automatic = 0x0002,
+            #[deku(id = "0x0003")]
+            AperturePriority = 0x0003,
+            #[deku(id = "0x0004")]
+            ShutterPriority = 0x0004,
+            #[deku(id = "0x0005")]
+            ProgramCreative = 0x0005,
+            #[deku(id = "0x0006")]
+            ProgramAction = 0x0006,
+            #[deku(id = "0x0007")]
+            Portrait = 0x0007,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The film speed settings of the device
+    ///
+    /// The settings of this property correspond to the ISO designations (ASA/DIN).
+    ///
+    /// A value of [`u16::MAX`] corresponds to automatic ISO setting.
+    pub struct ExposureIndex {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x500F,
+        form: Form<u16>
+    }
+
+    /// The set point of the device's auto exposure control
+    ///
+    /// This is a scaling factor, representing "stops" scaled by a factor of 1000.
+    ///
+    /// For example, a value of `0` will not change the factor set auto exposure level, while a value of
+    /// `2000` indicates two stops of additional exposure.
+    ///
+    /// Values are represented in APEX (Additive system of Photographic Exposure) units
+    pub struct ExposureBiasCompensation {
+        properties: {
+            data_type: i16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5010,
+        form: Form<i16>
+    }
+
+    /// The current date and time settings of the device
+    pub struct DateTime {
+        properties: {
+            data_type: PtpString,
+            valid_forms: [None]
+        },
+        code: 0x5011,
+        form: crate::object::types::DateTime
+    }
+
+    /// The millisecond delay between triggering image capture and the actual data capture
+    pub struct CaptureDelay {
+        properties: {
+            data_type: u32,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5012,
+        form: Form<u32>
+    }
+
+    /// The type of still capture which will be performed
+    pub struct StillCaptureMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x5013,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum StillCaptureModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            Normal = 0x0001,
+            #[deku(id = "0x0002")]
+            Burst = 0x0002,
+            #[deku(id = "0x0003")]
+            Timelapse = 0x0003,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The perceived contrast of images captured with this device
+    pub struct Contrast {
+        properties: {
+            data_type: u8,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5014,
+        form: Form<u8>
+    }
+
+    /// The perceived sharpness of images captured with this device
+    pub struct Sharpness {
+        properties: {
+            data_type: u8,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5015,
+        form: Form<u8>
+    }
+
+    /// The effective digital zoom which will be applied to images, scaled by a factor of 10
+    ///
+    /// Examples:
+    ///
+    /// * A value of `10` means no digital zoom is applied.
+    /// * A value of `20` means a zoom by a factor of 2 (2x)
+    pub struct DigitalZoom {
+        properties: {
+            data_type: u8,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5016,
+        form: Form<u8>
+    }
+
+    /// Special image acquisition modes
+    pub struct EffectMode {
+        properties: {
+            data_type: u16,
+            valid_forms: [Enumeration]
+        },
+        code: 0x5017,
+        form: #[repr(u16)] #[deku(id_type = "u16")] enum EffectModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            /// Color
+            #[deku(id = "0x0001")]
+            Standard = 0x0001,
+            #[deku(id = "0x0002")]
+            BlackAndWhite = 0x0002,
+            #[deku(id = "0x0003")]
+            Sepia = 0x0003,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// The number of images that will be captured upon a burst capture operation
+    pub struct BurstNumber {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5018,
+        form: Form<u8>
+    }
+
+    /// The time delay in milliseconds between image captures in a burst capture operation
+    pub struct BurstInterval {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x5019,
+        form: Form<u8>
+    }
+
+    /// The number of images which will be captured when a timelapse capture starts
+    pub struct TimelapseNumber {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x501A,
+        form: Form<u8>
+    }
+
+    /// The time delay in milliseconds between image captures in a timelapse capture operation
+    pub struct TimelapseInterval {
+        properties: {
+            data_type: u16,
+            valid_forms: [Range, Enumeration]
+        },
+        code: 0x501B,
+        form: Form<u8>
+    }
+
+    /// The automatic-focus mechanism currently in use by the device
+    pub struct FocusMeteringMode {
+        properties: {
+            data_type: u32,
+            valid_forms: [Enumeration]
+        },
+        code: 0x501C,
+        form: #[repr(u32)] #[deku(id_type = "u16")] enum FocusMeteringModeForm {
+            #[deku(id = "0x0000")]
+            Undefined = 0x0000,
+            #[deku(id = "0x0001")]
+            CenterSpot = 0x0001,
+            #[deku(id = "0x0002")]
+            MultiSpot = 0x0002,
+            #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
+            VendorSpecific(u16),
+            #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
+            Reserved,
+        }
+    }
+
+    /// A URL the initiator may use the upload objects acquired from the device
+    pub struct UploadUrl {
+        properties: {
+            data_type: PtpString,
+            valid_forms: [None]
+        },
+        code: 0x501D,
+        form: ()
+    }
+
+    /// The name of the device owner/operator
+    ///
+    /// This is the value used to populate the [`Artist`] object property.
+    ///
+    /// [`Artist`]: crate::object::types::properties::Artist
+    pub struct Artist {
+        properties: {
+            data_type: PtpString,
+            valid_forms: [None]
+        },
+        code: 0x501E,
+        form: ()
+    }
+
+    /// A copyright notification
+    ///
+    /// This is the value used to populate the [`CopyrightInformation`] object property.
+    ///
+    /// [`CopyrightInformation`]: crate::object::types::properties::CopyrightInformation
+    pub struct CopyrightInfo {
+        properties: {
+            data_type: PtpString,
+            valid_forms: [None]
+        },
+        code: 0x501F,
+        form: ()
+    }
+
+    /// A human-readable description of a synchronization partner for a device
+    pub struct SynchronizationPartner {
+        properties: {
+            data_type: PtpString,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD401,
+        form: ()
+    }
+
+    /// A human-readable description of the device
+    pub struct DeviceFriendlyName {
+        properties: {
+            data_type: PtpString,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD402,
+        form: ()
+    }
+
+    /// The current volume of the device
+    ///
+    /// A value of `0` indicates that the device is muted.
+    pub struct Volume {
+        properties: {
+            data_type: u32,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [Range]
+        },
+        code: 0xD403,
+        form: RangeForm<u32>
+    }
+
+    /// Whether the device is indicating its supported production and consumption object formats in order of preference
+    pub struct SupportedFormatsOrdered {
+        properties: {
+            data_type: u8,
+            get_set: GetSet::ReadOnly,
+            valid_forms: [Enumeration]
+        },
+        code: 0xD404,
+        form: #[repr(u8)] #[deku(id_type = "u8")] enum SupportedFormatsOrderedForm {
+            #[deku(id = "0x00")]
+            Unordered = 0x00,
+            #[deku(id = "0x01")]
+            Ordered = 0x01,
+            #[deku(id_pat = "o if (0x80_u8..=0xFF_u8).contains(&o)")]
+            VendorSpecific(u8),
+            #[deku(id_pat = "_")]
+            Reserved,
+        }
+    }
+
+    /// The `ICO` icon object that represents the device
+    pub struct DeviceIcon {
+        properties: {
+            data_type: Array<u8>,
+            valid_forms: [None]
+        },
+        code: 0xD405,
+        form: ()
+    }
+
+    /// The current playback speed, identified linearly in thousandths
+    ///
+    /// Examples:
+    ///
+    /// * A value of `1000` indicates full speed
+    /// * A value of `500` indicates half speed
+    /// * A value of `-1000` indicates reverse at full speed
+    /// * A value of `0` indicates the device is paused
+    pub struct PlaybackRate {
+        properties: {
+            data_type: i32,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [Enumeration]
+        },
+        code: 0xD410,
+        form: EnumerationForm<i32>
+    }
+
+    /// The [`ObjectHandle`] of the object (or container, see [`PlaybackContainerIndex`]) currently being played on the device
+    ///
+    /// A value of [`ObjectHandle::NONE`] indicates that the device is stopped.
+    pub struct PlaybackObject {
+        properties: {
+            data_type: ObjectHandle,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD411,
+        form: ()
+    }
+
+    /// The [`ObjectHandle`] of the object within the current playback container
+    ///
+    /// [`PlaybackObject`] may be a container, so this narrows down which object in particular is being
+    /// played.
+    pub struct PlaybackContainerIndex {
+        properties: {
+            data_type: ObjectHandle,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD412,
+        form: ()
+    }
+
+    /// The time offset of the object currently being played, in milliseconds
+    ///
+    /// NOTE: As this property changes frequently, it will not typically trigger [`Event::DevicePropChanged`] events.
+    ///
+    /// [`Event::DevicePropChanged`]: crate::communication::event::Event::DevicePropChanged
+    pub struct PlaybackPosition {
+        properties: {
+            data_type: u32,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD413,
+        form: ()
+    }
+
+    /// Version information of the session initiator, formatted as an [HTTP user agent]
+    ///
+    /// [HTTP user agent]: https://en.wikipedia.org/wiki/User-Agent_header
+    pub struct SessionInitiatorVersionInfo {
+        properties: {
+            data_type: PtpString,
+            get_set: GetSet::ReadWrite,
+            valid_forms: [None]
+        },
+        code: 0xD406,
+        form: ()
+    }
+
+    /// The device type of the responder, as perceived by the user
+    pub struct PerceivedDeviceType {
+        properties: {
+            data_type: PerceivedDeviceTypeValue,
+            get_set: GetSet::ReadOnly,
+            valid_forms: [None]
+        },
+        code: 0xD407,
+        form: ()
+    }
+}
+
+#[derive(DekuRead, DekuWrite, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u32)]
+#[deku(
+    id_type = "u32",
+    id_endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub enum PerceivedDeviceTypeValue {
+    #[deku(id = "0x00000000")]
+    Generic = 0x00000000,
+    /// Still Image/Video Camera
+    #[deku(id = "0x00000001")]
+    StillCamera = 0x00000001,
+    /// Media (Audio/Video) Player
+    #[deku(id = "0x00000002")]
+    MediaPlayer = 0x00000002,
+    #[deku(id = "0x00000003")]
+    MobileHandset = 0x00000003,
+    #[deku(id = "0x00000004")]
+    VideoPlayer = 0x00000004,
+    /// Personal Information Manager / Personal Digital Assistant
+    #[deku(id = "0x00000005")]
+    PersonalInformationManager = 0x00000005,
+    #[deku(id = "0x00000006")]
+    AudioRecorder = 0x00000006,
+    #[deku(id_pat = "o if o & (1 << 15) > 0")]
+    VendorSpecific(u8),
+    #[deku(id_pat = "o if o & (1 << 15) == 0")]
+    Reserved,
 }

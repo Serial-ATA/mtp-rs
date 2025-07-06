@@ -7,9 +7,9 @@
 //!   providing transport implementations
 
 use crate::communication::operation::{
-    CloseSession, CopyObject, DeleteObject, DevicePropCode, FormatStore, GetDeviceInfo,
-    GetDevicePropDesc, GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject,
-    GetObjectHandles, GetObjectInfo, GetObjectPropDesc, GetObjectPropList, GetObjectPropValue,
+    CloseSession, CopyObject, DeleteObject, FormatStore, GetDeviceInfo, GetDevicePropDesc,
+    GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject, GetObjectHandles,
+    GetObjectInfo, GetObjectPropDesc, GetObjectPropList, GetObjectPropValue,
     GetObjectPropsSupported, GetObjectReferences, GetPartialObject, GetStorageIDs, GetStorageInfo,
     GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject, OpenSession, PowerDown,
     ResetDevice, ResetDevicePropValue, SelfTest, SelfTestType, SendObject, SendObjectInfo,
@@ -18,12 +18,12 @@ use crate::communication::operation::{
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
-use crate::device::properties::GetSet;
+use crate::device::properties::{DeviceProperty, DevicePropertyCode, GetSet};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializedProperty};
-use crate::object::types::{Array, ObjectFormatCode, ObjectHandle};
+use crate::object::types::{Array, ObjectFormatCode, ObjectHandle, PtpString};
 
 use alloc::vec::Vec;
 
@@ -45,6 +45,41 @@ pub use io::*;
 ///
 /// [`operations`]: crate::communication::operation
 pub trait Device: PtpIo {
+    // === Property checking ===
+
+    /// Check the device's battery level
+    ///
+    /// This should always be `0..=100`, but the device could be doing something weird. The range of
+    /// values can be verified by checking [`Device::get_device_prop_desc()`] with [`BatteryLevel`].
+    ///
+    /// [`BatteryLevel`]: properties::BatteryLevel
+    fn battery_level(
+        &mut self,
+        session_id: SessionId,
+    ) -> impl Future<Output = Result<u8, <Self as PtpIo>::Error>> {
+        async move {
+            let prop = self
+                .get_device_prop_value::<properties::BatteryLevel>(session_id)
+                .await?
+                .map_err(Into::<crate::error::MtpError>::into)?;
+            Ok(prop.data.data)
+        }
+    }
+
+    /// A human-readable description of the device
+    fn friendly_name(
+        &mut self,
+        session_id: SessionId,
+    ) -> impl Future<Output = Result<PtpString, <Self as PtpIo>::Error>> {
+        async move {
+            let prop = self
+                .get_device_prop_value::<properties::DeviceFriendlyName>(session_id)
+                .await?
+                .map_err(Into::<crate::error::MtpError>::into)?;
+            Ok(prop.data.data)
+        }
+    }
+
     /// Whether the [`ObjectProperty`] `T` is writeable for the given `format`
     fn property_can_be_modified<T>(
         &mut self,
@@ -63,6 +98,8 @@ pub trait Device: PtpIo {
             Ok(desc.data.data.get_set() == GetSet::ReadWrite)
         }
     }
+
+    // === Operation wrappers ===
 
     /// Send a [`GetDeviceInfo`] operation
     fn get_device_info(
@@ -371,7 +408,7 @@ pub trait Device: PtpIo {
     fn get_device_prop_desc(
         &mut self,
         session_id: SessionId,
-        code: DevicePropCode,
+        code: DevicePropertyCode,
     ) -> impl Future<Output = Result<Response<GetDevicePropDesc>, <Self as PtpIo>::Error>> + Send
     {
         async move {
@@ -385,16 +422,17 @@ pub trait Device: PtpIo {
     }
 
     /// Send a [`GetDevicePropValue`] operation
-    fn get_device_prop_value(
+    fn get_device_prop_value<T>(
         &mut self,
         session_id: SessionId,
-        code: DevicePropCode,
-    ) -> impl Future<Output = Result<Response<GetDevicePropValue>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Result<Response<GetDevicePropValue<T>>, <Self as PtpIo>::Error>> + Send
+    where
+        T: DeviceProperty,
     {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
-                GetDevicePropValue::new(transaction_id, session_id, code),
+                GetDevicePropValue::<T>::new(transaction_id, session_id),
                 None,
             )
             .await
@@ -405,7 +443,7 @@ pub trait Device: PtpIo {
     fn set_device_prop_value(
         &mut self,
         session_id: SessionId,
-        code: DevicePropCode,
+        code: DevicePropertyCode,
         value: Vec<u8>,
     ) -> impl Future<Output = Result<Response<SetDevicePropValue>, <Self as PtpIo>::Error>> + Send
     {
@@ -423,7 +461,7 @@ pub trait Device: PtpIo {
     fn reset_device_prop_value(
         &mut self,
         session_id: SessionId,
-        code: DevicePropCode,
+        code: DevicePropertyCode,
     ) -> impl Future<Output = Result<Response<ResetDevicePropValue>, <Self as PtpIo>::Error>> + Send
     {
         async move {

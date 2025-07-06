@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use deku::ctx::Endian;
 use deku::no_std_io::{Cursor, Read, Seek, Write};
 use deku::prelude::Writer;
-use deku::{DekuEnumExt, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter, deku_derive};
+use deku::{DekuEnumExt, DekuError, DekuReader, DekuWriter, deku_derive};
 
 /// Wrapper around a [`PropertyValue`], used for standalone decoding
 #[deku_derive(DekuRead)]
@@ -21,7 +21,18 @@ pub struct PropertyValueWrapper {
     #[deku(temp)]
     data_type: u16,
     #[deku(ctx = "*data_type")]
-    value: PropertyValue,
+    pub value: PropertyValue,
+}
+
+impl DekuWriter<Endian> for PropertyValueWrapper {
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Endian,
+    ) -> Result<(), DekuError> {
+        let data_type = self.value.deku_id()?;
+        self.value.to_writer(writer, (ctx, data_type))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -35,17 +46,6 @@ pub struct DevicePropDesc {
     /// The current value of the property.
     pub current_value: PropertyValue,
     pub form: Option<Form<PropertyValueWrapper>>,
-}
-
-impl DekuWriter<Endian> for PropertyValueWrapper {
-    fn to_writer<W: Write + Seek>(
-        &self,
-        writer: &mut Writer<W>,
-        ctx: Endian,
-    ) -> Result<(), DekuError> {
-        let data_type = self.value.deku_id()?;
-        self.value.to_writer(writer, (ctx, data_type))
-    }
 }
 
 impl deku::DekuContainerRead<'_> for DevicePropDesc {

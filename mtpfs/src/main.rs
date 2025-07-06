@@ -11,7 +11,7 @@ use std::sync::Arc;
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use mtp::device::PtpIo;
+use mtp::device::{Device, PtpIo};
 use mtp::error::Error;
 use tokio::sync::Mutex;
 
@@ -34,6 +34,7 @@ async fn main() -> Result<(), Error> {
     let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
 
     let mut events = handle.event_stream();
+
     let device = Arc::new(Mutex::new(handle));
 
     let mut storage_paths = Vec::with_capacity(storages.len());

@@ -1,4 +1,5 @@
 use crate::communication::{Parameter, ParameterPriv, SessionId, TransactionId, response};
+use crate::device::properties::{DeviceProperty, DevicePropertyCode};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::ProtectionStatus;
@@ -800,7 +801,7 @@ define_operations! {
     /// Get the property descriptor for the given property code
     pub struct GetDevicePropDesc {
         code: 0x1014,
-        visible_parameters: (code: DevicePropCode),
+        visible_parameters: (code: DevicePropertyCode),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetDevicePropDesc,
         valid_error_codes: [
@@ -818,11 +819,14 @@ define_operations! {
     ///
     /// NOTE: This is the same as the `current_value` field in [`DevicePropDesc`], provided by the
     ///       [`GetDevicePropDesc`] operation.
-    pub struct GetDevicePropValue {
+    pub partial struct GetDevicePropValue<T>
+        where T: [DeviceProperty]
+    {
         code: 0x1015,
-        visible_parameters: (code: DevicePropCode),
+        visible_parameters: (),
+        operation_parameters: (Parameter::new(T::CODE as u32)),
         data_direction: Some(DataDirection::ResponderToInitiator),
-        response: response::GetDevicePropValue,
+        response: response::GetDevicePropValue<T>,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -837,7 +841,7 @@ define_operations! {
     /// Set the value of the given property code
     pub struct SetDevicePropValue {
         code: 0x1016,
-        visible_parameters: (code: DevicePropCode),
+        visible_parameters: (code: DevicePropertyCode),
         data_direction: Some(DataDirection::InitiatorToResponder),
         response: response::SetDevicePropValue,
         valid_error_codes: [
@@ -856,7 +860,7 @@ define_operations! {
     /// Factory reset the device property value
     pub struct ResetDevicePropValue {
         code: 0x1017,
-        visible_parameters: (code: DevicePropCode),
+        visible_parameters: (code: DevicePropertyCode),
         data_direction: None,
         response: response::Empty,
         valid_error_codes: [
@@ -1279,27 +1283,6 @@ impl From<u16> for SelfTestType {
 
 impl From<SelfTestType> for Parameter {
     fn from(value: SelfTestType) -> Self {
-        Parameter::new(value.0 as u32)
-    }
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
-#[deku(
-    endian = "endian",
-    ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
-)]
-#[repr(transparent)]
-pub struct DevicePropCode(u16);
-
-impl From<u16> for DevicePropCode {
-    fn from(value: u16) -> Self {
-        Self(value)
-    }
-}
-
-impl From<DevicePropCode> for Parameter {
-    fn from(value: DevicePropCode) -> Self {
         Parameter::new(value.0 as u32)
     }
 }
