@@ -1,3 +1,13 @@
+//! MTP device property definitions
+//!
+//! MTP defines a set of properties that devices may allow you to read/write.
+//!
+//! # Forms
+//!
+//! See the [object property form section]
+//!
+//! [object property form section]: https://docs.rs/mtp_spec/latest/mtp_spec/object/types/properties/index.html#forms
+
 mod description;
 
 pub use description::*;
@@ -49,11 +59,11 @@ where
     T: for<'a> DekuReader<'a, Endian> + DekuWriter<Endian> + Clone,
 {
     #[deku(ctx = "endian")]
-    minimum: T,
+    pub minimum: T,
     #[deku(ctx = "endian")]
-    maximum: T,
+    pub maximum: T,
     #[deku(ctx = "endian")]
-    step_size: T,
+    pub step_size: T,
 }
 
 #[deku_derive(DekuRead)]

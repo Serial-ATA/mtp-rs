@@ -15,6 +15,9 @@ pub use string::*;
 
 use crate::device::properties::PerceivedDeviceTypeValue;
 use crate::object::info::ProtectionStatus;
+use crate::object::types::properties::{
+    ConsumableStatus, HiddenStatus, MetaGenreForm, SystemObjectStatus,
+};
 
 use alloc::vec::Vec;
 
@@ -326,6 +329,27 @@ impl PropertyDataType for PerceivedDeviceTypeValue {
 
 impl PropertyDataType for Array<ObjectFormatCode> {
     const CODE: u16 = <Array<u16> as PropertyDataType>::CODE;
+}
+
+impl PropertyDataType for DateTime {
+    const CODE: u16 = <PtpString as PropertyDataType>::CODE;
+}
+
+// Object property enums
+impl PropertyDataType for HiddenStatus {
+    const CODE: u16 = <u16 as PropertyDataType>::CODE;
+}
+
+impl PropertyDataType for SystemObjectStatus {
+    const CODE: u16 = <u16 as PropertyDataType>::CODE;
+}
+
+impl PropertyDataType for ConsumableStatus {
+    const CODE: u16 = <u8 as PropertyDataType>::CODE;
+}
+
+impl PropertyDataType for MetaGenreForm {
+    const CODE: u16 = <u16 as PropertyDataType>::CODE;
 }
 
 // Used for the "undefined" properties that exist for some reason...

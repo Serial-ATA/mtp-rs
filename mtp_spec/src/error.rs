@@ -21,6 +21,7 @@ macro_rules! err {
     };
 }
 
+use crate::communication::operation::OperationError;
 pub(crate) use err;
 
 /// Errors that can occur during MTP operations
@@ -47,6 +48,8 @@ pub enum MtpError {
     Serialization(deku::DekuError),
     /// Generic error for values received from misbehaving responders
     ReceivedBadValue(Cow<'static, str>),
+    /// Error responses for an operation
+    Operation(OperationError),
     Generic(Arc<dyn core::error::Error + Send + Sync>),
 }
 
@@ -75,6 +78,7 @@ impl Display for MtpError {
             MtpError::ReceivedBadValue(reason) => {
                 write!(f, "Responder provided a bad value: {reason}")
             },
+            MtpError::Operation(error) => write!(f, "Operation error: {error}"),
             MtpError::Generic(error) => write!(f, "{error}"),
         }
     }
@@ -91,5 +95,11 @@ impl From<DateTimeError> for MtpError {
 impl From<deku::DekuError> for MtpError {
     fn from(error: deku::DekuError) -> Self {
         MtpError::Serialization(error)
+    }
+}
+
+impl From<OperationError> for MtpError {
+    fn from(error: OperationError) -> Self {
+        MtpError::Operation(error)
     }
 }

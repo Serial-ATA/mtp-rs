@@ -1,5 +1,39 @@
+//! MTP Object property definitions
+//!
+//! MTP defines a set of properties on [`objects`] that devices may allow you to read/write.
+//!
+//! # Property Descriptions
+//!
+//! Each property comes with a description that can be queried with [`Device::get_object_prop_desc()`].
+//! These can specify default values, read/write capability, and as covered in the next section, constraints
+//! on the value.
+//!
+//! ## Forms
+//!
+//! Some property descriptions will have a "form" field (e.g. [`ObjectFileName`]) that sets additional
+//! constraints on what values one can set for the property.
+//!
+//! The different types of forms are:
+//!
+//! * [`RangeForm`]
+//! * [`EnumerationForm`]
+//! * DateTime form (handled as a special case)
+//!   * Properties expected to be in DateTime form will automatically be parsed as a [`DateTime`]
+//! * [`FixedLengthArrayForm`]
+//! * [`RegularExpressionForm`]
+//! * [`ByteArrayForm`]
+//! * [`LongStringForm`]
+//!
+//! See the specific types for more information.
+//!
+//! In the case of [`ObjectFileName`], the device may provide a [`RegularExpressionForm`], where it could,
+//! for example, restrict the value to only alphanumeric characters.
+//!
+//! [`Device::get_object_prop_desc()`]: crate::device::Device::get_object_prop_desc
+//! [`objects`]: ObjectHandle
+
 use crate::communication::Parameter;
-use crate::device::properties::{GetSet, RangeForm};
+use crate::device::properties::{EnumerationForm, GetSet, RangeForm};
 use crate::object::types::{
     Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType,
     PropertyValue, PtpString,
@@ -69,6 +103,61 @@ where
     }
 }
 
+/// Information about fixed-length array properties
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct FixedLengthArrayForm {
+    /// The exact number of elements that must be included in the array for the property
+    ///
+    /// Devices will only accept values that *exactly* match this length.
+    pub length: u32,
+}
+
+/// Information about byte array properties, such as [`RepresentativeSampleData`]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct ByteArrayForm {
+    /// The maximum number of bytes allowed in this property
+    ///
+    /// Devices should accept any value with a byte count less than or equal to this value.
+    pub max_length: u32,
+}
+
+/// Information about long string properties, such as [`Lyrics`]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct LongStringForm {
+    /// The maximum number of characters allowed in this property
+    ///
+    /// Devices should accept any value with a character count less than or equal to this value.
+    pub max_length: u32,
+}
+
+/// A regex constraining the syntax of a property, such as [`ObjectFileName`]
+///
+/// Devices will only accept values that satisfy the specified regex.
+///
+/// An empty string typically indicates that any value will be accepted.
+#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct RegularExpressionForm(pub PtpString);
+
 macro_rules! define_object_property_descriptions {
 	(
 		$(
@@ -76,6 +165,7 @@ macro_rules! define_object_property_descriptions {
 			pub struct $name:ident {
 				properties: {
 					data_type: $datatype:ty,
+					$(data_type_parser: $data_type_parser:expr,)?
 					$(get_set: $get_set:expr,)?
 					valid_forms: [$($form:ident),* $(,)?]
 				},
@@ -116,14 +206,7 @@ macro_rules! define_object_property_descriptions {
 		}
 
 		$(
-			$(#[$meta])*
-			#[derive(Clone, Debug, PartialEq)]
-			pub struct $name {
-				pub default_value: $datatype,
-				pub group_code: u32,
-				pub get_set: GetSet,
-				pub form: define_object_property_descriptions!(@FORM_TY ($($($form_tt)*)?) | $datatype),
-			}
+			define_object_property_descriptions!(@PROPERTY_STRUCT $(#[$meta])* $name ($datatype) $($($form_tt)*)?);
 
 			impl ObjectProperty for $name {
 				const CODE: u16 = $code;
@@ -173,7 +256,7 @@ macro_rules! define_object_property_descriptions {
 						}
 					)?
 
-					let default_value = <$datatype>::from_reader_with_ctx(reader, ctx)?;
+					let default_value = define_object_property_descriptions!(@PARSE_DEFAULT reader, ctx, $datatype | $($data_type_parser)?);
 					let group_code = u32::from_reader_with_ctx(reader, ctx)?;
 					let form_flag = FormType::from_reader_with_ctx(reader, ctx)?;
 					if !Self::VALID_FORMS.contains(&form_flag) {
@@ -183,59 +266,85 @@ macro_rules! define_object_property_descriptions {
 						))))
 					}
 
-					let form = define_object_property_descriptions!(@FORM_DEFINITION reader ctx ($($($form_tt)*)?) | $datatype);
-
-					Ok(Self {
-						default_value,
-						group_code,
-						get_set,
-						form,
-					})
+					define_object_property_descriptions!(@FORM_PARSE_AND_RET reader ctx $($($form_tt)*)?, (default_value, group_code, get_set))
 				}
 			}
 		)*
 	};
 
-	(@FORM_ENUM enum $enum_name:ident {
-		$($body:tt)*
-	}) => {
-		#[derive(Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead)]
-		#[deku(
-			id_type = "u16",
-			id_endian = "endian",
-			ctx = "endian: deku::ctx::Endian",
-			ctx_default = "deku::ctx::Endian::Big"
-		)]
-		pub enum $enum_name {
-			$($body)*
+	// Property with a form (type name)
+	(@PROPERTY_STRUCT $(#[$meta:meta])* $name:ident ($datatype:ty) $form:ty) => {
+		$(#[$meta])*
+		#[derive(Clone, Debug, PartialEq)]
+		pub struct $name {
+			pub default_value: $datatype,
+			pub group_code: u32,
+			pub get_set: GetSet,
+			/// Device-defined constraints on the data. See [`forms`]
+			///
+			/// [`forms`]: https://docs.rs/mtp_spec/latest/mtp_spec/object/types/properties/index.html#forms
+			pub form: $form,
 		}
 	};
+
+	// Property without a form
+	(@PROPERTY_STRUCT $(#[$meta:meta])* $name:ident ($datatype:ty)) => {
+		$(#[$meta])*
+		#[derive(Clone, Debug, PartialEq)]
+		pub struct $name {
+			pub default_value: $datatype,
+			pub group_code: u32,
+			pub get_set: GetSet,
+		}
+	};
+
+	// Datatype default parse
+	(@PARSE_DEFAULT $reader:expr, $ctx:expr, $datatype:ty |) => {{
+		let _val: $datatype = <$datatype>::from_reader_with_ctx($reader, $ctx)?;
+		_val
+	}};
+
+	// Datatype with custom parser fn
+	(@PARSE_DEFAULT $reader:expr, $ctx:expr, $datatype:ty | $data_type_parser:expr) => {{
+		let _val: $datatype = $data_type_parser($reader, $ctx)?;
+		_val
+	}};
 
 	(@FORM_ENUM $_ty:ty) => {};
 	(@FORM_ENUM) => {};
 
-	(@FORM_DEFINITION $reader:ident $ctx:ident (enum $enum_name:ident {
+	// Form expected (inline enum)
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident enum $enum_name:ident {
 		$($_tt:tt)*
-	}) | $_data_type:ty) => {{
+	}, ($default_value:expr, $group_code:expr, $get_set:expr)) => {{
 		let form: $enum_name = <$enum_name>::from_reader_with_ctx($reader, $ctx)?;
-		form
+		Ok(Self {
+			default_value: $default_value,
+			group_code: $group_code,
+			get_set: $get_set,
+			form,
+		})
 	}};
 
-	(@FORM_DEFINITION $reader:ident $ctx:ident ($form:ty) | $_data_type:ty) => {{
+	// Form expected (type name)
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident $form:ty, ($default_value:expr, $group_code:expr, $get_set:expr)) => {{
 		let form: $form = <$form>::from_reader_with_ctx($reader, $ctx)?;
-		form
+		Ok(Self {
+			default_value: $default_value,
+			group_code: $group_code,
+			get_set: $get_set,
+			form,
+		})
 	}};
 
-	(@FORM_DEFINITION $reader:ident $ctx:ident () | $data_type:ty) => {{
-		let form: $data_type = <$data_type>::from_reader_with_ctx($reader, $ctx)?;
-		form
+	// No form
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident, ($default_value:expr, $group_code:expr, $get_set:expr)) => {{
+		Ok(Self {
+			default_value: $default_value,
+			group_code: $group_code,
+			get_set: $get_set,
+		})
 	}};
-
-	(@FORM_TY (enum $enum_name:ident {
-		$($_tt:tt)*
-	}) | $_data_type:ty) => { $enum_name };
-	(@FORM_TY ($ty:ty) | $_data_type:ty) => { $ty };
-	(@FORM_TY () | $data_type:ty) => { $data_type };
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead)]
@@ -299,7 +408,7 @@ define_object_property_descriptions! {
         properties: {
             data_type: crate::object::info::ProtectionStatus,
             get_set: GetSet::ReadOnly,
-            valid_forms: [None]
+            valid_forms: [Enumeration]
         },
         code: 0xDC03,
     }
@@ -334,7 +443,7 @@ define_object_property_descriptions! {
     pub struct AssociationDesc {
         properties: {
             data_type: u32,
-            valid_forms: [Enumeration]
+            valid_forms: [None]
         },
         code: 0xDC06,
     }
@@ -347,35 +456,31 @@ define_object_property_descriptions! {
         properties: {
             data_type: PtpString,
             get_set: GetSet::ReadOnly,
-            valid_forms: [None]
+            valid_forms: [None, RegularExpression]
         },
         code: 0xDC07,
-        form: enum ObjectFileNameForm {
-            #[deku(id = "0x00")]
-            None(PtpString),
-            #[deku(id = "0x01")]
-            RegularExpression(PtpString),
-        }
+        // TODO: Can be either none or regex
+        form: RegularExpressionForm
     }
 
     /// The date and time when the object was created
     pub struct DateCreated {
         properties: {
-            data_type: PtpString,
+            data_type: DateTime,
+            data_type_parser: DateTime::parse_ptp_string,
             valid_forms: [DateTime]
         },
         code: 0xDC08,
-        form: DateTime
     }
 
     /// The date and time when the object was last altered
     pub struct DateModified {
         properties: {
-            data_type: PtpString,
+            data_type: DateTime,
+            data_type_parser: DateTime::parse_ptp_string,
             valid_forms: [DateTime]
         },
         code: 0xDC09,
-        form: DateTime
     }
 
     /// A list of keywords associated with the object, separated by ' '.
@@ -387,7 +492,7 @@ define_object_property_descriptions! {
         code: 0xDC0A,
     }
 
-    /// The object handle of the parent of this object, if it exists in a hierarchy
+    /// The object handle of this object's parent, if it exists in a hierarchy
     ///
     /// For root objects, or devices that do not support associations, the value will be [`ObjectHandle::NONE`].
     pub struct ParentObject {
@@ -416,39 +521,21 @@ define_object_property_descriptions! {
     /// If there is no restriction, the returned array will be empty.
     pub struct Hidden {
         properties: {
-            data_type: u16,
+            data_type: HiddenStatus,
             valid_forms: [Enumeration]
         },
         code: 0xDC0D,
-        form: enum HiddenForm {
-            #[deku(id = "0x00")]
-            VisibleToAll,
-            #[deku(id = "0x01")]
-            HiddenFromNonTechnicalUsers,
-            #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
-            MtpVendorExtension(u16),
-            #[deku(id_pat = "t if t & 0x8000 == 0xC000")]
-            MtpDefined(u16)
-        }
+        form: EnumerationForm<u16>
     }
 
     /// Whether an object is a system file, and is required for property functioning of a device
     pub struct SystemObject {
         properties: {
-            data_type: u16,
+            data_type: SystemObjectStatus,
             valid_forms: [Enumeration]
         },
         code: 0xDC0E,
-        form: enum SystemObjectForm {
-            #[deku(id = "0x00")]
-            VisibleToAll,
-            #[deku(id = "0x01")]
-            HiddenFromNonTechnicalUsers,
-            #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
-            MtpVendorExtension(u16),
-            #[deku(id_pat = "t if t & 0x8000 == 0xC000")]
-            MtpDefined(u16)
-        }
+        form: EnumerationForm<u16>
     }
 
     /// A unique identifier for an object, determined by the responder
@@ -483,7 +570,7 @@ define_object_property_descriptions! {
             valid_forms: [LongString]
         },
         code: 0xDC43,
-        form: PtpString // TODO
+        form: LongStringForm
     }
 
     /// The name of the object
@@ -528,11 +615,11 @@ define_object_property_descriptions! {
     /// The `DateAuthored` and [`DateCreated`] properties may contain the same value.
     pub struct DateAuthored {
         properties: {
-            data_type: PtpString,
+            data_type: DateTime,
+            data_type_parser: DateTime::parse_ptp_string,
             valid_forms: [DateTime]
         },
         code: 0xDC47,
-        form: DateTime
     }
 
     /// A human-readable description of the object
@@ -542,7 +629,7 @@ define_object_property_descriptions! {
             valid_forms: [LongString]
         },
         code: 0xDC48,
-        form: PtpString // TODO
+        form: LongStringForm
     }
 
     /// A URL for this object
@@ -559,7 +646,7 @@ define_object_property_descriptions! {
             valid_forms: [RegularExpression]
         },
         code: 0xDC49,
-        form: PtpString // TODO
+        form: RegularExpressionForm
     }
 
     /// The language of this object
@@ -581,7 +668,7 @@ define_object_property_descriptions! {
             valid_forms: [RegularExpression]
         },
         code: 0xDC4A,
-        form: PtpString // TODO
+        form: RegularExpressionForm
     }
 
     /// The copyright information for this object
@@ -591,7 +678,7 @@ define_object_property_descriptions! {
             valid_forms: [LongString]
         },
         code: 0xDC4B,
-        form: PtpString // TODO
+        form: LongStringForm
     }
 
     /// The source of this object
@@ -607,7 +694,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC4C,
-        form: PtpString // TODO
     }
 
     /// The origin location for this object
@@ -620,7 +706,7 @@ define_object_property_descriptions! {
             valid_forms: [RegularExpression]
         },
         code: 0xDC4D,
-        form: PtpString // TODO
+        form: RegularExpressionForm
     }
 
     /// The time and date when this object was added to the device
@@ -628,40 +714,34 @@ define_object_property_descriptions! {
     /// This value comes from the internal clock on the device.
     pub struct DateAdded {
         properties: {
-            data_type: PtpString,
+            data_type: DateTime,
+            data_type_parser: DateTime::parse_ptp_string,
             get_set: GetSet::ReadOnly,
             valid_forms: [DateTime]
         },
         code: 0xDC4E,
-        form: DateTime
     }
 
     /// Whether this object is intended to be consumed by the device, or has been placed on the device
     /// just for storage
     pub struct NonConsumable {
         properties: {
-            data_type: u8,
+            data_type: ConsumableStatus,
             valid_forms: [Enumeration]
         },
         code: 0xDC4F,
-        form: enum ConsumptionStatus {
-            Consumable = 0x00,
-            ForStorage = 0x01,
-        }
+        form: EnumerationForm<u8>
     }
 
     /// This object should be able to be understood, but for some reason, cannot be played
     pub struct CorruptOrUnplayable {
         properties: {
-            data_type: u8,
+            data_type: ConsumableStatus,
             get_set: GetSet::ReadOnly,
             valid_forms: [Enumeration]
         },
         code: 0xDC50,
-        form: enum CorruptOrUnplayableStatus {
-            No = 0x00,
-            Yes = 0x01,
-        }
+        form: EnumerationForm<u8>
     }
 
     /// The unique serial number of the device which originally created the binary object to which
@@ -672,7 +752,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC51,
-        form: PtpString // TODO
     }
 
     /// The object format of the representative sample for the object, using an [`ObjectFormatCode`]
@@ -731,6 +810,7 @@ define_object_property_descriptions! {
             valid_forms: [ByteArray]
         },
         code: 0xDC86,
+        form: ByteArrayForm
     }
 
     /// The width of the object in pixels
@@ -775,7 +855,7 @@ define_object_property_descriptions! {
             valid_forms: [Range] // TODO: Range formless?
         },
         code: 0xDC89,
-        form: u32 // TODO
+        form: RangeForm<u32>
     }
 
     /// The value of rating for the object, as set by a user
@@ -819,7 +899,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC8C,
-        form: PtpString // TODO
     }
 
     /// Credits for this object
@@ -831,7 +910,7 @@ define_object_property_descriptions! {
             valid_forms: [LongString]
         },
         code: 0xDC8D,
-        form: PtpString // TODO
+        form: LongStringForm
     }
 
     /// The lyrics or script for this object
@@ -843,7 +922,7 @@ define_object_property_descriptions! {
             valid_forms: [LongString]
         },
         code: 0xDC8E,
-        form: PtpString // TODO
+        form: LongStringForm
     }
 
     /// Additional information to identify a piece of content relative to an online subscription service
@@ -861,7 +940,7 @@ define_object_property_descriptions! {
             valid_forms: [RegularExpression]
         },
         code: 0xDC8F,
-        form: PtpString
+        form: RegularExpressionForm
     }
 
     /// The person or organization that produced this work
@@ -873,7 +952,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC90,
-        form: PtpString
     }
 
     /// The number of times this object has been played or viewed
@@ -897,11 +975,11 @@ define_object_property_descriptions! {
     /// The date and time when this object was last viewed, accessed, or otherwise used, relative to a device's onboard clock
     pub struct LastAccessed {
         properties: {
-            data_type: PtpString,
+            data_type: DateTime,
+            data_type_parser: DateTime::parse_ptp_string,
             valid_forms: [DateTime]
         },
         code: 0xDC93,
-        form: DateTime
     }
 
     /// The parental rating assigned to this object
@@ -916,60 +994,16 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC94,
-        form: PtpString // TODO
     }
 
     /// A qualifier for a piece of media in a contextual way
     pub struct MetaGenre {
         properties: {
-            data_type: u16,
+            data_type: MetaGenreForm,
             valid_forms: [Enumeration]
         },
         code: 0xDC95,
-        form: enum MetaGenreForm {
-            #[deku(id = "0x0000")]
-            NotUsed,
-            #[deku(id = "0x0001")]
-            GenericMusicAudioFile,
-            #[deku(id = "0x0011")]
-            GenericNonMusicAudioFile,
-            #[deku(id = "0x0012")]
-            SpokenWordAudioBookFiles,
-            #[deku(id = "0x0013")]
-            SpokenWordFilesNonAudioBook,
-            #[deku(id = "0x0014")]
-            SpokenWordNews,
-            #[deku(id = "0x0015")]
-            SpokenWordTalkShows,
-            #[deku(id = "0x0021")]
-            GenericVideoFile,
-            #[deku(id = "0x0022")]
-            NewsVideoFile,
-            #[deku(id = "0x0023")]
-            MusicVideoFile,
-            #[deku(id = "0x0024")]
-            HomeVideoFile,
-            #[deku(id = "0x0025")]
-            FeatureFilmVideoFile,
-            #[deku(id = "0x0026")]
-            TelevisionShowVideoFile,
-            #[deku(id = "0x0027")]
-            TrainingEducationalVideoFile,
-            #[deku(id = "0x0028")]
-            PhotoMontageVideoFile,
-            #[deku(id = "0x0030")]
-            GenericNonAudioNonVideo,
-            #[deku(id = "0x0040")]
-            AudioMediacast,
-            #[deku(id = "0x0041")]
-            VideoMediacast,
-            #[deku(id = "0x0042")]
-            MixedMediaMediacast,
-            #[deku(id_pat = "t if t & 0x8000 == 0")]
-            Reserved(u16),
-            #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
-            VendorExtension(u16),
-        }
+        form: EnumerationForm<u16>
     }
 
     /// The composer of the audio or video content
@@ -983,7 +1017,6 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC96,
-        form: PtpString // TODO
     }
 
     /// An assigned rating for the object
@@ -1008,6 +1041,105 @@ define_object_property_descriptions! {
             valid_forms: [None]
         },
         code: 0xDC98,
-        form: PtpString // TODO
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub enum HiddenStatus {
+    #[deku(id = "0x00")]
+    VisibleToAll,
+    #[deku(id = "0x01")]
+    HiddenFromNonTechnicalUsers,
+    #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
+    MtpVendorExtension(u16),
+    #[deku(id_pat = "t if t & 0x8000 == 0xC000")]
+    MtpDefined(u16),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub enum SystemObjectStatus {
+    #[deku(id = "0x00")]
+    VisibleToAll,
+    #[deku(id = "0x01")]
+    HiddenFromNonTechnicalUsers,
+    #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
+    MtpVendorExtension(u16),
+    #[deku(id_pat = "t if t & 0x8000 == 0xC000")]
+    MtpDefined(u16),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    id_type = "u8",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub enum ConsumableStatus {
+    Consumable = 0x00,
+    ForStorage = 0x01,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub enum MetaGenreForm {
+    #[deku(id = "0x0000")]
+    NotUsed,
+    #[deku(id = "0x0001")]
+    GenericMusicAudioFile,
+    #[deku(id = "0x0011")]
+    GenericNonMusicAudioFile,
+    #[deku(id = "0x0012")]
+    SpokenWordAudioBookFiles,
+    #[deku(id = "0x0013")]
+    SpokenWordFilesNonAudioBook,
+    #[deku(id = "0x0014")]
+    SpokenWordNews,
+    #[deku(id = "0x0015")]
+    SpokenWordTalkShows,
+    #[deku(id = "0x0021")]
+    GenericVideoFile,
+    #[deku(id = "0x0022")]
+    NewsVideoFile,
+    #[deku(id = "0x0023")]
+    MusicVideoFile,
+    #[deku(id = "0x0024")]
+    HomeVideoFile,
+    #[deku(id = "0x0025")]
+    FeatureFilmVideoFile,
+    #[deku(id = "0x0026")]
+    TelevisionShowVideoFile,
+    #[deku(id = "0x0027")]
+    TrainingEducationalVideoFile,
+    #[deku(id = "0x0028")]
+    PhotoMontageVideoFile,
+    #[deku(id = "0x0030")]
+    GenericNonAudioNonVideo,
+    #[deku(id = "0x0040")]
+    AudioMediacast,
+    #[deku(id = "0x0041")]
+    VideoMediacast,
+    #[deku(id = "0x0042")]
+    MixedMediaMediacast,
+    #[deku(id_pat = "t if t & 0x8000 == 0")]
+    Reserved(u16),
+    #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
+    VendorExtension(u16),
 }

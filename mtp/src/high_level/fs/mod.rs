@@ -9,10 +9,9 @@ use crate::object::info::ProtectionStatus;
 use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
-use std::io::Write;
+use mtp_spec::object::info::ObjectInfo;
+use std::io::{Read, Write};
 use std::sync::Arc;
-
-use mtp_spec::object::types::properties::ObjectPropertyCode;
 
 /// Representation of a file on an MTP-compatible device
 ///
@@ -23,6 +22,7 @@ pub struct File {
     /// The device-specific ID of the storage where this file lives
     pub storage_id: StorageId,
     pub id: ObjectHandle,
+    pub parent: ObjectHandle,
     pub name: String,
     pub size: u64,
     pub format: ObjectFormatCode,
@@ -125,33 +125,83 @@ impl File {
     where
         D: Device,
         N: Into<String>,
+        <D as PtpIo>::Error: From<Error>,
         <D as PtpIo>::Error: From<MtpError>,
     {
-        dbg!(
-            device
-                .get_object_props_supported(session_id, self.format)
-                .await
-                .unwrap()
-        );
+        let id;
+        let parent;
+        let storage_id;
 
-        if !dbg!(
-            device
-                .property_can_be_modified::<ObjectFileName>(session_id, self.format)
-                .await
-        )? {
-            return Err(MtpError::CannotModify(ObjectPropertyCode::ObjectFileName).into());
+        let name_str = name.into();
+        if name_str == self.name {
+            return Ok(self.clone());
         }
 
-        let name = PtpString::try_from(name.into())?;
-        let name_str = name.to_string();
-        let _ = device
-            .set_object_prop_value::<ObjectFileName>(session_id, self.id, name)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+        let name_ptp = PtpString::try_from(name_str.clone())?;
+        match device
+            .object_property_can_be_modified::<ObjectFileName>(session_id, self.format)
+            .await
+        {
+            Ok(true) => {
+                id = self.id;
+                parent = self.parent;
+                storage_id = self.storage_id;
+                let _ = device
+                    .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
+                    .await?
+                    .map_err(Into::<MtpError>::into)?;
+            },
+            // Fallback to copy and delete
+            Ok(false) => {
+                let mut f = self.open(device, session_id).await?;
+
+                let mut data = Vec::new();
+                f.read_to_end(&mut data).map_err(Into::<Error>::into)?;
+
+                let response = device
+                    .send_object_info(
+                        session_id,
+                        Some(self.storage_id),
+                        Some(self.parent),
+                        ObjectInfo {
+                            storage_id: self.storage_id,
+                            object_format: self.format,
+                            protection_status: self.protection_status,
+                            compressed_size: 0,
+                            thumbnail: None,
+                            parent_object: None,
+                            association_type: None,
+                            sequence_number: 0,
+                            filename: name_ptp,
+                            date_created: self.date_created,
+                            date_modified: self.date_modified,
+                            keywords: Default::default(),
+                        },
+                    )
+                    .await?
+                    .map_err(Into::<MtpError>::into)?;
+
+                id = response.data.reserved_handle;
+                parent = response.data.parent;
+                storage_id = response.data.storage_id;
+
+                device
+                    .send_object(session_id, data)
+                    .await?
+                    .map_err(Into::<MtpError>::into)?;
+
+                device
+                    .delete_object(session_id, self.id, Some(self.format))
+                    .await?
+                    .map_err(Into::<MtpError>::into)?;
+            },
+            Err(e) => return Err(e),
+        }
 
         Ok(Self {
-            storage_id: self.storage_id,
-            id: self.id,
+            storage_id,
+            parent,
+            id,
             name: name_str,
             size: self.size,
             format: self.format,
@@ -249,6 +299,7 @@ impl FolderEntry {
     where
         D: Device,
         N: Into<String>,
+        <D as PtpIo>::Error: From<Error>,
         <D as PtpIo>::Error: From<MtpError>,
     {
         match self {
@@ -436,6 +487,7 @@ impl FileSystem {
                             FolderEntry::File(File {
                                 storage_id: self.storage_id,
                                 id: object,
+                                parent,
                                 name: name.to_string(),
                                 size,
                                 format,

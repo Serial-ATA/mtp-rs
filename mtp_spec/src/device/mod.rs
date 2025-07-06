@@ -9,12 +9,13 @@
 use crate::communication::operation::{
     CloseSession, CopyObject, DeleteObject, FormatStore, GetDeviceInfo, GetDevicePropDesc,
     GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject, GetObjectHandles,
-    GetObjectInfo, GetObjectPropDesc, GetObjectPropList, GetObjectPropValue,
-    GetObjectPropsSupported, GetObjectReferences, GetPartialObject, GetStorageIDs, GetStorageInfo,
-    GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject, OpenSession, PowerDown,
-    ResetDevice, ResetDevicePropValue, SelfTest, SelfTestType, SendObject, SendObjectInfo,
-    SendObjectPropList, SetDevicePropValue, SetObjectPropList, SetObjectPropValue,
-    SetObjectProtection, SetObjectReferences, Skip, TerminateOpenCapture,
+    GetObjectInfo, GetObjectPropDesc, GetObjectPropDescError, GetObjectPropList,
+    GetObjectPropValue, GetObjectPropsSupported, GetObjectReferences, GetPartialObject,
+    GetStorageIDs, GetStorageInfo, GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject,
+    OpenSession, OperationError, PowerDown, ResetDevice, ResetDevicePropValue, SelfTest,
+    SelfTestType, SendObject, SendObjectInfo, SendObjectPropList, SetDevicePropValue,
+    SetObjectPropList, SetObjectPropValue, SetObjectProtection, SetObjectReferences, Skip,
+    TerminateOpenCapture,
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
@@ -81,7 +82,7 @@ pub trait Device: PtpIo {
     }
 
     /// Whether the [`ObjectProperty`] `T` is writeable for the given `format`
-    fn property_can_be_modified<T>(
+    fn object_property_can_be_modified<T>(
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
@@ -90,12 +91,35 @@ pub trait Device: PtpIo {
         T: ObjectProperty,
     {
         async move {
-            let desc = self
+            match self
                 .get_object_prop_desc::<T>(session_id, format)
+                .await?
+                .map_err(Into::<crate::error::MtpError>::into)
+            {
+                Ok(desc) => Ok(desc.data.data.get_set() == GetSet::ReadWrite),
+                Err(crate::error::MtpError::Operation(OperationError::GetObjectPropDesc(
+                    GetObjectPropDescError::ObjectPropNotSupported(_),
+                ))) => Ok(false),
+                Err(e) => Err(e.into()),
+            }
+        }
+    }
+
+    /// Whether the [`DeviceProperty`] `T` is writeable for the current device
+    fn device_property_can_be_modified<T>(
+        &mut self,
+        session_id: SessionId,
+    ) -> impl Future<Output = Result<bool, <Self as PtpIo>::Error>>
+    where
+        T: DeviceProperty,
+    {
+        async move {
+            let desc = self
+                .get_device_prop_desc::<T>(session_id)
                 .await?
                 .map_err(Into::<crate::error::MtpError>::into)?;
 
-            Ok(desc.data.data.get_set() == GetSet::ReadWrite)
+            Ok(desc.data.data.get_set == GetSet::ReadWrite)
         }
     }
 
@@ -405,16 +429,17 @@ pub trait Device: PtpIo {
     }
 
     /// Send a [`GetDevicePropDesc`] operation
-    fn get_device_prop_desc(
+    fn get_device_prop_desc<T>(
         &mut self,
         session_id: SessionId,
-        code: DevicePropertyCode,
-    ) -> impl Future<Output = Result<Response<GetDevicePropDesc>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Result<Response<GetDevicePropDesc<T>>, <Self as PtpIo>::Error>> + Send
+    where
+        T: DeviceProperty,
     {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
-                GetDevicePropDesc::new(transaction_id, session_id, code),
+                GetDevicePropDesc::<T>::new(transaction_id, session_id),
                 None,
             )
             .await

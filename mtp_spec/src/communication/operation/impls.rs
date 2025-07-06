@@ -6,8 +6,6 @@ use crate::object::info::ProtectionStatus;
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
-use alloc::sync::Arc;
-
 use deku::{DekuRead, DekuWrite};
 
 /// The direction in which data is transferred in an operation
@@ -85,6 +83,28 @@ macro_rules! parse_operations {
 					_ => Err(())
 				}
 			}
+		}
+
+		paste::paste! {
+			#[derive(Clone, Debug)]
+			#[allow(missing_docs)]
+			pub enum OperationError {
+				$(
+				$variant([<$variant Error>])
+				),*
+			}
+
+			impl core::fmt::Display for OperationError {
+				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+					match self {
+						$(
+							Self::$variant(error) => write!(f, "{error}"),
+						)*
+					}
+				}
+			}
+
+			impl core::error::Error for OperationError {}
 		}
 	};
 
@@ -265,7 +285,7 @@ macro_rules! parse_operations {
 		paste::paste! {
 			// TODO: Need a generic variant. Some operations may return 0x2002 (General error) for example
 			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
-			#[derive(Debug, deku::DekuRead)]
+			#[derive(Clone, Debug, deku::DekuRead)]
 			#[deku(
 				ctx = "endian: deku::ctx::Endian, error_code: u16",
 				id = "error_code",
@@ -292,9 +312,15 @@ macro_rules! parse_operations {
 
 			impl core::error::Error for [<$name Error>] {}
 
+			impl From<[<$name Error>]> for OperationError {
+				fn from(value: [<$name Error>]) -> Self {
+					OperationError::$name(value)
+				}
+			}
+
 			impl From<[<$name Error>]> for crate::error::MtpError {
 				fn from(value: [<$name Error>]) -> Self {
-					crate::error::MtpError::Generic(Arc::new(value))
+					crate::error::MtpError::Operation(value.into())
 				}
 			}
 		}
@@ -799,9 +825,12 @@ define_operations! {
     }
 
     /// Get the property descriptor for the given property code
-    pub struct GetDevicePropDesc {
+    pub partial struct GetDevicePropDesc<T>
+        where T: [DeviceProperty]
+    {
         code: 0x1014,
-        visible_parameters: (code: DevicePropertyCode),
+        visible_parameters: (),
+        operation_parameters: (Parameter::new(T::CODE as u32)),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetDevicePropDesc,
         valid_error_codes: [
@@ -1032,6 +1061,7 @@ define_operations! {
             AccessDenied,
             InvalidObjectPropCode,
             InvalidObjectFormatCode,
+            ObjectPropNotSupported,
             DeviceBusy,
         ]
     }
@@ -1050,6 +1080,7 @@ define_operations! {
             SessionNotOpen,
             InvalidTransactionId,
             InvalidObjectPropCode,
+            ObjectPropNotSupported,
             DeviceBusy,
             InvalidObjectHandle,
         ]
@@ -1070,6 +1101,7 @@ define_operations! {
             AccessDenied,
             InvalidObjectPropCode,
             InvalidObjectHandle,
+            ObjectPropNotSupported,
             DeviceBusy,
             InvalidObjectPropFormat,
             InvalidObjectPropValue,

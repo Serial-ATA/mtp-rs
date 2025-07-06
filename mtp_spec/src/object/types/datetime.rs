@@ -119,6 +119,17 @@ impl DateTime {
             Err(e) => Err(DekuError::Parse(e.to_string().into())),
         }
     }
+
+    pub(crate) fn parse_ptp_string<R>(
+        reader: &mut Reader<R>,
+        ctx: Endian,
+    ) -> Result<Self, DekuError>
+    where
+        R: Read + Seek,
+    {
+        let ptp_str = PtpString::from_reader_with_ctx(reader, ctx)?;
+        TryInto::<DateTime>::try_into(ptp_str).map_err(|e| DekuError::Parse(e.to_string().into()))
+    }
 }
 
 impl TryFrom<PtpString> for DateTime {
