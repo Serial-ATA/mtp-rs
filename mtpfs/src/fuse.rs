@@ -1,10 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::{Debug, Formatter};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::iter;
-use std::mem::ManuallyDrop;
-use std::os::fd::{FromRawFd, IntoRawFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
@@ -18,7 +14,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use libc::{EINVAL, EIO, ENOENT, ENOTDIR, c_int};
 use log::info;
 use mtp::communication::SessionId;
-use mtp::error::Error;
+use mtp::device::Device;
+use mtp::error::{Error, MtpError};
 use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
 use mtp::object::types::{DateTime, ObjectHandle};
@@ -511,13 +508,55 @@ impl MtpFuse {
         }
 
         let ino = inode.attr.ino;
-        let new_entry;
-        {
-            new_entry = entry
-                .rename(&mut *device, self.session_id, name_str)
-                .await
-                .map_err(|_| EIO)?;
-        }
+        let new_entry = match entry.rename(&mut *device, self.session_id, name_str).await {
+            Ok(entry) => entry,
+            // Fallback to copy + delete
+            Err(Error::Core(MtpError::UnsupportedOperation)) => {
+                todo!()
+                // let mut f = entry.open(&mut *device, self.session_id).await?;
+                //
+                // let mut data = Vec::new();
+                // f.read_to_end(&mut data).map_err(Into::<Error>::into)?;
+                //
+                // let response = device
+                //     .send_object_info(
+                //         self.session_id,
+                //         Some(self.storage_id),
+                //         Some(self.parent),
+                //         ObjectInfo {
+                //             storage_id: self.storage_id,
+                //             object_format: self.format,
+                //             protection_status: self.protection_status,
+                //             compressed_size: 0,
+                //             thumbnail: None,
+                //             parent_object: None,
+                //             association_type: None,
+                //             sequence_number: 0,
+                //             filename: name_ptp,
+                //             date_created: self.date_created,
+                //             date_modified: self.date_modified,
+                //             keywords: Default::default(),
+                //         },
+                //     )
+                //     .await?
+                //     .map_err(Into::<MtpError>::into)?;
+                //
+                // id = response.data.reserved_handle;
+                // parent = response.data.parent;
+                // storage_id = response.data.storage_id;
+                //
+                // device
+                //     .send_object(session_id, data)
+                //     .await?
+                //     .map_err(Into::<MtpError>::into)?;
+                //
+                // device
+                //     .delete_object(session_id, self.id, Some(self.format))
+                //     .await?
+                //     .map_err(Into::<MtpError>::into)?;
+            },
+            Err(_) => return Err(EIO),
+        };
 
         self.inner
             .update_entry(ino, Entry::Real(Arc::new(new_entry)));
@@ -604,7 +643,7 @@ impl Filesystem for MtpFuse {
                 .await
         });
 
-        match result {
+        match dbg!(result) {
             Ok(folder) => {
                 let Some(inode) = self
                     .inner
@@ -715,8 +754,8 @@ impl Filesystem for MtpFuse {
 
         futures::executor::block_on(async {
             let mut device = self.device.lock().await;
-            match file.open(&mut *device, self.session_id).await {
-                Ok(fd) => reply.opened(fd.into_raw_fd() as u64, flags as u32),
+            match device.get_object_info(self.session_id, file.id).await {
+                Ok(_fd) => reply.opened(0, flags as u32),
                 Err(e) => {
                     let Error::Io(err) = e else {
                         reply.error(EIO);
@@ -737,31 +776,57 @@ impl Filesystem for MtpFuse {
     fn read(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        fh: u64,
+        ino: u64,
+        _fh: u64,
         offset: i64,
         size: u32,
         _flags: i32,
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let mut file = ManuallyDrop::new(unsafe { File::from_raw_fd(fh as _) });
-        if file.seek(SeekFrom::Start(offset as _)).is_err() {
-            reply.error(EIO);
+        let Some((inode, _)) = self.inner.get(ino) else {
+            reply.error(ENOENT);
             return;
-        }
+        };
 
-        let mut buf = vec![0; size as usize];
-        if let Err(e) = file.read_exact(&mut buf) {
-            match e.raw_os_error() {
-                Some(errno) => reply.error(errno),
-                None => reply.error(EIO),
+        let Entry::Real(entry) = &inode.entry else {
+            reply.error(EINVAL);
+            return;
+        };
+
+        let FolderEntry::File(file) = &**entry else {
+            reply.error(EINVAL);
+            return;
+        };
+
+        futures::executor::block_on(async {
+            let mut device = self.device.lock().await;
+            match device
+                .get_partial_object(self.session_id, file.id, offset as u32, size)
+                .await
+            {
+                Ok(response) => match response {
+                    Ok(response) => reply.data(&response.data.data),
+                    Err(e) => {
+                        log::error!("Error reading file: {e}");
+                        reply.error(EIO);
+                    },
+                },
+                Err(e) => {
+                    let Error::Io(err) = e else {
+                        reply.error(EIO);
+                        return;
+                    };
+
+                    if let Some(errno) = err.raw_os_error() {
+                        reply.error(errno);
+                        return;
+                    }
+
+                    reply.error(EIO);
+                },
             }
-
-            return;
-        }
-
-        reply.data(&buf);
+        });
     }
 
     fn write(
@@ -788,20 +853,6 @@ impl Filesystem for MtpFuse {
         reply: ReplyEmpty,
     ) {
         reply.ok()
-    }
-
-    fn release(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
-        _flush: bool,
-        reply: ReplyEmpty,
-    ) {
-        unsafe { File::from_raw_fd(fh as _) };
-        reply.ok();
     }
 
     fn fsync(

@@ -5,11 +5,10 @@ use crate::object::types::{
 };
 
 use alloc::vec::Vec;
-
 use deku::ctx::{Endian, Limit};
-use deku::no_std_io::{Cursor, Read, Seek, SeekFrom};
-use deku::prelude::Reader;
-use deku::{DekuError, DekuRead, DekuReader, DekuWrite};
+use deku::no_std_io::{Cursor, Read, Seek, SeekFrom, Write};
+use deku::prelude::{Reader, Writer};
+use deku::{DekuContainerWrite, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 
 /// The write-protection status of an object
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
@@ -87,6 +86,14 @@ pub struct Thumbnail {
 }
 
 impl Thumbnail {
+    const EMPTY: Self = Thumbnail {
+        format: ObjectFormatCode::Unknown(0),
+        compressed_size: 0,
+        width: 0,
+        height: 0,
+        bit_depth: 0,
+    };
+
     fn parse_optional(thumbnail: Thumbnail) -> Result<Option<Thumbnail>, DekuError> {
         if thumbnail.format == ObjectFormatCode::Unknown(0)
             && thumbnail.compressed_size == 0
@@ -102,12 +109,7 @@ impl Thumbnail {
 }
 
 /// Information about an object residing on the responder
-#[derive(Clone, Debug, Default, Eq, PartialEq, DekuWrite)]
-#[deku(
-    endian = "endian",
-    ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
-)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ObjectInfo {
     /// The storage in which this object is located
     pub storage_id: StorageId,
@@ -125,19 +127,16 @@ pub struct ObjectInfo {
     /// This field will most likely be unused by responders.
     pub thumbnail: Option<Thumbnail>,
     /// The parent of this object, if it exists in a hierarchy
-    #[deku(map = "ObjectHandle::parse_optional")]
     pub parent_object: Option<ObjectHandle>,
     /// The association type, if this is an association
-    pub association_type: Option<AssociationType>,
+    pub association: Option<Association>,
     /// Unused in MTP, but required by PTP
     pub sequence_number: u32,
     /// The file name of this object, without any directory or file system information.
     pub filename: PtpString,
     /// The creation date of this object
-    #[deku(map = "DateTime::parse_optional")]
     pub date_created: Option<DateTime>,
     /// The last modification date of this object
-    #[deku(map = "DateTime::parse_optional")]
     pub date_modified: Option<DateTime>,
     /// Keywords associated with the object, separated by ' '
     pub keywords: PtpString,
@@ -208,14 +207,11 @@ impl DekuReader<'_, Endian> for ObjectInfo {
             Thumbnail::parse_optional(Thumbnail::from_reader_with_ctx(&mut reader, ctx)?)?;
         let parent_object =
             ObjectHandle::parse_optional(ObjectHandle::from_reader_with_ctx(&mut reader, ctx)?)?;
-        let association_type = AssociationType::from_reader_with_ctx(&mut reader, ctx)?;
 
-        let association_type_opt;
-        if object_format == ObjectFormatCode::Association {
-            association_type_opt = Some(association_type);
-        } else {
-            association_type_opt = None;
-        }
+        let association = match Association::from_reader_with_ctx(&mut reader, ctx)? {
+            Association::Undefined { undefined: 0 } => None,
+            association => Some(association),
+        };
 
         let sequence_number = u32::from_reader_with_ctx(&mut reader, ctx)?;
         let filename = PtpString::from_reader_with_ctx(&mut reader, ctx)?;
@@ -232,7 +228,7 @@ impl DekuReader<'_, Endian> for ObjectInfo {
             compressed_size,
             thumbnail,
             parent_object,
-            association_type: association_type_opt,
+            association,
             sequence_number,
             filename,
             date_created,
@@ -241,3 +237,54 @@ impl DekuReader<'_, Endian> for ObjectInfo {
         })
     }
 }
+
+impl DekuWriter<()> for ObjectInfo {
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        _ctx: (),
+    ) -> Result<(), DekuError> {
+        self.to_writer(writer, Endian::Big)
+    }
+}
+
+impl DekuWriter<Endian> for ObjectInfo {
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Endian,
+    ) -> Result<(), DekuError> {
+        self.storage_id.to_writer(writer, ctx)?;
+        self.object_format.to_writer(writer, ctx)?;
+        self.protection_status.to_writer(writer, ctx)?;
+        self.compressed_size.to_writer(writer, ctx)?;
+        match &self.thumbnail {
+            Some(thumbnail) => thumbnail.to_writer(writer, ctx)?,
+            None => Thumbnail::EMPTY.to_writer(writer, ctx)?,
+        }
+
+        self.parent_object
+            .unwrap_or(ObjectHandle::NONE)
+            .to_writer(writer, ctx)?;
+        match &self.association {
+            Some(association) => association.to_writer(writer, ctx)?,
+            None => Association::Undefined { undefined: 0 }.to_writer(writer, ctx)?,
+        }
+
+        self.sequence_number.to_writer(writer, ctx)?;
+        self.filename.to_writer(writer, ctx)?;
+        match &self.date_created {
+            Some(date_created) => date_created.to_writer(writer, ctx)?,
+            None => PtpString::default().to_writer(writer, ctx)?,
+        }
+        match &self.date_modified {
+            Some(date_modified) => date_modified.to_writer(writer, ctx)?,
+            None => PtpString::default().to_writer(writer, ctx)?,
+        }
+        self.keywords.to_writer(writer, ctx)?;
+
+        Ok(())
+    }
+}
+
+impl DekuContainerWrite for ObjectInfo {}

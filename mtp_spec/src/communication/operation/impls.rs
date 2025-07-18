@@ -683,6 +683,8 @@ define_operations! {
             ParameterNotSupported,
             InvalidParentObject,
             InvalidDataset,
+            InvalidParameter,
+            InvalidObjectHandle,
             SpecificationOfDestinationUnsupported,
         ]
     }

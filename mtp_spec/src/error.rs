@@ -50,6 +50,8 @@ pub enum MtpError {
     ReceivedBadValue(Cow<'static, str>),
     /// Error responses for an operation
     Operation(OperationError),
+    /// Generic error for unsupported operations performed by high-level utilities
+    UnsupportedOperation,
     Generic(Arc<dyn core::error::Error + Send + Sync>),
 }
 
@@ -79,6 +81,9 @@ impl Display for MtpError {
                 write!(f, "Responder provided a bad value: {reason}")
             },
             MtpError::Operation(error) => write!(f, "Operation error: {error}"),
+            MtpError::UnsupportedOperation => {
+                write!(f, "Operation is not supported by the responder")
+            },
             MtpError::Generic(error) => write!(f, "{error}"),
         }
     }

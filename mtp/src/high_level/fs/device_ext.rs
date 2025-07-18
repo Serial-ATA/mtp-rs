@@ -7,7 +7,9 @@ use mtp_spec::communication::SessionId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
-use mtp_spec::object::types::{AssociationType, ObjectFormatCode, PtpString};
+use mtp_spec::object::types::{
+    Association, AssociationType, FolderType, ObjectFormatCode, PtpString,
+};
 
 /// Filesystem extension trait for [`Device`]s
 ///
@@ -45,6 +47,8 @@ where
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
 
+        // TODO: Getting invalid parameter when trying to create within a directory and InvalidObjectHandle when trying to create at root.
+        //       Maybe samsung issue?
         let name_ptp = PtpString::try_from(name.clone())?;
         let response = self
             .send_object_info(
@@ -56,7 +60,9 @@ where
                     object_format: ObjectFormatCode::Association,
                     protection_status: ProtectionStatus::NoProtection,
                     parent_object,
-                    association_type: Some(AssociationType::GenericFolder),
+                    association: Some(Association::GenericFolder {
+                        ty: FolderType::Generic,
+                    }),
                     filename: name_ptp,
                     ..Default::default()
                 },

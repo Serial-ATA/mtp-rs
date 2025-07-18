@@ -9,8 +9,7 @@ use crate::object::info::ProtectionStatus;
 use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
-use mtp_spec::object::info::ObjectInfo;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::sync::Arc;
 
 /// Representation of a file on an MTP-compatible device
@@ -151,50 +150,7 @@ impl File {
                     .await?
                     .map_err(Into::<MtpError>::into)?;
             },
-            // Fallback to copy and delete
-            Ok(false) => {
-                let mut f = self.open(device, session_id).await?;
-
-                let mut data = Vec::new();
-                f.read_to_end(&mut data).map_err(Into::<Error>::into)?;
-
-                let response = device
-                    .send_object_info(
-                        session_id,
-                        Some(self.storage_id),
-                        Some(self.parent),
-                        ObjectInfo {
-                            storage_id: self.storage_id,
-                            object_format: self.format,
-                            protection_status: self.protection_status,
-                            compressed_size: 0,
-                            thumbnail: None,
-                            parent_object: None,
-                            association_type: None,
-                            sequence_number: 0,
-                            filename: name_ptp,
-                            date_created: self.date_created,
-                            date_modified: self.date_modified,
-                            keywords: Default::default(),
-                        },
-                    )
-                    .await?
-                    .map_err(Into::<MtpError>::into)?;
-
-                id = response.data.reserved_handle;
-                parent = response.data.parent;
-                storage_id = response.data.storage_id;
-
-                device
-                    .send_object(session_id, data)
-                    .await?
-                    .map_err(Into::<MtpError>::into)?;
-
-                device
-                    .delete_object(session_id, self.id, Some(self.format))
-                    .await?
-                    .map_err(Into::<MtpError>::into)?;
-            },
+            Ok(false) => return Err(MtpError::UnsupportedOperation.into()),
             Err(e) => return Err(e),
         }
 
@@ -209,6 +165,64 @@ impl File {
             date_created: self.date_created,
             date_modified: self.date_modified,
         })
+    }
+
+    /// Attempt to copy this file to another directory
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support copying
+    /// * The object no longer exists on the device
+    /// * The parent no longer exists on the device
+    /// * Any errors from the transport backend
+    pub async fn copy<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        device
+            .copy_object(session_id, self.id, self.storage_id, parent)
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+
+        Ok(())
+    }
+
+    /// Attempt to move this file
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support moving
+    /// * The object no longer exists on the device
+    /// * The parent no longer exists on the device
+    /// * Any errors from the transport backend
+    pub async fn move_<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        device
+            .move_object(session_id, self.id, self.storage_id, parent)
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+
+        Ok(())
     }
 }
 
@@ -268,6 +282,64 @@ impl Folder {
             children: self.children.clone(),
         })
     }
+
+    /// Attempt to copy this file to another directory
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support copying
+    /// * The object no longer exists on the device
+    /// * The parent no longer exists on the device
+    /// * Any errors from the transport backend
+    pub async fn copy<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        device
+            .copy_object(session_id, self.id, self.storage_id, parent)
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+
+        Ok(())
+    }
+
+    /// Attempt to move this directory
+    ///
+    /// # Errors
+    ///
+    /// This can fail for a variety of reasons, namely:
+    ///
+    /// * The device doesn't support moving
+    /// * The object no longer exists on the device
+    /// * The parent no longer exists on the device
+    /// * Any errors from the transport backend
+    pub async fn move_<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        device
+            .move_object(session_id, self.id, self.storage_id, parent)
+            .await?
+            .map_err(Into::<MtpError>::into)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -309,6 +381,50 @@ impl FolderEntry {
             FolderEntry::Folder(f) => Ok(FolderEntry::Folder(
                 f.rename(device, session_id, name).await?,
             )),
+        }
+    }
+
+    /// Attempt to copy this entry to another directory
+    ///
+    /// # Errors
+    ///
+    /// See [`File::copy()`] and [`Folder::copy()`]
+    pub async fn copy<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        match self {
+            FolderEntry::File(f) => f.copy(device, session_id, parent).await,
+            FolderEntry::Folder(f) => f.copy(device, session_id, parent).await,
+        }
+    }
+
+    /// Attempt to copy this entry to another directory
+    ///
+    /// # Errors
+    ///
+    /// See [`File::move_()`] and [`Folder::move_()`]
+    pub async fn move_<D>(
+        &self,
+        device: &mut D,
+        session_id: SessionId,
+        parent: Option<ObjectHandle>,
+    ) -> Result<(), <D as PtpIo>::Error>
+    where
+        D: Device,
+        <D as PtpIo>::Error: From<Error>,
+        <D as PtpIo>::Error: From<MtpError>,
+    {
+        match self {
+            FolderEntry::File(f) => f.move_(device, session_id, parent).await,
+            FolderEntry::Folder(f) => f.move_(device, session_id, parent).await,
         }
     }
 }

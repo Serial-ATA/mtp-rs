@@ -2,6 +2,7 @@ use crate::communication::event::EventCode;
 use crate::communication::operation::Operation;
 use crate::object::types::{Array, ObjectFormatCode, PtpString};
 
+use crate::device::properties::DevicePropertyCode;
 use deku::{DekuRead, DekuWrite};
 
 /// Modes allow the device to express different states with different capabilities.
@@ -41,12 +42,9 @@ pub struct DeviceInfo {
     /// This identifies the PTP version this device can support in hundredths. For MTP devices
     /// implemented under this specification, this shall contain the value `100` (representing 1.00).
     pub standard_version: u16,
-    /// This identifies the PTP vendor-extension version in use by this device. For MTP devices
-    /// implemented under this specification, this shall contain the value `0xFFFFFFFF`.
+    /// This identifies the PTP vendor-extension version in use by this device.
     pub vendor_extension_id: u32,
-    /// This identifies the version of the MTP standard this device supports. It is expressed in
-    /// hundredths. The final version of this specification will identify the correct value to place
-    /// in this field.
+    /// This identifies the version of the MTP standard this device supports. It is expressed in hundredths.
     pub mtp_version: u16,
     /// This string is used to identify any extension sets applied to MTP
     pub mtp_extensions: PtpString,
@@ -56,7 +54,7 @@ pub struct DeviceInfo {
     /// All events that the device claims to support
     pub events_supported: Array<EventCode>,
     /// All device properties that the device claims to support
-    pub device_properties_supported: Array<u16>,
+    pub device_properties_supported: Array<DevicePropertyCode>,
     pub capture_formats: Array<ObjectFormatCode>,
     pub playback_formats: Array<ObjectFormatCode>,
     /// Optional human-readable string that identifies the manufacturer of the device.
