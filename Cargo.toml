@@ -28,7 +28,7 @@ tokio = "1.44.2"
 tokio-stream = "0.1.17"
 
 # mtp
-nusb = "0.1.13"
+nusb = "0.2.0"
 bitflags = "2.9.0"
 tempfile = "3.19.1"
 
