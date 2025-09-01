@@ -11,7 +11,7 @@ use std::sync::Arc;
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use mtp::device::{Device, PtpIo};
+use mtp::device::PtpIo;
 use mtp::error::Error;
 use tokio::sync::Mutex;
 
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Error> {
 
     let mount_point = Path::new("/home/alex/mountss");
 
-    let device = prompts::prompt_for_device()?;
+    let device = prompts::prompt_for_device().await?;
 
     let (mut handle, session_id) = match device.open().await {
         Ok(val) => val,

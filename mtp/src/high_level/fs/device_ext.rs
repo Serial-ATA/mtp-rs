@@ -7,9 +7,7 @@ use mtp_spec::communication::SessionId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
-use mtp_spec::object::types::{
-    Association, AssociationType, FolderType, ObjectFormatCode, PtpString,
-};
+use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpString};
 
 /// Filesystem extension trait for [`Device`]s
 ///

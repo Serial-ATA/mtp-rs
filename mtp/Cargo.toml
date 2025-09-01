@@ -22,7 +22,7 @@ futures.workspace = true
 
 # USB
 bitflags = { workspace = true, optional = true }
-nusb = { workspace = true, optional = true }
+nusb = { workspace = true, features = ["tokio"], optional = true }
 
 # FS
 tempfile = { workspace = true, optional = true }

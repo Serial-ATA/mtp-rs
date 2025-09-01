@@ -1,9 +1,10 @@
 use dialoguer::Select;
 use dialoguer::theme::ColorfulTheme;
+use futures::executor::block_on_stream;
 use mtp::communication::SessionId;
 use mtp::high_level::storages::{DeviceStorageExt, Storage};
 
-pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
+pub async fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
     fn extract_device_name(device: &mtp::usb::Device) -> String {
         match device.well_known_info() {
             Some(well_known_info) => {
@@ -14,7 +15,7 @@ pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
                     well_known_info.product,
                     well_known_info.vendor_id,
                     well_known_info.product_id,
-                    generic_info.bus_number(),
+                    generic_info.busnum(),
                     generic_info.device_address()
                 )
             },
@@ -24,14 +25,14 @@ pub fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
                     "   Unknown Device ({:04x}:{:04x}) @ bus {}, dev {}",
                     generic_info.vendor_id(),
                     generic_info.product_id(),
-                    generic_info.bus_number(),
+                    generic_info.busnum(),
                     generic_info.device_address()
                 )
             },
         }
     }
 
-    let mut devices = mtp::usb::device_list()?
+    let mut devices = block_on_stream(mtp::usb::device_list().await?)
         .filter_map(Result::ok)
         .collect::<Vec<_>>();
 

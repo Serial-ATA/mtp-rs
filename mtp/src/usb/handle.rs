@@ -18,7 +18,8 @@ use mtp_spec::communication::response::{CODE_OK, Response, SuccessResponse};
 use mtp_spec::communication::{SessionId, TransactionId};
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
-use nusb::transfer::{Queue, RequestBuffer};
+use nusb::Endpoint;
+use nusb::transfer::{Buffer, Bulk, In, Interrupt, Out};
 use tokio::sync::Mutex;
 use tokio::sync::broadcast::Sender;
 use tokio_stream::wrappers::BroadcastStream;
@@ -42,8 +43,8 @@ pub struct DeviceHandle {
     flags: UsbDeviceFlags,
     interface: nusb::Interface,
     endpoints: Endpoints,
-    out_queue: Queue<Vec<u8>>,
-    in_queue: Queue<RequestBuffer>,
+    out_queue: Endpoint<Bulk, Out>,
+    in_queue: Endpoint<Bulk, In>,
     timeout: Duration,
     transaction_id: TransactionId,
 
@@ -57,16 +58,16 @@ impl DeviceHandle {
         flags: UsbDeviceFlags,
         interface: nusb::Interface,
         endpoints: Endpoints,
-    ) -> Self {
+    ) -> Result<Self, UsbError> {
         let timeout = if flags.contains(UsbDeviceFlags::LONG_TIMEOUT) {
             Duration::from_millis(60000)
         } else {
             Duration::from_millis(20000)
         };
 
-        let out_queue = interface.bulk_out_queue(endpoints.bulk_out);
-        let in_queue = interface.bulk_in_queue(endpoints.bulk_in);
-        let interrupt_queue = interface.interrupt_in_queue(endpoints.interrupt);
+        let out_queue = interface.endpoint::<Bulk, Out>(endpoints.bulk_out)?;
+        let in_queue = interface.endpoint::<Bulk, In>(endpoints.bulk_in)?;
+        let interrupt_queue = interface.endpoint::<Interrupt, In>(endpoints.interrupt)?;
 
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(100);
         let event_tx_clone = event_tx.clone();
@@ -77,7 +78,7 @@ impl DeviceHandle {
             struct UsbEventStream {
                 endian: Endian,
                 endpoints: Endpoints,
-                interrupt_queue: Arc<Mutex<Queue<RequestBuffer>>>,
+                interrupt_queue: Arc<Mutex<Endpoint<Interrupt, In>>>,
             }
 
             impl Stream for UsbEventStream {
@@ -95,12 +96,12 @@ impl DeviceHandle {
 
                     let pending = interrupt_queue.pending();
                     for _ in 0..(2usize.saturating_sub(pending)) {
-                        interrupt_queue.submit(RequestBuffer::new(buffer_size));
+                        interrupt_queue.submit(Buffer::new(buffer_size));
                     }
 
-                    match interrupt_queue.poll_next(cx) {
+                    match interrupt_queue.poll_next_complete(cx) {
                         Poll::Ready(completion) => {
-                            match UsbContainer::from_bytes((&completion.data, 0)) {
+                            match UsbContainer::from_bytes((&completion.buffer, 0)) {
                                 Ok((_, container)) => {
                                     let mut reader = Reader::new(Cursor::new(container.payload));
 
@@ -136,7 +137,7 @@ impl DeviceHandle {
             }
         });
 
-        Self {
+        Ok(Self {
             _device: device,
             flags,
             interface,
@@ -148,7 +149,7 @@ impl DeviceHandle {
 
             event_tx,
             _events_task: events_task,
-        }
+        })
     }
 }
 
@@ -206,16 +207,16 @@ impl PtpIo for DeviceHandle {
     {
         async fn send(
             data: Vec<u8>,
-            queue: &mut Queue<Vec<u8>>,
+            queue: &mut Endpoint<Bulk, Out>,
             buffer_size: usize,
             timeout: Duration,
         ) -> Result<(), crate::error::Error> {
             let data_len = data.len();
 
             let mut transfers = 1;
-            queue.submit(data);
-            if data_len % buffer_size == 0 {
-                queue.submit(Vec::new());
+            queue.submit(Buffer::from(data));
+            if data_len.is_multiple_of(buffer_size) {
+                queue.submit(Buffer::new(0));
                 transfers += 1;
             }
 
@@ -321,7 +322,7 @@ impl Device for DeviceHandle {}
 #[derive(PartialEq, Debug, Copy, Clone, DekuRead, DekuWrite)]
 #[repr(u16)]
 #[deku(id_type = "u16", endian = "little")]
-enum ContainerType {
+pub enum ContainerType {
     Undefined = 0x0000,
     Command = 0x0001,
     Data = 0x0002,
@@ -332,16 +333,17 @@ enum ContainerType {
 const USB_CONTAINER_HEADER_SIZE: u32 =
     (size_of::<u32>() + size_of::<u16>() + size_of::<u16>() + size_of::<TransactionId>()) as u32;
 
+#[repr(C)]
 #[derive(DekuRead, DekuWrite)]
-struct UsbContainer {
+pub struct UsbContainer {
     #[deku(assert = "*length >= USB_CONTAINER_HEADER_SIZE", endian = "little")]
-    length: u32,
-    type_: ContainerType,
+    pub length: u32,
+    pub type_: ContainerType,
     #[deku(endian = "little")]
-    code: u16,
-    transaction_id: TransactionId,
+    pub code: u16,
+    pub transaction_id: TransactionId,
     #[deku(read_all)]
-    payload: Vec<u8>,
+    pub payload: Vec<u8>,
 }
 
 impl UsbContainer {
@@ -413,7 +415,7 @@ async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error:
     for _ in 0..(2usize.saturating_sub(pending)) {
         handle
             .in_queue
-            .submit(RequestBuffer::new(handle.endpoints.bulk_in_buffer_size));
+            .submit(Buffer::new(handle.endpoints.bulk_in_buffer_size));
     }
 
     log::trace!("Waiting for next packet");
@@ -422,5 +424,5 @@ async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error:
         .map_err(|_| UsbError::Timeout)?;
     completion.status.map_err(UsbError::from)?;
 
-    Ok(completion.data)
+    Ok(completion.buffer.into_vec())
 }

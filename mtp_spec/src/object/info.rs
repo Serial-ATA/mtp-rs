@@ -1,8 +1,6 @@
 use crate::communication::Parameter;
 use crate::device::storage::id::StorageId;
-use crate::object::types::{
-    Association, AssociationType, DateTime, ObjectFormatCode, ObjectHandle, PtpString,
-};
+use crate::object::types::{Association, DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
 use alloc::vec::Vec;
 use deku::ctx::{Endian, Limit};

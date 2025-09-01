@@ -1,16 +1,19 @@
 use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
+use crate::error::Error;
 
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::error::Error;
+use futures::stream::FuturesUnordered;
+use futures::{Stream, StreamExt};
 use mtp_spec::communication::SessionId;
 use mtp_spec::communication::operation::OpenSessionError;
 use mtp_spec::device::Device as _;
 pub use nusb;
+use nusb::descriptors::TransferType;
 use nusb::descriptors::language_id::US_ENGLISH;
-use nusb::transfer::{Direction, EndpointType};
+use nusb::transfer::Direction;
 
 /// An unopened, potentially MTP-capable device
 ///
@@ -77,7 +80,7 @@ impl Device {
     /// * The device has no applicable interfaces
     #[allow(clippy::missing_panics_doc)] // Not possible
     pub async fn open(self) -> Result<(super::handle::DeviceHandle, SessionId), Error> {
-        let mut handle = self.open_raw()?;
+        let mut handle = self.open_raw().await?;
 
         let (response, session_id) = handle.open_session().await?;
         match response {
@@ -102,11 +105,11 @@ impl Device {
     /// * Unable to open the device
     /// * The device has no applicable interfaces
     #[allow(clippy::missing_panics_doc)] // Not possible
-    pub fn open_raw(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
+    pub async fn open_raw(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
         // MTP has 3 endpoints: 2 bulk, 1 interrupt
         const MTP_ENDPOINT_COUNT: u8 = 3;
 
-        let device = self.info.open()?;
+        let device = self.info.open().await?;
 
         let mut interface_num = None;
         let mut endpoints = None;
@@ -126,7 +129,7 @@ impl Device {
                     let mut interrupt_buffer_size = 0;
                     for endpoint in alt_settings.endpoints() {
                         match endpoint.transfer_type() {
-                            EndpointType::Bulk => match endpoint.direction() {
+                            TransferType::Bulk => match endpoint.direction() {
                                 Direction::In => {
                                     bulk_in = Some(endpoint.address());
                                     bulk_in_buffer_size = endpoint.max_packet_size();
@@ -136,7 +139,7 @@ impl Device {
                                     bulk_out_buffer_size = endpoint.max_packet_size();
                                 },
                             },
-                            EndpointType::Interrupt => {
+                            TransferType::Interrupt => {
                                 interrupt = Some(endpoint.address());
                                 interrupt_buffer_size = endpoint.max_packet_size();
                             },
@@ -170,14 +173,9 @@ impl Device {
             return Err(super::error::UsbError::NoApplicableInterface);
         };
 
-        let interface = device.claim_interface(interface_num)?;
+        let interface = device.claim_interface(interface_num).await?;
 
-        Ok(super::handle::DeviceHandle::new(
-            device,
-            self.flags,
-            interface,
-            endpoints.unwrap(),
-        ))
+        super::handle::DeviceHandle::new(device, self.flags, interface, endpoints.unwrap())
     }
 
     /// Information about the device, available without opening it
@@ -223,7 +221,7 @@ impl Device {
 }
 
 impl Device {
-    fn check_mtp_eligibility(&mut self) -> Result<MtpEligibility, super::error::UsbError> {
+    async fn check_mtp_eligibility(&mut self) -> Result<MtpEligibility, super::error::UsbError> {
         if let Some(well_known_entry) = super::WELL_KNOWN_DEVICE_DESCRIPTORS.iter().find(|d| {
             d.vendor_id == self.info.vendor_id() && d.product_id == self.info.product_id()
         }) {
@@ -232,14 +230,14 @@ impl Device {
             return Ok(MtpEligibility::Eligible);
         }
 
-        if self.check_for_mtp_descriptor()? {
+        if self.check_for_mtp_descriptor().await? {
             return Ok(MtpEligibility::Eligible);
         }
 
         Ok(MtpEligibility::Ineligible)
     }
 
-    fn check_for_mtp_descriptor(&mut self) -> Result<bool, super::error::UsbError> {
+    async fn check_for_mtp_descriptor(&mut self) -> Result<bool, super::error::UsbError> {
         const CLASS_PER_INTERFACE: u8 = 0;
         const CLASS_COMM: u8 = 2;
         const CLASS_PTP: u8 = 6;
@@ -257,7 +255,7 @@ impl Device {
             return Ok(false);
         }
 
-        let Ok(handle) = self.info.open() else {
+        let Ok(handle) = self.info.open().await else {
             return Ok(false);
         };
 
@@ -281,8 +279,9 @@ impl Device {
 
                     let timeout = Duration::from_secs(1);
 
-                    let Ok(interface_name) =
-                        handle.get_string_descriptor(string_index, US_ENGLISH, timeout)
+                    let Ok(interface_name) = handle
+                        .get_string_descriptor(string_index, US_ENGLISH, timeout)
+                        .await
                     else {
                         continue;
                     };
@@ -314,7 +313,7 @@ impl Device {
 ///
 /// # #[tokio::main]
 /// # async fn main() -> mtp::error::Result<()> {
-/// let devices = device_list()?;
+/// let devices = device_list().await?;
 /// for maybe_device in devices {
 ///     let device = maybe_device?;
 ///     println!(
@@ -324,15 +323,20 @@ impl Device {
 /// }
 /// # Ok(()) }
 /// ```
-pub fn device_list()
--> Result<impl Iterator<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
-    let all_devices = nusb::list_devices()?;
-    Ok(all_devices.filter_map(|info| {
-        let mut device = Device::from(info);
-        match device.check_mtp_eligibility() {
-            Ok(MtpEligibility::Eligible) => Some(Ok(device)),
-            Ok(MtpEligibility::Ineligible) => None,
-            Err(e) => Some(Err(e)),
-        }
-    }))
+pub async fn device_list()
+-> Result<impl Stream<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
+    let all_devices = nusb::list_devices().await?;
+    let futures = all_devices
+        .map(|info| {
+            let mut device = Device::from(info);
+            async move {
+                match device.check_mtp_eligibility().await {
+                    Ok(MtpEligibility::Eligible) => Some(Ok(device)),
+                    Ok(MtpEligibility::Ineligible) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        })
+        .collect::<FuturesUnordered<_>>();
+    Ok(futures.filter_map(std::future::ready))
 }
