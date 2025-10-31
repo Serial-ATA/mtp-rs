@@ -1053,7 +1053,7 @@ define_operations! {
     {
         code: 0x9802,
         visible_parameters: (format: ObjectFormatCode),
-        operation_parameters: (format, Parameter::new(T::CODE as u32)),
+        operation_parameters: (Parameter::new(T::CODE as u32), format),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetObjectPropDesc<T>,
         valid_error_codes: [

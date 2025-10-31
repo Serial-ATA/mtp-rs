@@ -15,6 +15,8 @@ pub use description::*;
 mod impls;
 pub use impls::*;
 
+use alloc::vec::Vec;
+
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
 use deku::prelude::Reader;

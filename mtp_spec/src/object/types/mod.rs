@@ -212,6 +212,8 @@ impl From<PtpString> for PropertyValue {
 }
 
 /// Marker trait for types that are valid for use as an [`ObjectProperty`] value
+///
+/// [`ObjectProperty`]: properties::ObjectProperty
 pub trait PropertyDataType: Eq + core::fmt::Debug + Clone {
     /// The raw datacode for this datatype
     const CODE: u16;

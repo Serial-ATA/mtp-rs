@@ -39,10 +39,14 @@ pub enum MtpError {
     /// Attempt to modify a property that the device does not allow modifying
     CannotModify(ObjectPropertyCode),
     /// Attempting to send data to a responder, when the data direction is [`DataDirection::ResponderToInitiator`]
+    ///
+    /// [`DataDirection::ResponderToInitiator`]: crate::communication::operation::DataDirection::ResponderToInitiator
     WrongDataDirection,
     /// Attempted to provide data for an operation whose data direction is `None`
     UnexpectedDataProvided,
     /// Attempting to send an operation whose data direction is [`DataDirection::InitiatorToResponder`], but providing no data
+    ///
+    /// [`DataDirection::InitiatorToResponder`]: crate::communication::operation::DataDirection::InitiatorToResponder
     NoDataProvided,
     /// General serialization/deserialization errors
     Serialization(deku::DekuError),

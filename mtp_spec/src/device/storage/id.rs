@@ -2,6 +2,7 @@ use crate::communication::Parameter;
 use crate::object::types::ArrayEncodable;
 
 /// A storage identifier
+#[repr(transparent)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     endian = "endian",

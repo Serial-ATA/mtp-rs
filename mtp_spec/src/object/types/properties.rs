@@ -53,7 +53,7 @@ pub trait ObjectProperty:
     /// The raw datacode for this property
     const CODE: u16;
 
-    type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian>;
+    type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian> + Send;
 
     /// The read/write status of the property
     ///
@@ -266,7 +266,7 @@ macro_rules! define_object_property_descriptions {
 						))))
 					}
 
-					define_object_property_descriptions!(@FORM_PARSE_AND_RET reader ctx $($($form_tt)*)?, (default_value, group_code, get_set))
+					define_object_property_descriptions!(@FORM_PARSE_AND_RET reader ctx $($($form_tt)*)?, (default_value, group_code, get_set, form_flag))
 				}
 			}
 		)*
@@ -284,6 +284,21 @@ macro_rules! define_object_property_descriptions {
 			///
 			/// [`forms`]: https://docs.rs/mtp_spec/latest/mtp_spec/object/types/properties/index.html#forms
 			pub form: $form,
+		}
+	};
+
+	// Property with an optional form
+	(@PROPERTY_STRUCT $(#[$meta:meta])* $name:ident ($datatype:ty) @MAYBE $form:ty) => {
+		$(#[$meta])*
+		#[derive(Clone, Debug, PartialEq)]
+		pub struct $name {
+			pub default_value: $datatype,
+			pub group_code: u32,
+			pub get_set: GetSet,
+			/// Device-defined constraints on the data. See [`forms`]
+			///
+			/// [`forms`]: https://docs.rs/mtp_spec/latest/mtp_spec/object/types/properties/index.html#forms
+			pub form: Option<$form>,
 		}
 	};
 
@@ -310,7 +325,7 @@ macro_rules! define_object_property_descriptions {
 		_val
 	}};
 
-	(@FORM_ENUM $_ty:ty) => {};
+	(@FORM_ENUM $(@MAYBE)? $_ty:ty) => {};
 	(@FORM_ENUM) => {};
 
 	// Form expected (inline enum)
@@ -327,7 +342,7 @@ macro_rules! define_object_property_descriptions {
 	}};
 
 	// Form expected (type name)
-	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident $form:ty, ($default_value:expr, $group_code:expr, $get_set:expr)) => {{
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident $form:ty, ($default_value:expr, $group_code:expr, $get_set:expr, $_form_flag:expr)) => {{
 		let form: $form = <$form>::from_reader_with_ctx($reader, $ctx)?;
 		Ok(Self {
 			default_value: $default_value,
@@ -337,8 +352,23 @@ macro_rules! define_object_property_descriptions {
 		})
 	}};
 
+	// Optional form
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident @MAYBE $form:ty, ($default_value:expr, $group_code:expr, $get_set:expr, $form_flag:expr)) => {{
+		let form: Option<$form> = match $form_flag {
+			v if v == FormType::None => None,
+			_ => Some(<$form>::from_reader_with_ctx($reader, $ctx)?),
+		};
+
+		Ok(Self {
+			default_value: $default_value,
+			group_code: $group_code,
+			get_set: $get_set,
+			form,
+		})
+	}};
+
 	// No form
-	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident, ($default_value:expr, $group_code:expr, $get_set:expr)) => {{
+	(@FORM_PARSE_AND_RET $reader:ident $ctx:ident, ($default_value:expr, $group_code:expr, $get_set:expr, $_form_flag:expr)) => {{
 		Ok(Self {
 			default_value: $default_value,
 			group_code: $group_code,
@@ -349,12 +379,12 @@ macro_rules! define_object_property_descriptions {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead)]
 #[deku(
-    id_type = "u16",
+    id_type = "u8",
     id_endian = "endian",
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
-#[repr(u16)]
+#[repr(u8)]
 enum FormType {
     #[deku(id = "0x00")]
     None = 0x00,
@@ -455,12 +485,10 @@ define_object_property_descriptions! {
     pub struct ObjectFileName {
         properties: {
             data_type: PtpString,
-            get_set: GetSet::ReadOnly,
             valid_forms: [None, RegularExpression]
         },
         code: 0xDC07,
-        // TODO: Can be either none or regex
-        form: RegularExpressionForm
+        form: @MAYBE RegularExpressionForm
     }
 
     /// The date and time when the object was created

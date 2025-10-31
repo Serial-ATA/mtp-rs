@@ -13,6 +13,7 @@
 //! * `time` - Adds [`DateTime::as_systemtime()`] to convert [`DateTime`] into [`SystemTime`] (*enabled by default*)
 //!     * NOTE: This enables `std`
 //!
+//! [`DateTime::as_systemtime()`]: object::types::DateTime::as_systemtime
 //! [`DateTime`]: object::types::DateTime
 //! [`SystemTime`]: std::time::SystemTime
 

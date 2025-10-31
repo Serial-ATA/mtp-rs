@@ -131,9 +131,9 @@ define_error_response! {
 }
 
 define_error_response! {
-    /// Indicates that a [DevicePropCode] sent as a parameter of an operation appears to be a valid
+    /// Indicates that a [`DevicePropCode`] sent as a parameter of an operation appears to be a valid
     /// code, but is not supported by the device. The initiator should only attempt to work with
-    /// Device Properties identified in the [DevicePropertiesSupported] field of the [DeviceInfo]
+    /// Device Properties identified in the [`DevicePropertiesSupported`] field of the [`DeviceInfo`]
     /// Dataset, so this response should not normally be returned.
     [[error("The device property is not supported")]]
     pub struct DevicePropNotSupported {

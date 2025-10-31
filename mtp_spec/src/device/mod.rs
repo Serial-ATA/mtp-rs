@@ -594,7 +594,7 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<Response<GetObjectPropsSupported>, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<Response<GetObjectPropsSupported>, <Self as PtpIo>::Error>> + Send
     {
         async move {
             let transaction_id = self.next_transaction_id();
@@ -611,7 +611,7 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<Response<GetObjectPropDesc<T>>, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<Response<GetObjectPropDesc<T>>, <Self as PtpIo>::Error>> + Send
     where
         T: ObjectProperty,
     {
@@ -630,7 +630,7 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectPropValue<T>>, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<Response<GetObjectPropValue<T>>, <Self as PtpIo>::Error>> + Send
     where
         T: ObjectProperty,
     {
@@ -650,7 +650,7 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         value: T::DataType,
-    ) -> impl Future<Output = Result<Response<SetObjectPropValue<T>>, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<Response<SetObjectPropValue<T>>, <Self as PtpIo>::Error>> + Send
     where
         T: ObjectProperty,
     {

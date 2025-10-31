@@ -75,13 +75,13 @@ pub struct DateTime {
     pub decisecond: Option<u8>,
 }
 
+#[cfg(feature = "time")]
 impl DateTime {
     /// Convert a [`DateTime`] to [`SystemTime`](std::time::SystemTime)
     ///
     /// This is useful for altering filesystem timestamps on the host-side.
     ///
     /// This will return `None` if `year < 1900`.
-    #[cfg(feature = "time")]
     pub fn as_systemtime(self) -> Option<std::time::SystemTime> {
         if self.year < 1900 {
             return None;
@@ -104,6 +104,28 @@ impl DateTime {
         let time = unsafe { libc::mktime(&mut tm) };
 
         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(time as u64))
+    }
+
+    pub fn now() -> DateTime {
+        let duration = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or(std::time::Duration::ZERO)
+            .as_secs() as libc::time_t;
+
+        let duration_ptr = &raw const duration;
+        let tm = unsafe { libc::localtime(duration_ptr) };
+
+        unsafe {
+            Self {
+                year: (*tm).tm_year as _,
+                month: Some((*tm).tm_mon as _),
+                day: Some((*tm).tm_mday as _),
+                hour: Some((*tm).tm_hour as _),
+                minute: Some((*tm).tm_min as _),
+                second: Some((*tm).tm_sec as _),
+                decisecond: None,
+            }
+        }
     }
 }
 

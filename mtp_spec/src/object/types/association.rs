@@ -1,5 +1,3 @@
-use alloc::format;
-
 use deku::{DekuRead, DekuWrite};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
