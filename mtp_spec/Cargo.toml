@@ -7,9 +7,8 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
-# TODO: enable lints
-#[lints]
-#workspace = true
+[lints]
+workspace = true
 
 [dependencies]
 paste.workspace = true

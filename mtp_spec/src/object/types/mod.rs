@@ -23,6 +23,9 @@ use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
+/// Possible values for [`ObjectProperty`]s
+///
+/// [`ObjectProperty`]: properties::ObjectProperty
 #[derive(Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
     id = "data_type",
@@ -30,6 +33,7 @@ use deku::{DekuRead, DekuWrite};
     endian = "endian",
     ctx = "endian: deku::ctx::Endian, data_type: u16"
 )]
+#[allow(missing_docs)]
 pub enum PropertyValue {
     #[deku(id = "0x0000")]
     Undefined(#[deku(read_all)] Vec<u8>),
@@ -75,6 +79,7 @@ pub enum PropertyValue {
     U128Array(Array<u128>),
     #[deku(id = "0xFFFF")]
     String(PtpString),
+    /// Some other reserved or device-specific value
     #[deku(id_pat = "_")]
     Reserved(#[deku(read_all)] Vec<u8>),
 }

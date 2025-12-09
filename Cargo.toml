@@ -40,7 +40,7 @@ fuser = "0.15.1"
 id_tree = "1.8.0"
 
 [workspace.lints.rust]
-missing_docs = "deny"
+missing_docs = "warn" # TODO
 rust_2018_idioms = { level = "deny", priority = -1 }
 trivial_casts = "deny"
 trivial_numeric_casts = "deny"

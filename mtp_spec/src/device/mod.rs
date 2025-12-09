@@ -23,8 +23,9 @@ use crate::device::properties::{DeviceProperty, DevicePropertyCode, GetSet};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode, SerializedProperty};
+use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle, PtpString};
+use crate::property::SerializedProperty;
 
 use alloc::vec::Vec;
 

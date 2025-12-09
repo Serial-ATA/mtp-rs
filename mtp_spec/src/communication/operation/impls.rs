@@ -62,6 +62,7 @@ macro_rules! parse_operations {
 			ctx = "_endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
+		#[allow(missing_docs)]
 		pub enum Operation {
 			$(
 				$(#[$attr])*

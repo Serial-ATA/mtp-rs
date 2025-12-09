@@ -17,6 +17,7 @@ use futures_core::Stream;
 pub trait PtpIo: Send {
     /// Implementation-specific errors that can occur during I/O operations
     type Error: core::error::Error + From<MtpError>;
+    /// Implementation-specific event stream, see [`Self::event_stream()`]
     type EventStream: Stream<Item = Result<Event, Self::Error>>;
 
     /// Get the next transaction ID
@@ -35,6 +36,10 @@ pub trait PtpIo: Send {
     ///
     /// The value of this is expected to be consistent for the duration of the session.
     fn endian(&self) -> Endian;
+    /// Get an instance of the responder -> initiator event stream
+    ///
+    /// This is used by the responder to send important updates (object modifications, property changes, etc.)
+    /// at any time.
     fn event_stream(&self) -> Self::EventStream;
 
     /// Send the operation to the device and wait for a response

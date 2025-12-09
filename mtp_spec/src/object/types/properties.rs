@@ -35,73 +35,19 @@
 use crate::communication::Parameter;
 use crate::device::properties::{EnumerationForm, GetSet, RangeForm};
 use crate::object::types::{
-    Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType,
-    PropertyValue, PtpString,
+    Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType, PtpString,
 };
+use crate::property::Property;
 
 use alloc::borrow::Cow;
 use alloc::format;
 
+use deku::DekuReader;
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
-use deku::{DekuReader, DekuWriter};
 
 /// Marker trait for object properties
-pub trait ObjectProperty:
-    sealed::Sealed + Send + PartialEq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
-{
-    /// The raw datacode for this property
-    const CODE: u16;
-
-    type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian> + Send;
-
-    /// The read/write status of the property
-    ///
-    /// This is, in most cases, dependent on the device.
-    fn get_set(&self) -> GetSet;
-}
-
-mod sealed {
-    use super::ObjectProperty;
-
-    pub trait Sealed {}
-
-    impl<T: ObjectProperty> Sealed for T {}
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, deku::DekuWrite)]
-#[deku(
-    endian = "endian",
-    ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
-)]
-pub struct SerializedProperty {
-    code: u16,
-    data_type: u16,
-    object: ObjectHandle,
-    // Passing in a dummy data type, doesn't actually matter for writing
-    #[deku(ctx = "0")]
-    value: PropertyValue,
-}
-
-pub trait SerializeableProperty<T>: Send {
-    fn serialize(object: ObjectHandle, value: T) -> SerializedProperty;
-}
-
-impl<P> SerializeableProperty<P::DataType> for P
-where
-    P: ObjectProperty,
-    P::DataType: Into<PropertyValue>,
-{
-    fn serialize(object: ObjectHandle, value: P::DataType) -> SerializedProperty {
-        SerializedProperty {
-            code: P::CODE,
-            data_type: P::DataType::CODE,
-            object,
-            value: value.into(),
-        }
-    }
-}
+pub trait ObjectProperty: Property {}
 
 /// Information about fixed-length array properties
 #[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
@@ -174,6 +120,7 @@ macro_rules! define_object_property_descriptions {
 			}
 		)*
 	) => {
+		/// The `PropertyCode` of an [`ObjectProperty`]
 		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead, deku::DekuWrite)]
 		#[repr(u16)]
 		#[deku(
@@ -182,6 +129,7 @@ macro_rules! define_object_property_descriptions {
 			ctx = "endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Big"
 		)]
+		#[allow(missing_docs)]
 		pub enum ObjectPropertyCode {
 			$(
 			#[deku(id = $code)]
@@ -208,7 +156,9 @@ macro_rules! define_object_property_descriptions {
 		$(
 			define_object_property_descriptions!(@PROPERTY_STRUCT $(#[$meta])* $name ($datatype) $($($form_tt)*)?);
 
-			impl ObjectProperty for $name {
+			impl crate::property::sealed::Sealed for $name {}
+
+			impl Property for $name {
 				const CODE: u16 = $code;
 
 				type DataType = $datatype;
@@ -217,6 +167,8 @@ macro_rules! define_object_property_descriptions {
 					self.get_set
 				}
 			}
+
+			impl ObjectProperty for $name {}
 
 			define_object_property_descriptions!(@FORM_ENUM $($($form_tt)*)?);
 
@@ -241,9 +193,9 @@ macro_rules! define_object_property_descriptions {
 					}
 
 					let data_type = u16::from_reader_with_ctx(reader, ctx)?;
-					if data_type != <Self as ObjectProperty>::DataType::CODE {
+					if data_type != <Self as Property>::DataType::CODE {
 						return Err(deku::DekuError::Assertion(Cow::Owned(format!(
-							"Expected datatype code {}, got {data_type}", <Self as ObjectProperty>::DataType::CODE
+							"Expected datatype code {}, got {data_type}", <Self as Property>::DataType::CODE
 						))))
 					}
 
@@ -277,8 +229,11 @@ macro_rules! define_object_property_descriptions {
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq)]
 		pub struct $name {
+			/// The device's assigned default for this property
 			pub default_value: $datatype,
+			/// The retrieval group this property belongs to
 			pub group_code: u32,
+			/// The read-only status of the property
 			pub get_set: GetSet,
 			/// Device-defined constraints on the data. See [`forms`]
 			///
@@ -292,8 +247,11 @@ macro_rules! define_object_property_descriptions {
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq)]
 		pub struct $name {
+			/// The device's assigned default for this property
 			pub default_value: $datatype,
+			/// The retrieval group this property belongs to
 			pub group_code: u32,
+			/// The read-only status of the property
 			pub get_set: GetSet,
 			/// Device-defined constraints on the data. See [`forms`]
 			///
@@ -307,8 +265,11 @@ macro_rules! define_object_property_descriptions {
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq)]
 		pub struct $name {
+			/// The device's assigned default for this property
 			pub default_value: $datatype,
+			/// The retrieval group this property belongs to
 			pub group_code: u32,
+			/// The read-only status of the property
 			pub get_set: GetSet,
 		}
 	};
@@ -544,9 +505,7 @@ define_object_property_descriptions! {
         code: 0xDC0C,
     }
 
-    /// Objects formats allowed in this folder
-    ///
-    /// If there is no restriction, the returned array will be empty.
+    /// Whether an object is intended to be shown to users
     pub struct Hidden {
         properties: {
             data_type: HiddenStatus,
@@ -1072,6 +1031,7 @@ define_object_property_descriptions! {
     }
 }
 
+/// The possible values for [`Hidden`] properties
 #[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     id_type = "u16",
@@ -1079,9 +1039,12 @@ define_object_property_descriptions! {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum HiddenStatus {
+    /// The object can be shown to all users (e.g. those browsing in a file browser)
     #[deku(id = "0x00")]
     VisibleToAll,
+    /// The object should only be shown to technical users (e.g. in debug/developer interfaces)
     #[deku(id = "0x01")]
     HiddenFromNonTechnicalUsers,
     #[deku(id_pat = "t if t & 0x8000 == 0x8000")]
@@ -1090,6 +1053,9 @@ pub enum HiddenStatus {
     MtpDefined(u16),
 }
 
+/// The possible values for [`SystemObject`] properties
+///
+/// This is identical to [`HiddenStatus`]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     id_type = "u16",
@@ -1097,6 +1063,7 @@ pub enum HiddenStatus {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum SystemObjectStatus {
     #[deku(id = "0x00")]
     VisibleToAll,
@@ -1108,6 +1075,7 @@ pub enum SystemObjectStatus {
     MtpDefined(u16),
 }
 
+/// The possible values for [`NonConsumable`] properties
 #[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     id_type = "u8",
@@ -1115,11 +1083,13 @@ pub enum SystemObjectStatus {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum ConsumableStatus {
     Consumable = 0x00,
     ForStorage = 0x01,
 }
 
+/// The possible values for [`MetaGenre`] properties
 #[derive(Copy, Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     id_type = "u16",
@@ -1127,6 +1097,7 @@ pub enum ConsumableStatus {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum MetaGenreForm {
     #[deku(id = "0x0000")]
     NotUsed,

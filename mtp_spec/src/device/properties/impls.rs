@@ -1,72 +1,17 @@
 use crate::communication::Parameter;
 use crate::device::properties::{EnumerationForm, Form, FormType, GetSet, RangeForm};
-use crate::object::types::{
-    Array, ArrayEncodable, ObjectHandle, PropertyDataType, PropertyValue, PtpString,
-};
+use crate::object::types::{Array, ArrayEncodable, ObjectHandle, PropertyDataType, PtpString};
+use crate::property::Property;
 
 use alloc::borrow::Cow;
 use alloc::format;
 
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek};
-use deku::{DekuRead, DekuReader, DekuWrite, DekuWriter};
+use deku::{DekuRead, DekuReader, DekuWrite};
 
 /// Marker trait for object properties
-pub trait DeviceProperty:
-    sealed::Sealed + Send + PartialEq + core::fmt::Debug + Clone + for<'a> DekuReader<'a, Endian>
-{
-    /// The raw datacode for this property
-    const CODE: u16;
-
-    type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian>;
-
-    /// The read/write status of the property
-    ///
-    /// This is, in most cases, dependent on the device.
-    fn get_set(&self) -> GetSet;
-}
-
-mod sealed {
-    use super::DeviceProperty;
-
-    pub trait Sealed {}
-
-    impl<T: DeviceProperty> Sealed for T {}
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, deku::DekuWrite)]
-#[deku(
-    endian = "endian",
-    ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
-)]
-pub struct SerializedProperty {
-    code: u16,
-    data_type: u16,
-    object: ObjectHandle,
-    // Passing in a dummy data type, doesn't actually matter for writing
-    #[deku(ctx = "0")]
-    value: PropertyValue,
-}
-
-pub trait SerializeableProperty<T>: Send {
-    fn serialize(object: ObjectHandle, value: T) -> SerializedProperty;
-}
-
-impl<P> SerializeableProperty<P::DataType> for P
-where
-    P: DeviceProperty,
-    P::DataType: Into<PropertyValue>,
-{
-    fn serialize(object: ObjectHandle, value: P::DataType) -> SerializedProperty {
-        SerializedProperty {
-            code: P::CODE,
-            data_type: P::DataType::CODE,
-            object,
-            value: value.into(),
-        }
-    }
-}
+pub trait DeviceProperty: Property {}
 
 macro_rules! define_device_properties {
 	(
@@ -83,6 +28,7 @@ macro_rules! define_device_properties {
 			}
 		)*
 	) => {
+		/// The `PropertyCode` of a [`DeviceProperty`]
 		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead, deku::DekuWrite)]
 		#[repr(u16)]
 		#[deku(
@@ -91,6 +37,7 @@ macro_rules! define_device_properties {
 			ctx = "endian: deku::ctx::Endian",
 			ctx_default = "deku::ctx::Endian::Big"
 		)]
+		#[allow(missing_docs)]
 		pub enum DevicePropertyCode {
 			$(
 			#[deku(id = $code)]
@@ -118,13 +65,21 @@ macro_rules! define_device_properties {
 			$(#[$meta])*
 			#[derive(Clone, Debug, PartialEq)]
 			pub struct $name {
+				/// The device's assigned default for this property
 				pub default_value: $datatype,
+				/// The retrieval group this property belongs to
 				pub group_code: u32,
+				/// The read-only status of the property
 				pub get_set: GetSet,
+				/// Device-defined constraints on the data. See [`forms`]
+				///
+				/// [`forms`]: https://docs.rs/mtp_spec/latest/mtp_spec/object/types/properties/index.html#forms
 				pub form: define_device_properties!(@FORM_TY ($($($form_tt)*)?) | $datatype),
 			}
 
-			impl DeviceProperty for $name {
+			impl crate::property::sealed::Sealed for $name {}
+
+			impl Property for $name {
 				const CODE: u16 = $code;
 
 				type DataType = $datatype;
@@ -133,6 +88,8 @@ macro_rules! define_device_properties {
 					self.get_set
 				}
 			}
+
+			impl DeviceProperty for $name {}
 
 			define_device_properties!(@FORM_ENUM $($($form_tt)*)?);
 
@@ -157,9 +114,9 @@ macro_rules! define_device_properties {
 					}
 
 					let data_type = u16::from_reader_with_ctx(reader, ctx)?;
-					if data_type != <Self as DeviceProperty>::DataType::CODE {
+					if data_type != <Self as Property>::DataType::CODE {
 						return Err(deku::DekuError::Assertion(Cow::Owned(format!(
-							"Expected datatype code {}, got {data_type}", <Self as DeviceProperty>::DataType::CODE
+							"Expected datatype code {}, got {data_type}", <Self as Property>::DataType::CODE
 						))))
 					}
 
@@ -315,7 +272,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x5005,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum WhiteBalanceValue {
+        form:
+        /// Possible values for [`WhiteBalance`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum WhiteBalanceValue {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             /// The white balance is set directly by using the [`RgbGain`] property, and is static until changed.
@@ -339,8 +301,10 @@ define_device_properties! {
             /// The device attempts to set the white balance to a value that is appropriate for flash conditions.
             #[deku(id = "0x0007")]
             Flash = 0x0007,
+            /// Some vendor-specific value
             #[deku(id_pat = "o if (0x8000_u16..=0xBFFF_u16).contains(&o)")]
             VendorSpecific(u16),
+            /// An invalid, reserved value
             #[deku(id_pat = "t if (0x0000_u16..=0x7FFF_u16).contains(t) || (0xC000_u16..=0xFFFF_u16).contains(t)")]
             Reserved,
         }
@@ -409,7 +373,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x500A,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum FocusModeForm {
+        form:
+        /// Possible values for [`FocusMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum FocusModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -432,7 +401,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x500B,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum ExposureMeteringModeForm {
+        form:
+        /// Possible values for [`ExposureMeteringMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum ExposureMeteringModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -457,7 +431,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x500C,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum FlashModeForm {
+        form:
+        /// Possible values for [`FlashMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum FlashModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -498,7 +477,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x500E,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum ExposureProgramModeForm {
+        form:
+        /// Possible values for [`ExposureProgramMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum ExposureProgramModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -580,7 +564,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x5013,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum StillCaptureModeForm {
+        form:
+        /// Possible values for [`StillCaptureMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum StillCaptureModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -638,7 +627,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x5017,
-        form: #[repr(u16)] #[deku(id_type = "u16")] enum EffectModeForm {
+        form:
+        /// Possible values for [`EffectMode`] properties
+        #[repr(u16)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum EffectModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             /// Color
@@ -702,7 +696,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0x501C,
-        form: #[repr(u32)] #[deku(id_type = "u16")] enum FocusMeteringModeForm {
+        form:
+        /// Possible values for [`FocusMeteringMode`] properties
+        #[repr(u32)]
+        #[deku(id_type = "u16")]
+        #[allow(missing_docs)]
+        enum FocusMeteringModeForm {
             #[deku(id = "0x0000")]
             Undefined = 0x0000,
             #[deku(id = "0x0001")]
@@ -797,7 +796,12 @@ define_device_properties! {
             valid_forms: [Enumeration]
         },
         code: 0xD404,
-        form: #[repr(u8)] #[deku(id_type = "u8")] enum SupportedFormatsOrderedForm {
+        form:
+        /// Possible values for [`SupportedFormatsOrdered`] properties
+        #[repr(u8)]
+        #[deku(id_type = "u8")]
+        #[allow(missing_docs)]
+        enum SupportedFormatsOrderedForm {
             #[deku(id = "0x00")]
             Unordered = 0x00,
             #[deku(id = "0x01")]
@@ -904,6 +908,7 @@ define_device_properties! {
     }
 }
 
+/// The possible values for [`PerceivedDeviceType`] properties
 #[derive(DekuRead, DekuWrite, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u32)]
 #[deku(
@@ -912,6 +917,7 @@ define_device_properties! {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum PerceivedDeviceTypeValue {
     #[deku(id = "0x00000000")]
     Generic = 0x00000000,

@@ -1,5 +1,6 @@
 use deku::{DekuRead, DekuWrite};
 
+/// The type of an [`Association::GenericFolder`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
     id_type = "u32",
@@ -8,6 +9,7 @@ use deku::{DekuRead, DekuWrite};
     ctx_default = "deku::ctx::Endian::Big"
 )]
 #[repr(u32)]
+#[allow(missing_docs)]
 pub enum FolderType {
     #[deku(id = "0x0000")]
     Generic,
@@ -17,6 +19,9 @@ pub enum FolderType {
     BiDirectionallyLinked,
 }
 
+/// The type of an [`Association`]
+///
+/// This just matches the variants of [`Association`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
     id_type = "u32",
@@ -25,6 +30,7 @@ pub enum FolderType {
     ctx_default = "deku::ctx::Endian::Big"
 )]
 #[repr(u16)]
+#[allow(missing_docs)]
 pub enum AssociationType {
     #[deku(id = "0x0000")]
     Undefined,
@@ -60,6 +66,7 @@ pub enum AssociationType {
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
+#[allow(missing_docs)]
 pub enum Association {
     #[deku(id = "0x0000")]
     Undefined { undefined: u32 },

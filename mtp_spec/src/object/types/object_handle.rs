@@ -27,6 +27,10 @@ impl Default for ObjectHandle {
 }
 
 impl ObjectHandle {
+    /// Indicates the absense of an object handle
+    ///
+    /// This is used in both parameters (e.g. not assigning a parent to an object), and return types
+    /// in contexts where missing objects are not errors.
     pub const NONE: Self = ObjectHandle(0);
 
     /// In some contexts, we want to convert empty handles to `None` when parsing.

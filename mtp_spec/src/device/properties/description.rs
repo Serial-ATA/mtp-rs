@@ -35,6 +35,7 @@ impl DekuWriter<Endian> for PropertyValueWrapper {
     }
 }
 
+/// Descriptor for a device property
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevicePropDesc {
     /// A unique code that identifies the property.
@@ -45,6 +46,7 @@ pub struct DevicePropDesc {
     pub factory_default_value: PropertyValue,
     /// The current value of the property.
     pub current_value: PropertyValue,
+    /// The constraints on the property, see [`Form`]
     pub form: Option<Form<PropertyValueWrapper>>,
 }
 

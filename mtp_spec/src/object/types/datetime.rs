@@ -106,6 +106,7 @@ impl DateTime {
         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(time as u64))
     }
 
+    /// Get the current system time as a `DateTime`
     pub fn now() -> DateTime {
         let duration = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -184,7 +185,7 @@ pub enum DateTimeError {
 }
 
 impl Display for DateTimeError {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             DateTimeError::BadSegmentLength => {
                 f.write_str("A DateTime segment must be at least 2 characters long")

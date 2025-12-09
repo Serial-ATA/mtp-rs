@@ -149,7 +149,11 @@ macro_rules! accumulate_events {
 		pub enum Event {
 			$($variants)*
 			/// Some vendor-specific event
+			///
+			/// Note that the event may or may not use all of the parameters. Unused parameters should be `0`.
+			#[allow(missing_docs)]
 			VendorSpecific {
+				/// The event code
 				code: u16,
 				param1: u32,
 				param2: u32,
@@ -159,7 +163,11 @@ macro_rules! accumulate_events {
 			///
 			/// This falls outside of the [`Self::VendorSpecific`] range, which may indicate
 			/// a faulty device.
+			///
+			/// Note that the event may or may not use all of the parameters. Unused parameters should be `0`.
+			#[allow(missing_docs)]
 			Unknown {
+				/// The event code
 				code: u16,
 				param1: u32,
 				param2: u32,
@@ -187,8 +195,10 @@ macro_rules! accumulate_events {
 			}
 		}
 
-		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+		/// The code for an [`Event`]
 		#[repr(u16)]
+		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+		#[allow(missing_docs)]
 		pub enum EventCode {
 			$($code_variants)*
 			VendorSpecific(u16),
@@ -460,6 +470,7 @@ macro_rules! accumulate_events {
 					$($variants)*
 					$(#[$meta])*
 					$name {
+						#[allow(missing_docs)]
 						$param: $ty,
 					},
 				}
@@ -562,7 +573,9 @@ macro_rules! accumulate_events {
 					$($variants)*
 					$(#[$meta])*
 					$name {
+						#[allow(missing_docs)]
 						$param: $ty,
+						#[allow(missing_docs)]
 						$param2: $ty2,
 					},
 				}
@@ -667,8 +680,11 @@ macro_rules! accumulate_events {
 					$($variants)*
 					$(#[$meta])*
 					$name {
+						#[allow(missing_docs)]
 						$param: $ty,
+						#[allow(missing_docs)]
 						$param2: $ty2,
+						#[allow(missing_docs)]
 						$param3: $ty3
 					},
 				}

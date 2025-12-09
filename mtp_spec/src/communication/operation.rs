@@ -1,3 +1,5 @@
+//! Initiator -> Responder operation definitions
+
 use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::MtpError;
 use crate::object::types::ArrayEncodable;

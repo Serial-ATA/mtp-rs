@@ -1,3 +1,5 @@
+//! Responder -> Initiator event definitions
+
 mod impls;
 pub use impls::*;
 

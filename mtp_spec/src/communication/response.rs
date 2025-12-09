@@ -1,3 +1,5 @@
+//! Responder -> Initiator response definitions
+
 pub mod errors;
 mod impls;
 

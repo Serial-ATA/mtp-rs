@@ -12,7 +12,12 @@ use crate::object::types::ArrayEncodable;
 pub struct StorageId(u32);
 
 impl StorageId {
+    /// Used to perform operations across all storages
     pub const ALL_STORAGES: Self = StorageId(0xFFFF_FFFF);
+
+    /// Leave storage selection up to the responder
+    ///
+    /// This can be used in contexts like object creation, when there's no preference for storage devices.
     pub const DEFAULT_STORE: Self = StorageId(0x0000_0000);
 }
 
