@@ -51,7 +51,7 @@ impl File {
     /// use mtp::high_level::storages::DeviceStorageExt;
     /// use mtp::usb::device_list;
     ///
-    /// # async fn main() -> mtp::error::Result<()> {
+    /// # async fn main() -> mtp::usb::error::Result<()> {
     /// // Get the first MTP-eligible device
     /// use std::io::Read;
     /// let device = device_list()?.next().expect("No devices");
@@ -88,20 +88,15 @@ impl File {
         &self,
         device: &mut D,
         session_id: SessionId,
-    ) -> Result<std::fs::File, <D as PtpIo>::Error>
+    ) -> Result<std::fs::File, crate::error::Error<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
     {
-        let object = device
-            .get_object(session_id, self.id)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+        let object = device.get_object(session_id, self.id).await?;
         let file_data = object.data.data;
 
-        let mut tmp = tempfile::tempfile().map_err(Into::<Error>::into)?;
-        tmp.write_all(&file_data).map_err(Into::<Error>::into)?;
+        let mut tmp = tempfile::tempfile()?;
+        tmp.write_all(&file_data)?;
 
         Ok(tmp)
     }
@@ -120,39 +115,34 @@ impl File {
         device: &mut D,
         session_id: SessionId,
         name: N,
-    ) -> Result<Self, <D as PtpIo>::Error>
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         N: Into<String>,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
     {
-        let id;
-        let parent;
-        let storage_id;
-
         let name_str = name.into();
         if name_str == self.name {
             return Ok(self.clone());
         }
 
-        let name_ptp = PtpString::try_from(name_str.clone())?;
-        match device
+        let name_ptp = PtpString::try_from(name_str.clone())
+            .map_err(Into::<MtpError<<D as PtpIo>::TransportError>>::into)?;
+
+        if !device
             .object_property_can_be_modified::<ObjectFileName>(session_id, self.format)
-            .await
+            .await?
         {
-            Ok(true) => {
-                id = self.id;
-                parent = self.parent;
-                storage_id = self.storage_id;
-                let _ = device
-                    .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
-                    .await?
-                    .map_err(Into::<MtpError>::into)?;
-            },
-            Ok(false) => return Err(MtpError::UnsupportedOperation.into()),
-            Err(e) => return Err(e),
+            return Err(MtpError::UnsupportedOperation.into());
         }
+
+        let id = self.id;
+        let parent = self.parent;
+        let storage_id = self.storage_id;
+        let _ = dbg!(
+            device
+                .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
+                .await?
+        );
 
         Ok(Self {
             storage_id,
@@ -182,16 +172,14 @@ impl File {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
             .copy_object(session_id, self.id, self.storage_id, parent)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
         Ok(())
     }
@@ -211,16 +199,14 @@ impl File {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
             .move_object(session_id, self.id, self.storage_id, parent)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
         Ok(())
     }
@@ -258,18 +244,16 @@ impl Folder {
         device: &mut D,
         session_id: SessionId,
         name: N,
-    ) -> Result<Self, <D as PtpIo>::Error>
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         N: Into<String>,
-        <D as PtpIo>::Error: From<MtpError>,
     {
         let name = PtpString::try_from(name.into())?;
         let name_str = name.to_string();
         let _ = device
             .set_object_prop_value::<ObjectFileName>(session_id, self.id, name)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
         Ok(Self {
             storage_id: self.storage_id,
@@ -298,16 +282,14 @@ impl Folder {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
             .copy_object(session_id, self.id, self.storage_id, parent)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
         Ok(())
     }
@@ -327,16 +309,14 @@ impl Folder {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
             .move_object(session_id, self.id, self.storage_id, parent)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
         Ok(())
     }
@@ -357,6 +337,38 @@ impl FolderEntry {
         }
     }
 
+    /// Get the object handle of this entry
+    pub fn handle(&self) -> ObjectHandle {
+        match self {
+            FolderEntry::File(f) => f.id,
+            FolderEntry::Folder(f) => f.id,
+        }
+    }
+
+    /// Get the storage ID of this entry
+    pub fn storage_id(&self) -> StorageId {
+        match self {
+            FolderEntry::File(f) => f.storage_id,
+            FolderEntry::Folder(f) => f.storage_id,
+        }
+    }
+
+    /// Get the object format of this entry
+    pub fn format(&self) -> ObjectFormatCode {
+        match self {
+            FolderEntry::File(f) => f.format,
+            FolderEntry::Folder(f) => f.format,
+        }
+    }
+
+    /// Get the write-protection status of this entry
+    pub fn protection_status(&self) -> ProtectionStatus {
+        match self {
+            FolderEntry::File(f) => f.protection_status,
+            FolderEntry::Folder(f) => f.protection_status,
+        }
+    }
+
     /// Attempt to rename this entry on the device
     ///
     /// # Errors
@@ -367,12 +379,10 @@ impl FolderEntry {
         device: &mut D,
         session_id: SessionId,
         name: N,
-    ) -> Result<Self, <D as PtpIo>::Error>
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         N: Into<String>,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
     {
         match self {
             FolderEntry::File(f) => {
@@ -394,11 +404,10 @@ impl FolderEntry {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
             FolderEntry::File(f) => f.copy(device, session_id, parent).await,
@@ -416,11 +425,10 @@ impl FolderEntry {
         device: &mut D,
         session_id: SessionId,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error>,
-        <D as PtpIo>::Error: From<MtpError>,
+        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
             FolderEntry::File(f) => f.move_(device, session_id, parent).await,
@@ -446,10 +454,9 @@ impl FileSystem {
         device: &mut D,
         session_id: SessionId,
         storage_id: StorageId,
-    ) -> Result<Self, <D as PtpIo>::Error>
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<MtpError>,
     {
         Self::load_with_callback(device, session_id, storage_id, |_| {}).await
     }
@@ -468,10 +475,9 @@ impl FileSystem {
         session_id: SessionId,
         storage_id: StorageId,
         callback: F,
-    ) -> Result<Self, <D as PtpIo>::Error>
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<MtpError>,
         F: FnMut(ObjectHandle),
     {
         let mut ret = Self {
@@ -490,10 +496,12 @@ impl FileSystem {
     /// See [Performance Considerations].
     ///
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
-    pub async fn refresh<D>(&mut self, device: &mut D) -> Result<(), <D as PtpIo>::Error>
+    pub async fn refresh<D>(
+        &mut self,
+        device: &mut D,
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<MtpError>,
     {
         self.refresh_with_callback(device, |_| {}).await
     }
@@ -511,26 +519,23 @@ impl FileSystem {
         &mut self,
         device: &mut D,
         mut callback: impl FnMut(ObjectHandle),
-    ) -> Result<(), <D as PtpIo>::Error>
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<MtpError>,
     {
         let objects_response = device
             .get_object_handles(self.session_id, self.storage_id, None, None)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
         let objects = objects_response.data.data;
 
         let mut entries = Vec::with_capacity(objects.len());
         for object in objects.iter().copied() {
             callback(object);
 
-            let parent_response = device
+            let parent = match device
                 .get_object_prop_value::<ParentObject>(self.session_id, object)
-                .await?;
-
-            let parent = match parent_response {
+                .await
+            {
                 Ok(parent) => {
                     if parent.data.data == ObjectHandle::NONE {
                         None
@@ -544,11 +549,10 @@ impl FileSystem {
                 },
             };
 
-            let name_response = device
+            let name = match device
                 .get_object_prop_value::<ObjectFileName>(self.session_id, object)
-                .await?;
-
-            let name = match name_response {
+                .await
+            {
                 Ok(name) => name.data.data,
                 Err(e) => {
                     log::warn!("Failed to get object name, skipping: {e}");
@@ -556,11 +560,10 @@ impl FileSystem {
                 },
             };
 
-            let format_response = device
+            let format = match device
                 .get_object_prop_value::<ObjectFormat>(self.session_id, object)
-                .await?;
-
-            let format = match format_response {
+                .await
+            {
                 Ok(format) => format.data.data,
                 Err(e) => {
                     log::warn!("Failed to get object format, skipping: {e}");
@@ -586,11 +589,10 @@ impl FileSystem {
                         ));
                     },
                     _ => {
-                        let size_response = device
+                        let size = match device
                             .get_object_prop_value::<ObjectSize>(self.session_id, object)
-                            .await?;
-
-                        let size = match size_response {
+                            .await
+                        {
                             Ok(size) => size.data.data,
                             Err(e) => {
                                 log::warn!("Failed to get object size, skipping: {e}");

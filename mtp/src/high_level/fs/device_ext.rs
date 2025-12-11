@@ -1,12 +1,13 @@
-use super::Folder;
-use crate::error::Error;
+use super::{File, Folder};
 
 use std::future::Future;
 
-use mtp_spec::communication::SessionId;
+use mtp_spec::communication::{SessionId, response};
+use mtp_spec::device::storage::id::StorageId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
+use mtp_spec::object::types::properties::ObjectSize;
 use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpString};
 
 /// Filesystem extension trait for [`Device`]s
@@ -14,40 +15,49 @@ use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpStri
 /// This provides higher-level methods to perform operations on MTP-compatible devices as if they
 /// were real filesystems.
 pub trait DeviceFsExt {
-    fn mkdir(
+    fn mkdir<N>(
         &mut self,
         session_id: SessionId,
         parent: Option<&Folder>,
-        name: String,
-    ) -> impl Future<Output = Result<Folder, <Self as PtpIo>::Error>> + Send
+        name: N,
+    ) -> impl Future<Output = Result<Folder, MtpError<<Self as PtpIo>::TransportError>>> + Send
     where
         Self: Device,
-        <Self as PtpIo>::Error: From<Error>,
-        <Self as PtpIo>::Error: From<MtpError>;
+        N: Into<String> + Send;
+
+    fn create<N>(
+        &mut self,
+        session_id: SessionId,
+        parent: Option<&Folder>,
+        name: N,
+        format: ObjectFormatCode,
+        data: Vec<u8>,
+    ) -> impl Future<Output = Result<File, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    where
+        Self: Device,
+        N: Into<String> + Send;
 }
 
 impl<D> DeviceFsExt for D
 where
     D: Device,
-    <D as PtpIo>::Error: From<MtpError>,
 {
-    async fn mkdir(
+    async fn mkdir<N>(
         &mut self,
         session_id: SessionId,
         parent: Option<&Folder>,
-        name: String,
-    ) -> Result<Folder, <Self as PtpIo>::Error>
+        name: N,
+    ) -> Result<Folder, MtpError<<Self as PtpIo>::TransportError>>
     where
         Self: Device,
-        <Self as PtpIo>::Error: From<Error>,
-        <Self as PtpIo>::Error: From<MtpError>,
+        N: Into<String> + Send,
     {
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
 
         // TODO: Getting invalid parameter when trying to create within a directory and InvalidObjectHandle when trying to create at root.
         //       Maybe samsung issue?
-        let name_ptp = PtpString::try_from(name.clone())?;
+        let name_ptp = PtpString::try_from(name.into())?;
         let response = self
             .send_object_info(
                 session_id,
@@ -65,22 +75,103 @@ where
                     ..Default::default()
                 },
             )
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+            .await?;
 
-        self.send_object(session_id, Vec::new())
+        self.send_object(session_id, Vec::new()).await?;
+
+        let response::SendObjectInfo {
+            storage_id,
+            parent: _,
+            reserved_handle,
+        } = response.data;
+
+        let object_info = self
+            .get_object_info(session_id, reserved_handle)
             .await?
-            .map_err(Into::<MtpError>::into)?;
+            .data
+            .data;
 
         Ok(Folder {
-            id: response.data.reserved_handle,
-            storage_id: response.data.storage_id,
-            name,
+            id: reserved_handle,
+            storage_id,
+            name: object_info.filename.to_string(),
             format: ObjectFormatCode::Association,
             protection_status: ProtectionStatus::NoProtection,
-            date_created: None,
-            date_modified: None,
+            date_created: object_info.date_created,
+            date_modified: object_info.date_modified,
             children: vec![],
+        })
+    }
+
+    // TODO: Error if format is association
+    async fn create<N>(
+        &mut self,
+        session_id: SessionId,
+        parent: Option<&Folder>,
+        name: N,
+        format: ObjectFormatCode,
+        data: Vec<u8>,
+    ) -> Result<File, MtpError<<Self as PtpIo>::TransportError>>
+    where
+        Self: Device,
+        N: Into<String> + Send,
+    {
+        let storage = parent.map(|p| p.storage_id);
+        let parent_object = parent.map(|p| p.id);
+
+        let name_ptp = PtpString::try_from(name.into())?;
+        let response = self
+            .send_object_info(
+                session_id,
+                storage,
+                parent_object,
+                ObjectInfo {
+                    object_format: format,
+                    compressed_size: data.len() as u32,
+                    association: None,
+                    filename: name_ptp,
+
+                    // Not required for SendObjectInfo
+                    storage_id: StorageId::DEFAULT_STORE,
+                    protection_status: ProtectionStatus::default(),
+                    thumbnail: None,
+                    parent_object: None,
+                    sequence_number: 0,
+                    date_created: None,
+                    date_modified: None,
+                    keywords: Default::default(),
+                },
+            )
+            .await?;
+
+        let response::SendObjectInfo {
+            storage_id,
+            parent,
+            reserved_handle,
+        } = response.data;
+
+        self.send_object(session_id, data).await?;
+
+        let object_info = self
+            .get_object_info(session_id, reserved_handle)
+            .await?
+            .data
+            .data;
+
+        let size_response = self
+            .get_object_prop_value::<ObjectSize>(session_id, reserved_handle)
+            .await?;
+
+        Ok(File {
+            storage_id,
+            id: reserved_handle,
+            parent,
+            name: object_info.filename.to_string(),
+            size: size_response.data.data,
+            format: object_info.object_format,
+            protection_status: object_info.protection_status,
+            date_created: object_info.date_created,
+            date_modified: object_info.date_modified,
         })
     }
 }

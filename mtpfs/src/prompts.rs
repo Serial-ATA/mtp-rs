@@ -4,7 +4,7 @@ use futures::executor::block_on_stream;
 use mtp::communication::SessionId;
 use mtp::high_level::storages::{DeviceStorageExt, Storage};
 
-pub async fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
+pub async fn prompt_for_device() -> mtp::usb::error::Result<mtp::usb::Device> {
     fn extract_device_name(device: &mtp::usb::Device) -> String {
         match device.well_known_info() {
             Some(well_known_info) => {
@@ -56,7 +56,7 @@ pub async fn prompt_for_device() -> mtp::error::Result<mtp::usb::Device> {
 pub async fn prompt_for_storages(
     device: &mut mtp::usb::DeviceHandle,
     session_id: SessionId,
-) -> mtp::error::Result<Vec<Storage>> {
+) -> mtp::usb::error::Result<Vec<Storage>> {
     let mut storages = match device.storages(session_id).await {
         Ok(storages) => storages,
         Err(e) => {

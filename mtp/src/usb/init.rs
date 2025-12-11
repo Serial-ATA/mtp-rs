@@ -1,5 +1,9 @@
+use super::error::Error;
 use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
-use crate::error::Error;
+use crate::communication::SessionId;
+use crate::communication::operation::{OpenSessionError, OperationErrorKind};
+use crate::device::Device as _;
+use crate::error::MtpError;
 
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -7,9 +11,6 @@ use std::time::Duration;
 
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use mtp_spec::communication::SessionId;
-use mtp_spec::communication::operation::OpenSessionError;
-use mtp_spec::device::Device as _;
 pub use nusb;
 use nusb::descriptors::TransferType;
 use nusb::descriptors::language_id::US_ENGLISH;
@@ -79,21 +80,21 @@ impl Device {
     /// * Unable to open the device
     /// * The device has no applicable interfaces
     #[allow(clippy::missing_panics_doc)] // Not possible
-    pub async fn open(self) -> Result<(super::handle::DeviceHandle, SessionId), Error> {
+    pub async fn open(
+        self,
+    ) -> Result<(super::handle::DeviceHandle, SessionId), super::error::Error> {
         let mut handle = self.open_raw().await?;
 
-        let (response, session_id) = handle.open_session().await?;
-        match response {
-            Ok(_) => {},
-            Err(OpenSessionError::SessionAlreadyOpen(e)) => {
+        match handle.open_session().await {
+            Ok((_res, session_id)) => Ok((handle, session_id)),
+            Err(MtpError::Protocol(OperationErrorKind::OpenSession(
+                OpenSessionError::SessionAlreadyOpen(e),
+            ))) => {
                 log::warn!("Session {} already open", e.session_id);
+                Ok((handle, e.session_id))
             },
-            Err(e) => {
-                return Err(Error::Generic(Arc::new(e)));
-            },
+            Err(e) => Err(Error::Generic(Arc::new(e))),
         }
-
-        Ok((handle, session_id))
     }
 
     /// Attempt to open the device for MTP communication
@@ -105,11 +106,11 @@ impl Device {
     /// * Unable to open the device
     /// * The device has no applicable interfaces
     #[allow(clippy::missing_panics_doc)] // Not possible
-    pub async fn open_raw(self) -> Result<super::handle::DeviceHandle, super::error::UsbError> {
+    pub async fn open_raw(self) -> Result<super::handle::DeviceHandle, super::error::Error> {
         // MTP has 3 endpoints: 2 bulk, 1 interrupt
         const MTP_ENDPOINT_COUNT: u8 = 3;
 
-        let device = self.info.open().await?;
+        let device = self.info.open().await.map_err(|e| Arc::new(e.into()))?;
 
         let mut interface_num = None;
         let mut endpoints = None;
@@ -170,10 +171,15 @@ impl Device {
         }
 
         let Some(interface_num) = interface_num else {
-            return Err(super::error::UsbError::NoApplicableInterface);
+            return Err(Error::Core(MtpError::Transport(Arc::new(
+                super::error::UsbError::NoApplicableInterface,
+            ))));
         };
 
-        let interface = device.claim_interface(interface_num).await?;
+        let interface = device
+            .claim_interface(interface_num)
+            .await
+            .map_err(|e| Arc::new(e.into()))?;
 
         super::handle::DeviceHandle::new(device, self.flags, interface, endpoints.unwrap())
     }
@@ -323,9 +329,11 @@ impl Device {
 /// }
 /// # Ok(()) }
 /// ```
-pub async fn device_list()
--> Result<impl Stream<Item = Result<Device, super::error::UsbError>>, super::error::UsbError> {
-    let all_devices = nusb::list_devices().await?;
+pub async fn device_list() -> Result<
+    impl Stream<Item = Result<Device, Arc<super::error::UsbError>>>,
+    Arc<super::error::UsbError>,
+> {
+    let all_devices = nusb::list_devices().await.map_err(|e| Arc::new(e.into()))?;
     let futures = all_devices
         .map(|info| {
             let mut device = Device::from(info);
@@ -333,7 +341,7 @@ pub async fn device_list()
                 match device.check_mtp_eligibility().await {
                     Ok(MtpEligibility::Eligible) => Some(Ok(device)),
                     Ok(MtpEligibility::Ineligible) => None,
-                    Err(e) => Some(Err(e)),
+                    Err(e) => Some(Err(Arc::new(e))),
                 }
             }
         })

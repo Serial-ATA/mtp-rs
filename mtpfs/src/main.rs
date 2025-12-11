@@ -12,7 +12,7 @@ use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use mtp::device::PtpIo;
-use mtp::error::Error;
+use mtp::usb::error::Error;
 use tokio::sync::Mutex;
 
 #[tokio::main]

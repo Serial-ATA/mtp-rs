@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::{Debug, Formatter};
+use std::io::Read;
 use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,11 +16,13 @@ use libc::{EINVAL, EIO, ENOENT, ENOTDIR, c_int};
 use log::info;
 use mtp::communication::SessionId;
 use mtp::device::Device;
-use mtp::error::{Error, MtpError};
+use mtp::error::MtpError;
 use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
+use mtp::object::info::ObjectInfo;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
+use mtp::usb::error::{Error, UsbError};
 use tokio::sync::Mutex;
 
 const TTL: Duration = Duration::from_secs(u64::MAX);
@@ -503,60 +506,62 @@ impl MtpFuse {
             return Err(EINVAL);
         };
 
-        if new_parent != parent {
-            todo!();
-        }
+        let Some((parent_inode, _)) = self.inner.get(new_parent) else {
+            return Err(ENOENT);
+        };
+
+        let Entry::Real(parent) = &parent_inode.entry else {
+            return Err(EINVAL);
+        };
+
+        let FolderEntry::Folder(parent) = &**parent else {
+            return Err(EINVAL);
+        };
 
         let ino = inode.attr.ino;
-        let new_entry = match entry.rename(&mut *device, self.session_id, name_str).await {
-            Ok(entry) => entry,
+        let new_entry;
+        match entry.rename(&mut *device, self.session_id, name_str).await {
+            Ok(entry) => new_entry = entry,
             // Fallback to copy + delete
-            Err(Error::Core(MtpError::UnsupportedOperation)) => {
-                todo!()
-                // let mut f = entry.open(&mut *device, self.session_id).await?;
-                //
-                // let mut data = Vec::new();
-                // f.read_to_end(&mut data).map_err(Into::<Error>::into)?;
-                //
-                // let response = device
-                //     .send_object_info(
-                //         self.session_id,
-                //         Some(self.storage_id),
-                //         Some(self.parent),
-                //         ObjectInfo {
-                //             storage_id: self.storage_id,
-                //             object_format: self.format,
-                //             protection_status: self.protection_status,
-                //             compressed_size: 0,
-                //             thumbnail: None,
-                //             parent_object: None,
-                //             association_type: None,
-                //             sequence_number: 0,
-                //             filename: name_ptp,
-                //             date_created: self.date_created,
-                //             date_modified: self.date_modified,
-                //             keywords: Default::default(),
-                //         },
-                //     )
-                //     .await?
-                //     .map_err(Into::<MtpError>::into)?;
-                //
-                // id = response.data.reserved_handle;
-                // parent = response.data.parent;
-                // storage_id = response.data.storage_id;
-                //
-                // device
-                //     .send_object(session_id, data)
-                //     .await?
-                //     .map_err(Into::<MtpError>::into)?;
-                //
-                // device
-                //     .delete_object(session_id, self.id, Some(self.format))
-                //     .await?
-                //     .map_err(Into::<MtpError>::into)?;
+            Err(MtpError::UnsupportedOperation) => {
+                todo!();
+                let ret;
+                match &**entry {
+                    FolderEntry::Folder(_entry) => {
+                        let folder = device
+                            .mkdir(self.session_id, Some(parent), name_str)
+                            .await
+                            .map_err(|_| EIO)?;
+                        ret = FolderEntry::Folder(folder);
+                    },
+                    FolderEntry::File(entry) => {
+                        let mut f = entry
+                            .open(&mut *device, self.session_id)
+                            .await
+                            .map_err(|_| EIO)?;
+
+                        let mut data = Vec::new();
+                        f.read_to_end(&mut data)
+                            .map_err(|e| e.raw_os_error().unwrap_or(EIO))?;
+
+                        let file = device
+                            .create(self.session_id, Some(parent), name_str, entry.format, data)
+                            .await
+                            .map_err(|_| EIO)?;
+
+                        ret = FolderEntry::File(file);
+                    },
+                }
+
+                device
+                    .delete_object(self.session_id, entry.handle(), Some(entry.format()))
+                    .await
+                    .map_err(|_| EIO)?;
+
+                new_entry = ret;
             },
             Err(_) => return Err(EIO),
-        };
+        }
 
         self.inner
             .update_entry(ino, Entry::Real(Arc::new(new_entry)));
@@ -643,7 +648,7 @@ impl Filesystem for MtpFuse {
                 .await
         });
 
-        match dbg!(result) {
+        match result {
             Ok(folder) => {
                 let Some(inode) = self
                     .inner
@@ -757,14 +762,11 @@ impl Filesystem for MtpFuse {
             match device.get_object_info(self.session_id, file.id).await {
                 Ok(_fd) => reply.opened(0, flags as u32),
                 Err(e) => {
-                    let Error::Io(err) = e else {
-                        reply.error(EIO);
-                        return;
-                    };
-
-                    if let Some(errno) = err.raw_os_error() {
-                        reply.error(errno);
-                        return;
+                    if let MtpError::Transport(e) = e {
+                        if let UsbError::Native(e) = &*e {
+                            reply.error(e.os_error().map(|e| e as c_int).unwrap_or(EIO));
+                            return;
+                        }
                     }
 
                     reply.error(EIO);
@@ -805,22 +807,13 @@ impl Filesystem for MtpFuse {
                 .get_partial_object(self.session_id, file.id, offset as u32, size)
                 .await
             {
-                Ok(response) => match response {
-                    Ok(response) => reply.data(&response.data.data),
-                    Err(e) => {
-                        log::error!("Error reading file: {e}");
-                        reply.error(EIO);
-                    },
-                },
+                Ok(response) => reply.data(&response.data.data),
                 Err(e) => {
-                    let Error::Io(err) = e else {
-                        reply.error(EIO);
-                        return;
-                    };
-
-                    if let Some(errno) = err.raw_os_error() {
-                        reply.error(errno);
-                        return;
+                    if let MtpError::Transport(e) = e {
+                        if let UsbError::Native(e) = &*e {
+                            reply.error(e.os_error().map(|e| e as c_int).unwrap_or(EIO));
+                            return;
+                        }
                     }
 
                     reply.error(EIO);

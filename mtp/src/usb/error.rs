@@ -1,9 +1,21 @@
 //! Error types for USB transport
 
-use core::error::Error;
 use core::fmt::Display;
+use std::sync::Arc;
 
 pub use mtp_spec::error::*;
+
+/// A specialized `Result` type for MTP over USB operations.
+pub type Result<T> = crate::error::Result<T, Arc<UsbError>>;
+
+/// A specialized error type for MTP over USB operations.
+pub type Error = crate::error::Error<Arc<UsbError>>;
+
+impl From<Arc<UsbError>> for Error {
+    fn from(error: Arc<UsbError>) -> Self {
+        Self::Core(MtpError::Transport(error))
+    }
+}
 
 /// Errors that can occur during USB transport
 #[derive(Debug)]
@@ -32,7 +44,7 @@ impl Display for UsbError {
     }
 }
 
-impl Error for UsbError {}
+impl core::error::Error for UsbError {}
 
 impl From<nusb::Error> for UsbError {
     fn from(error: nusb::Error) -> Self {

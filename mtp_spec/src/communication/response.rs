@@ -361,9 +361,9 @@ impl Display for ErrorCode {
 
 /// The result of a successful or failed operation
 ///
-/// See [`SuccessResponse`] and [`ErrorResponse`]
-pub type Response<O> =
-    Result<SuccessResponse<<O as DynOperation>::Response>, <O as DynOperation>::Error>;
+/// See [`SuccessResponse`] and [`TransportError`]
+pub type Response<O, TransportError> =
+    Result<SuccessResponse<<O as DynOperation>::Response>, TransportError>;
 
 /// The result of a successful operation
 #[derive(Clone, Debug, PartialEq)]

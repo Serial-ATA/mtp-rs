@@ -1,9 +1,14 @@
-use super::error::UsbError;
-use crate::error::Error;
+use super::error::{Error, UsbError};
+use crate::communication::event::Event;
+use crate::communication::operation::{DataDirection, DynOperation, SerializedOperation};
+use crate::communication::response::{CODE_OK, Response, SuccessResponse};
+use crate::communication::{SessionId, TransactionId};
+use crate::device::{Device, PtpIo};
+use crate::error::MtpError;
 use crate::usb::UsbDeviceFlags;
+
 use std::io::Cursor;
 use std::pin::Pin;
-
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -12,12 +17,6 @@ use deku::ctx::Endian;
 use deku::reader::Reader;
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuReader, DekuWrite};
 use futures::{Stream, StreamExt};
-use mtp_spec::communication::event::Event;
-use mtp_spec::communication::operation::{DataDirection, DynOperation, SerializedOperation};
-use mtp_spec::communication::response::{CODE_OK, Response, SuccessResponse};
-use mtp_spec::communication::{SessionId, TransactionId};
-use mtp_spec::device::{Device, PtpIo};
-use mtp_spec::error::MtpError;
 use nusb::Endpoint;
 use nusb::transfer::{Buffer, Bulk, In, Interrupt, Out};
 use tokio::sync::Mutex;
@@ -58,16 +57,22 @@ impl DeviceHandle {
         flags: UsbDeviceFlags,
         interface: nusb::Interface,
         endpoints: Endpoints,
-    ) -> Result<Self, UsbError> {
+    ) -> Result<Self, Error> {
         let timeout = if flags.contains(UsbDeviceFlags::LONG_TIMEOUT) {
             Duration::from_millis(60000)
         } else {
             Duration::from_millis(20000)
         };
 
-        let out_queue = interface.endpoint::<Bulk, Out>(endpoints.bulk_out)?;
-        let in_queue = interface.endpoint::<Bulk, In>(endpoints.bulk_in)?;
-        let interrupt_queue = interface.endpoint::<Interrupt, In>(endpoints.interrupt)?;
+        let out_queue = interface
+            .endpoint::<Bulk, Out>(endpoints.bulk_out)
+            .map_err(|e| Arc::new(e.into()))?;
+        let in_queue = interface
+            .endpoint::<Bulk, In>(endpoints.bulk_in)
+            .map_err(|e| Arc::new(e.into()))?;
+        let interrupt_queue = interface
+            .endpoint::<Interrupt, In>(endpoints.interrupt)
+            .map_err(|e| Arc::new(e.into()))?;
 
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(100);
         let event_tx_clone = event_tx.clone();
@@ -82,7 +87,7 @@ impl DeviceHandle {
             }
 
             impl Stream for UsbEventStream {
-                type Item = Result<Event, crate::error::Error>;
+                type Item = Result<Event, crate::error::Error<Arc<UsbError>>>;
 
                 fn poll_next(
                     self: std::pin::Pin<&mut Self>,
@@ -171,7 +176,8 @@ impl Stream for EventStream {
 }
 
 impl PtpIo for DeviceHandle {
-    type Error = crate::error::Error;
+    type TransportError = Arc<UsbError>;
+    type Error = Error;
     type EventStream = EventStream;
 
     fn next_transaction_id(&mut self) -> TransactionId {
@@ -200,7 +206,7 @@ impl PtpIo for DeviceHandle {
         &mut self,
         operation: O,
         data: Option<Vec<u8>>,
-    ) -> Result<Response<O>, Self::Error>
+    ) -> Response<O, MtpError<Self::TransportError>>
     where
         O: DynOperation,
         for<'a> SerializedOperation<'a>: From<&'a O>,
@@ -210,7 +216,7 @@ impl PtpIo for DeviceHandle {
             queue: &mut Endpoint<Bulk, Out>,
             buffer_size: usize,
             timeout: Duration,
-        ) -> Result<(), crate::error::Error> {
+        ) -> Result<(), Arc<UsbError>> {
             let data_len = data.len();
 
             let mut transfers = 1;
@@ -223,8 +229,8 @@ impl PtpIo for DeviceHandle {
             for _ in 0..transfers {
                 let completion = tokio::time::timeout(timeout, queue.next_complete())
                     .await
-                    .map_err(|_| UsbError::Timeout)?;
-                completion.status.map_err(UsbError::from)?;
+                    .map_err(|_| Arc::new(UsbError::Timeout))?;
+                completion.status.map_err(|e| Arc::new(UsbError::from(e)))?;
             }
 
             Ok(())
@@ -242,9 +248,7 @@ impl PtpIo for DeviceHandle {
                 op.transaction_id(),
                 op.encode_parameters(self.endian())?,
             );
-            command_buf = command_container
-                .to_bytes()
-                .map_err(Into::<MtpError>::into)?;
+            command_buf = command_container.to_bytes()?;
         }
 
         send(
@@ -253,7 +257,8 @@ impl PtpIo for DeviceHandle {
             self.endpoints.bulk_out_buffer_size,
             self.timeout,
         )
-        .await?;
+        .await
+        .map_err(MtpError::Transport)?;
 
         // Phase 2: Data (if applicable)
         let mut responder_data = None;
@@ -265,7 +270,8 @@ impl PtpIo for DeviceHandle {
                     self.endpoints.bulk_out_buffer_size,
                     self.timeout,
                 )
-                .await?;
+                .await
+                .map_err(MtpError::Transport)?;
             },
             Some(DataDirection::ResponderToInitiator) => {
                 let data_phase = get_data_from_responder(self).await?;
@@ -273,7 +279,7 @@ impl PtpIo for DeviceHandle {
                 // Error was returned
                 if data_phase.type_ == ContainerType::Response {
                     let err = O::decode_err(&data_phase.payload, self.endian(), data_phase.code)?;
-                    return Ok(Response::Err(err));
+                    return Err(MtpError::Protocol(err.into()));
                 }
 
                 responder_data = Some(data_phase.payload);
@@ -285,33 +291,31 @@ impl PtpIo for DeviceHandle {
         // Phase 3: Response
         log::debug!("Attempting to get response");
 
-        let response_raw = next_packet(self).await?;
+        let response_raw = next_packet(self).await.map_err(MtpError::Transport)?;
 
-        let (_, response_container) =
-            UsbContainer::from_bytes((&response_raw, 0)).map_err(MtpError::from)?;
-        let response = response_container;
+        let (_, response) = UsbContainer::from_bytes((&response_raw, 0))?;
 
         if response.code != CODE_OK {
             let err = O::decode_err(&response.payload, self.endian(), response.code)?;
-            return Ok(Response::Err(err));
+            return Err(MtpError::Protocol(err.into()));
         }
 
         match responder_data {
             Some(data) => {
                 let data = O::decode_data(&data, self.endian())?;
-                Ok(Response::Ok(SuccessResponse {
+                Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,
-                }))
+                })
             },
             None => {
                 // This case will only ever be hit for `()` anyway. The data we give it will
                 // never be read.
                 let data = O::decode_data(&[], self.endian())?;
-                Ok(Response::Ok(SuccessResponse {
+                Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,
-                }))
+                })
             },
         }
     }
@@ -360,12 +364,11 @@ impl UsbContainer {
 
 async fn get_data_from_responder(
     handle: &mut DeviceHandle,
-) -> Result<UsbContainer, crate::error::Error> {
+) -> Result<UsbContainer, MtpError<Arc<UsbError>>> {
     log::trace!("Attempting to get data from responder");
 
-    let data_phase_raw = next_packet(handle).await?;
-    let (_, mut data_phase) =
-        UsbContainer::from_bytes((&data_phase_raw, 0)).map_err(MtpError::from)?;
+    let data_phase_raw = next_packet(handle).await.map_err(MtpError::Transport)?;
+    let (_, mut data_phase) = UsbContainer::from_bytes((&data_phase_raw, 0))?;
 
     if data_phase.type_ == ContainerType::Response {
         if data_phase.code == CODE_OK {
@@ -396,9 +399,9 @@ async fn get_data_from_responder(
         );
 
         while remaining > 0 {
-            let data = next_packet(handle).await?;
+            let data = next_packet(handle).await.map_err(MtpError::Transport)?;
             let Some(r) = remaining.checked_sub(data.len() as u32) else {
-                return Err(UsbError::TooMuchData.into());
+                return Err(MtpError::Transport(Arc::new(UsbError::TooMuchData)));
             };
             remaining = r;
 
@@ -410,7 +413,7 @@ async fn get_data_from_responder(
     Ok(data_phase)
 }
 
-async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error::Error> {
+async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, Arc<UsbError>> {
     let pending = handle.in_queue.pending();
     for _ in 0..(2usize.saturating_sub(pending)) {
         handle
@@ -421,8 +424,8 @@ async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, crate::error:
     log::trace!("Waiting for next packet");
     let completion = tokio::time::timeout(handle.timeout, handle.in_queue.next_complete())
         .await
-        .map_err(|_| UsbError::Timeout)?;
-    completion.status.map_err(UsbError::from)?;
+        .map_err(|_| Arc::new(UsbError::Timeout))?;
+    completion.status.map_err(|e| Arc::new(UsbError::from(e)))?;
 
     Ok(completion.buffer.into_vec())
 }

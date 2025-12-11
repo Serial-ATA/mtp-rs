@@ -89,13 +89,13 @@ macro_rules! parse_operations {
 		paste::paste! {
 			#[derive(Clone, Debug)]
 			#[allow(missing_docs)]
-			pub enum OperationError {
+			pub enum OperationErrorKind {
 				$(
 				$variant([<$variant Error>])
 				),*
 			}
 
-			impl core::fmt::Display for OperationError {
+			impl core::fmt::Display for OperationErrorKind {
 				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 					match self {
 						$(
@@ -104,8 +104,6 @@ macro_rules! parse_operations {
 					}
 				}
 			}
-
-			impl core::error::Error for OperationError {}
 		}
 	};
 
@@ -313,15 +311,9 @@ macro_rules! parse_operations {
 
 			impl core::error::Error for [<$name Error>] {}
 
-			impl From<[<$name Error>]> for OperationError {
+			impl From<[<$name Error>]> for OperationErrorKind {
 				fn from(value: [<$name Error>]) -> Self {
-					OperationError::$name(value)
-				}
-			}
-
-			impl From<[<$name Error>]> for crate::error::MtpError {
-				fn from(value: [<$name Error>]) -> Self {
-					crate::error::MtpError::Operation(value.into())
+					OperationErrorKind::$name(value)
 				}
 			}
 		}

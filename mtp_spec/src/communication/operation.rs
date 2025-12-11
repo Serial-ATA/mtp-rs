@@ -1,7 +1,7 @@
 //! Initiator -> Responder operation definitions
 
 use crate::communication::{Parameter, SessionId, TransactionId};
-use crate::error::MtpError;
+use crate::error::SerializationError;
 use crate::object::types::ArrayEncodable;
 
 use alloc::vec::Vec;
@@ -29,7 +29,7 @@ pub struct SerializedOperation<'a> {
 
 impl SerializedOperation<'_> {
     /// Encode the operation parameters for transport
-    pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>, MtpError> {
+    pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>, SerializationError> {
         let mut buf = Vec::with_capacity(size_of_val(self.parameters));
 
         let mut writer = Writer::new(Cursor::new(&mut buf));
@@ -70,7 +70,7 @@ where
     /// The error type for this operation
     ///
     /// This comes from the responder, see [`response::errors`](crate::communication::response::errors)
-    type Error: for<'b> DekuReader<'b, (Endian, u16)>;
+    type Error: for<'b> DekuReader<'b, (Endian, u16)> + Into<OperationErrorKind>;
 
     /// Encode the operation for transport
     fn encode(&self) -> SerializedOperation<'_> {
@@ -83,7 +83,7 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_data(bytes: &[u8], endian: Endian) -> Result<Self::Response, MtpError> {
+    fn decode_data(bytes: &[u8], endian: Endian) -> Result<Self::Response, SerializationError> {
         match Self::Response::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), endian) {
             Ok(response) => Ok(response),
             Err(err) => Err(err.into()),
@@ -96,7 +96,11 @@ where
     ///
     /// This will fail if the data does not match the expected type, which may indicate an issue
     /// with the responder.
-    fn decode_err(bytes: &[u8], endian: Endian, code: u16) -> Result<Self::Error, MtpError> {
+    fn decode_err(
+        bytes: &[u8],
+        endian: Endian,
+        code: u16,
+    ) -> Result<Self::Error, SerializationError> {
         Self::Error::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), (endian, code))
             .map_err(Into::into)
     }

@@ -34,10 +34,7 @@ pub struct Storage {
     pub volume_identifier: String,
 }
 
-pub trait DeviceStorageExt: Device
-where
-    <Self as PtpIo>::Error: From<MtpError>,
-{
+pub trait DeviceStorageExt: Device {
     /// Get all [`Storage`]s on the device
     ///
     /// This is a combination of the [`GetStorageIDs`] and [`GetStorageInfo`] operations.
@@ -47,33 +44,25 @@ where
     fn storages(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Vec<Storage>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Result<Vec<Storage>, MtpError<<Self as PtpIo>::TransportError>>> + Send
     where
-        Self: Device,
-        <Self as PtpIo>::Error: From<MtpError>;
+        Self: Device;
 }
 
 impl<D> DeviceStorageExt for D
 where
     D: Device,
-    <D as PtpIo>::Error: From<MtpError>,
 {
     async fn storages(
         &mut self,
         session_id: SessionId,
-    ) -> Result<Vec<Storage>, <D as PtpIo>::Error> {
-        let storage_ids_response = self
-            .get_storage_ids(session_id)
-            .await?
-            .map_err(Into::<MtpError>::into)?;
+    ) -> Result<Vec<Storage>, MtpError<<D as PtpIo>::TransportError>> {
+        let storage_ids_response = self.get_storage_ids(session_id).await?;
         let storage_ids = storage_ids_response.data.data;
 
         let mut storages = Vec::with_capacity(storage_ids.len());
         for storage_id in storage_ids.iter().copied() {
-            let storage_info_response = self
-                .get_storage_info(session_id, storage_id)
-                .await?
-                .map_err(Into::<MtpError>::into)?;
+            let storage_info_response = self.get_storage_info(session_id, storage_id).await?;
             let storage_info = storage_info_response.data.data;
 
             storages.push(Storage {

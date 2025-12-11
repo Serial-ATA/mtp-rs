@@ -2,7 +2,7 @@ use crate::communication::event::Event;
 use crate::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
-use crate::error::MtpError;
+use crate::error::{MtpError, SerializationError};
 
 use alloc::vec::Vec;
 
@@ -15,8 +15,10 @@ use futures_core::Stream;
 ///
 /// See [`Device`](super::Device) for a higher-level interface for sending operations.
 pub trait PtpIo: Send {
+    /// Transport implementation-specific error type (e.g. `UsbError`)
+    type TransportError: core::error::Error;
     /// Implementation-specific errors that can occur during I/O operations
-    type Error: core::error::Error + From<MtpError>;
+    type Error: core::error::Error + From<MtpError<Self::TransportError>>;
     /// Implementation-specific event stream, see [`Self::event_stream()`]
     type EventStream: Stream<Item = Result<Event, Self::Error>>;
 
@@ -47,7 +49,7 @@ pub trait PtpIo: Send {
         &mut self,
         operation: O,
         data: Option<Vec<u8>>,
-    ) -> impl Future<Output = Result<Response<O>, Self::Error>> + Send
+    ) -> impl Future<Output = Response<O, MtpError<Self::TransportError>>> + Send
     where
         O: DynOperation,
         for<'a> SerializedOperation<'a>: From<&'a O>,
@@ -56,16 +58,16 @@ pub trait PtpIo: Send {
             match &data {
                 Some(_) => match O::DATA_DIRECTION {
                     Some(DataDirection::ResponderToInitiator) => {
-                        return Err(MtpError::WrongDataDirection.into());
+                        return Err(SerializationError::WrongDataDirection.into());
                     },
                     None => {
-                        return Err(MtpError::UnexpectedDataProvided.into());
+                        return Err(SerializationError::UnexpectedDataProvided.into());
                     },
                     _ => {},
                 },
                 None => {
                     if O::DATA_DIRECTION == Some(DataDirection::InitiatorToResponder) {
-                        return Err(MtpError::NoDataProvided.into());
+                        return Err(SerializationError::NoDataProvided.into());
                     }
                 },
             }
@@ -82,7 +84,7 @@ pub trait PtpIo: Send {
         &mut self,
         operation: O,
         data: Option<Vec<u8>>,
-    ) -> impl Future<Output = Result<Response<O>, Self::Error>> + Send
+    ) -> impl Future<Output = Response<O, MtpError<Self::TransportError>>> + Send
     where
         O: DynOperation,
         for<'a> SerializedOperation<'a>: From<&'a O>;

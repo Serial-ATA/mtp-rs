@@ -1,4 +1,3 @@
-use crate::error::MtpError;
 use crate::object::types::PtpString;
 
 use alloc::borrow::Cow;
@@ -156,7 +155,7 @@ impl DateTime {
 }
 
 impl TryFrom<PtpString> for DateTime {
-    type Error = MtpError;
+    type Error = DateTimeError;
 
     fn try_from(value: PtpString) -> Result<Self, Self::Error> {
         Self::from_str(value.to_string().as_str())
@@ -212,10 +211,10 @@ impl Display for DateTimeError {
 }
 
 impl FromStr for DateTime {
-    type Err = MtpError;
+    type Err = DateTimeError;
 
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
-        fn parse_int(s: &mut &str) -> Result<Option<u8>, MtpError> {
+        fn parse_int(s: &mut &str) -> Result<Option<u8>, DateTimeError> {
             if s.is_empty() {
                 return Ok(None);
             }

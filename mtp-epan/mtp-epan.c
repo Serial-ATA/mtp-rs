@@ -98,8 +98,8 @@ void proto_reg_handoff_mtp(void) {
   static dissector_handle_t mtp_handle;
 
   mtp_handle = create_dissector_handle(dissect_mtp, proto_mtp);
-  dissector_add_uint("usb.bulk", 6, mtp_handle);
-  dissector_add_uint("usb.bulk", 0xFF, mtp_handle);
+  dissector_add_uint("usb.class", 6, mtp_handle);
+  dissector_add_uint("usb.class", 0xFF, mtp_handle);
 }
 
 G_MODULE_EXPORT void plugin_register(void) {

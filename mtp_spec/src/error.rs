@@ -1,43 +1,10 @@
-//! Errors that can occur during MTP operations
+use crate::communication::operation::OperationErrorKind;
 
-use crate::object::types::DateTimeError;
-use crate::object::types::properties::ObjectPropertyCode;
+use crate::object::types::{DateTimeError, NulError};
+use core::fmt::{Display, Formatter};
 
-use alloc::borrow::Cow;
-use alloc::sync::Arc;
-use core::fmt::{Debug, Display};
-
-// Shorthand for return Err(MtpError::Foo)
-//
-// Usage:
-// - err!(Variant)          -> return Err(MtpError::Variant)
-// - err!(Variant(Message)) -> return Err(MtpError::Variant(Message))
-macro_rules! err {
-    ($variant:ident) => {
-        return Err(crate::error::MtpError::$variant)
-    };
-    ($variant:ident, $reason:literal) => {
-        return Err(crate::error::MtpError::$variant($reason))
-    };
-}
-
-use crate::communication::operation::OperationError;
-pub(crate) use err;
-
-/// Errors that can occur during MTP operations
 #[derive(Clone, Debug)]
-#[non_exhaustive]
-pub enum MtpError {
-    /// Attempting to deserialize a [`PtpString`] containing a null byte
-    ///
-    /// [`PtpString`]: crate::object::types::PtpString
-    StringContainsNull,
-    /// Attempting to parse a malformed [`DateTime`]
-    ///
-    /// [`DateTime`]: crate::object::types::DateTime
-    BadDateTime(DateTimeError),
-    /// Attempt to modify a property that the device does not allow modifying
-    CannotModify(ObjectPropertyCode),
+pub enum SerializationError {
     /// Attempting to send data to a responder, when the data direction is [`DataDirection::ResponderToInitiator`]
     ///
     /// [`DataDirection::ResponderToInitiator`]: crate::communication::operation::DataDirection::ResponderToInitiator
@@ -48,67 +15,112 @@ pub enum MtpError {
     ///
     /// [`DataDirection::InitiatorToResponder`]: crate::communication::operation::DataDirection::InitiatorToResponder
     NoDataProvided,
+    /// Attempting to deserialize a [`PtpString`] containing a null byte
+    ///
+    /// [`PtpString`]: crate::object::types::PtpString
+    StringContainsNull,
+    /// Attempting to parse a malformed [`DateTime`]
+    ///
+    /// [`DateTime`]: crate::object::types::DateTime
+    BadDateTime(DateTimeError),
     /// General serialization/deserialization errors
-    Serialization(deku::DekuError),
-    /// Generic error for values received from misbehaving responders
-    ReceivedBadValue(Cow<'static, str>),
-    /// Error responses for an operation
-    Operation(OperationError),
-    /// Generic error for unsupported operations performed by high-level utilities
-    UnsupportedOperation,
-    Generic(Arc<dyn core::error::Error + Send + Sync>),
+    General(deku::DekuError),
 }
 
-impl Display for MtpError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl Display for SerializationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            MtpError::StringContainsNull => write!(f, "String contains null bytes"),
-            MtpError::BadDateTime(err) => write!(f, "{err}"),
-            MtpError::CannotModify(code) => write!(
-                f,
-                "Device does not support modifying the `{code:?}` property"
-            ),
-            MtpError::WrongDataDirection => write!(
+            SerializationError::WrongDataDirection => write!(
                 f,
                 "Attempted to send data with an operation whose data direction is responder -> \
                  initiator"
             ),
-            MtpError::UnexpectedDataProvided => write!(
+            SerializationError::UnexpectedDataProvided => write!(
                 f,
                 "Data provided for operation when data direction is `None`"
             ),
-            MtpError::NoDataProvided => {
+            SerializationError::NoDataProvided => {
                 write!(f, "Expected data for operation, but none was provided")
             },
-            MtpError::Serialization(error) => write!(f, "Serialization error: {error}"),
-            MtpError::ReceivedBadValue(reason) => {
-                write!(f, "Responder provided a bad value: {reason}")
-            },
-            MtpError::Operation(error) => write!(f, "Operation error: {error}"),
-            MtpError::UnsupportedOperation => {
-                write!(f, "Operation is not supported by the responder")
-            },
-            MtpError::Generic(error) => write!(f, "{error}"),
+            SerializationError::StringContainsNull => write!(f, "{}", NulError),
+            SerializationError::BadDateTime(err) => write!(f, "{err}"),
+            SerializationError::General(error) => write!(f, "{error}"),
         }
     }
 }
 
-impl core::error::Error for MtpError {}
+impl core::error::Error for SerializationError {}
 
-impl From<DateTimeError> for MtpError {
-    fn from(error: DateTimeError) -> Self {
-        MtpError::BadDateTime(error)
+impl From<NulError> for SerializationError {
+    fn from(_: NulError) -> Self {
+        SerializationError::StringContainsNull
     }
 }
 
-impl From<deku::DekuError> for MtpError {
+impl From<DateTimeError> for SerializationError {
+    fn from(error: DateTimeError) -> Self {
+        SerializationError::BadDateTime(error)
+    }
+}
+
+impl From<deku::DekuError> for SerializationError {
     fn from(error: deku::DekuError) -> Self {
+        SerializationError::General(error)
+    }
+}
+
+// TODO: Better comment
+/// Errors that can occur during serialization and transport
+#[derive(Clone, Debug)]
+pub enum MtpError<E> {
+    /// An error while serializing/deserializing operation/response data
+    Serialization(SerializationError),
+    /// An error from the protocol layer (e.g. the responder doesn't support an operation)
+    Protocol(OperationErrorKind),
+    /// An error from the transport layer (e.g. failed to decode a USB packet)
+    Transport(E),
+    /// Generic error for unsupported operations performed by high-level utilities
+    UnsupportedOperation,
+}
+
+impl<E> Display for MtpError<E>
+where
+    E: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            MtpError::Serialization(error) => write!(f, "{error}"),
+            MtpError::Protocol(e) => write!(f, "{e}"),
+            MtpError::Transport(e) => write!(f, "{e}"),
+            MtpError::UnsupportedOperation => {
+                write!(f, "Operation is not supported by the responder")
+            },
+        }
+    }
+}
+
+impl<E> core::error::Error for MtpError<E> where E: core::error::Error {}
+
+impl<E> From<SerializationError> for MtpError<E> {
+    fn from(error: SerializationError) -> Self {
         MtpError::Serialization(error)
     }
 }
 
-impl From<OperationError> for MtpError {
-    fn from(error: OperationError) -> Self {
-        MtpError::Operation(error)
+impl<E> From<NulError> for MtpError<E> {
+    fn from(error: NulError) -> Self {
+        MtpError::Serialization(error.into())
+    }
+}
+
+impl<E> From<DateTimeError> for MtpError<E> {
+    fn from(error: DateTimeError) -> Self {
+        MtpError::Serialization(error.into())
+    }
+}
+
+impl<E> From<deku::DekuError> for MtpError<E> {
+    fn from(error: deku::DekuError) -> Self {
+        MtpError::Serialization(error.into())
     }
 }

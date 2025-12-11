@@ -1,5 +1,3 @@
-use crate::error::{MtpError, err};
-
 use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -65,8 +63,20 @@ impl PtpString {
     }
 }
 
+/// Attempting to deserialize a [`PtpString`] containing a null byte
+///
+/// [`PtpString`]: crate::object::types::PtpString
+#[derive(Copy, Clone, Debug)]
+pub struct NulError;
+
+impl Display for NulError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "String contains null bytes")
+    }
+}
+
 impl TryFrom<String> for PtpString {
-    type Error = MtpError;
+    type Error = NulError;
 
     fn try_from(value: String) -> core::result::Result<Self, Self::Error> {
         if value.is_empty() {
@@ -75,7 +85,7 @@ impl TryFrom<String> for PtpString {
 
         // We need to validate the string's contents.
         if value.contains('\0') {
-            err!(StringContainsNull);
+            return Err(NulError);
         }
 
         // We need to validate the string's length (in characters, NOT bytes).
@@ -95,7 +105,7 @@ impl TryFrom<String> for PtpString {
 }
 
 impl FromStr for PtpString {
-    type Err = MtpError;
+    type Err = NulError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::try_from(s.to_string())

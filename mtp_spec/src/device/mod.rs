@@ -7,12 +7,12 @@
 //!   providing transport implementations
 
 use crate::communication::operation::{
-    CloseSession, CopyObject, DeleteObject, FormatStore, GetDeviceInfo, GetDevicePropDesc,
-    GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject, GetObjectHandles,
-    GetObjectInfo, GetObjectPropDesc, GetObjectPropDescError, GetObjectPropList,
+    CloseSession, CopyObject, DeleteObject, DynOperation, FormatStore, GetDeviceInfo,
+    GetDevicePropDesc, GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject,
+    GetObjectHandles, GetObjectInfo, GetObjectPropDesc, GetObjectPropDescError, GetObjectPropList,
     GetObjectPropValue, GetObjectPropsSupported, GetObjectReferences, GetPartialObject,
     GetStorageIDs, GetStorageInfo, GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject,
-    OpenSession, OperationError, PowerDown, ResetDevice, ResetDevicePropValue, SelfTest,
+    OpenSession, OperationErrorKind, PowerDown, ResetDevice, ResetDevicePropValue, SelfTest,
     SelfTestType, SendObject, SendObjectInfo, SendObjectPropList, SetDevicePropValue,
     SetObjectPropList, SetObjectPropValue, SetObjectProtection, SetObjectReferences, Skip,
     TerminateOpenCapture,
@@ -22,6 +22,7 @@ use crate::communication::{SessionId, TransactionId};
 use crate::device::properties::{DeviceProperty, DevicePropertyCode, GetSet};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
+use crate::error::MtpError;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle, PtpString};
@@ -58,12 +59,11 @@ pub trait Device: PtpIo {
     fn battery_level(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<u8, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<u8, MtpError<<Self as PtpIo>::TransportError>>> {
         async move {
             let prop = self
                 .get_device_prop_value::<properties::BatteryLevel>(session_id)
-                .await?
-                .map_err(Into::<crate::error::MtpError>::into)?;
+                .await?;
             Ok(prop.data.data)
         }
     }
@@ -72,12 +72,11 @@ pub trait Device: PtpIo {
     fn friendly_name(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<PtpString, <Self as PtpIo>::Error>> {
+    ) -> impl Future<Output = Result<PtpString, MtpError<<Self as PtpIo>::TransportError>>> {
         async move {
             let prop = self
                 .get_device_prop_value::<properties::DeviceFriendlyName>(session_id)
-                .await?
-                .map_err(Into::<crate::error::MtpError>::into)?;
+                .await?;
             Ok(prop.data.data)
         }
     }
@@ -87,21 +86,17 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<bool, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<bool, MtpError<<Self as PtpIo>::TransportError>>>
     where
         T: ObjectProperty,
     {
         async move {
-            match self
-                .get_object_prop_desc::<T>(session_id, format)
-                .await?
-                .map_err(Into::<crate::error::MtpError>::into)
-            {
+            match self.get_object_prop_desc::<T>(session_id, format).await {
                 Ok(desc) => Ok(desc.data.data.get_set() == GetSet::ReadWrite),
-                Err(crate::error::MtpError::Operation(OperationError::GetObjectPropDesc(
+                Err(MtpError::Protocol(OperationErrorKind::GetObjectPropDesc(
                     GetObjectPropDescError::ObjectPropNotSupported(_),
                 ))) => Ok(false),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(e),
             }
         }
     }
@@ -110,15 +105,12 @@ pub trait Device: PtpIo {
     fn device_property_can_be_modified<T>(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<bool, <Self as PtpIo>::Error>>
+    ) -> impl Future<Output = Result<bool, MtpError<<Self as PtpIo>::TransportError>>>
     where
         T: DeviceProperty,
     {
         async move {
-            let desc = self
-                .get_device_prop_desc::<T>(session_id)
-                .await?
-                .map_err(Into::<crate::error::MtpError>::into)?;
+            let desc = self.get_device_prop_desc::<T>(session_id).await?;
 
             Ok(desc.data.data.get_set == GetSet::ReadWrite)
         }
@@ -130,7 +122,8 @@ pub trait Device: PtpIo {
     fn get_device_info(
         &mut self,
         session_id: Option<SessionId>,
-    ) -> impl Future<Output = Result<Response<GetDeviceInfo>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetDeviceInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = if session_id.is_some() {
                 self.next_transaction_id()
@@ -149,14 +142,18 @@ pub trait Device: PtpIo {
     /// Send a [`OpenSession`] operation
     fn open_session(
         &mut self,
-    ) -> impl Future<Output = Result<(Response<OpenSession>, SessionId), <Self as PtpIo>::Error>>
-    {
+    ) -> impl Future<
+        Output = Result<
+            (<OpenSession as DynOperation>::Response, SessionId),
+            MtpError<<Self as PtpIo>::TransportError>,
+        >,
+    > {
         async move {
             let transaction_id = self.next_transaction_id();
             let session_id = self.next_session_id();
             self.send_operation(OpenSession::new(transaction_id, session_id), None)
                 .await
-                .map(|res| (res, session_id))
+                .map(|res| (res.data, session_id))
         }
     }
 
@@ -164,7 +161,8 @@ pub trait Device: PtpIo {
     fn close_session(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<CloseSession>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<CloseSession, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(CloseSession::new(transaction_id, session_id), None)
@@ -176,7 +174,8 @@ pub trait Device: PtpIo {
     fn get_storage_ids(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<GetStorageIDs>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetStorageIDs, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetStorageIDs::new(transaction_id, session_id), None)
@@ -189,7 +188,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         storage: StorageId,
-    ) -> impl Future<Output = Result<Response<GetStorageInfo>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetStorageInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -207,7 +207,8 @@ pub trait Device: PtpIo {
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<GetNumObjects>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetNumObjects, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -225,7 +226,7 @@ pub trait Device: PtpIo {
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<GetObjectHandles>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Response<GetObjectHandles, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
         async move {
             let transaction_id = self.next_transaction_id();
@@ -242,7 +243,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectInfo>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetObjectInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetObjectInfo::new(transaction_id, session_id, object), None)
@@ -255,7 +257,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObject>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetObject::new(transaction_id, session_id, object), None)
@@ -268,7 +271,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetThumb>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<GetThumb, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(GetThumb::new(transaction_id, session_id, object), None)
@@ -282,7 +286,8 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<DeleteObject>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<DeleteObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -305,11 +310,12 @@ pub trait Device: PtpIo {
         storage: Option<StorageId>,
         parent: Option<ObjectHandle>,
         object_info: ObjectInfo,
-    ) -> impl Future<Output = Result<Response<SendObjectInfo>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<SendObjectInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let encoded_object_info = object_info
                 .to_bytes()
-                .map_err(Into::<crate::error::MtpError>::into)?;
+                .map_err(|e| MtpError::Serialization(e.into()))?;
 
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -325,7 +331,7 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object_data: T,
-    ) -> impl Future<Output = Result<Response<SendObject>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Response<SendObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
     where
         T: Into<Vec<u8>> + Send,
     {
@@ -345,7 +351,7 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<InitiateCapture>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Response<InitiateCapture, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
         async move {
             let transaction_id = self.next_transaction_id();
@@ -363,7 +369,8 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         storage: StorageId,
         fs: FilesystemType,
-    ) -> impl Future<Output = Result<Response<FormatStore>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<FormatStore, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -378,7 +385,8 @@ pub trait Device: PtpIo {
     fn reset_device(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<ResetDevice>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<ResetDevice, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(ResetDevice::new(transaction_id, session_id), None)
@@ -391,7 +399,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         test_type: SelfTestType,
-    ) -> impl Future<Output = Result<Response<SelfTest>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<SelfTest, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(SelfTest::new(transaction_id, session_id, test_type), None)
@@ -405,8 +414,9 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         status: ProtectionStatus,
-    ) -> impl Future<Output = Result<Response<SetObjectProtection>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<SetObjectProtection, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -421,7 +431,8 @@ pub trait Device: PtpIo {
     fn power_down(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<PowerDown>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<PowerDown, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(PowerDown::new(transaction_id, session_id), None)
@@ -433,7 +444,9 @@ pub trait Device: PtpIo {
     fn get_device_prop_desc<T>(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<GetDevicePropDesc<T>>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<
+        Output = Response<GetDevicePropDesc<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
     where
         T: DeviceProperty,
     {
@@ -451,7 +464,9 @@ pub trait Device: PtpIo {
     fn get_device_prop_value<T>(
         &mut self,
         session_id: SessionId,
-    ) -> impl Future<Output = Result<Response<GetDevicePropValue<T>>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<
+        Output = Response<GetDevicePropValue<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
     where
         T: DeviceProperty,
     {
@@ -471,8 +486,9 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         code: DevicePropertyCode,
         value: Vec<u8>,
-    ) -> impl Future<Output = Result<Response<SetDevicePropValue>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<SetDevicePropValue, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -488,8 +504,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         code: DevicePropertyCode,
-    ) -> impl Future<Output = Result<Response<ResetDevicePropValue>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<ResetDevicePropValue, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -505,8 +522,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         transaction_id: TransactionId,
-    ) -> impl Future<Output = Result<Response<TerminateOpenCapture>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<TerminateOpenCapture, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let next_transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -524,7 +542,8 @@ pub trait Device: PtpIo {
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<MoveObject>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<MoveObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -542,7 +561,8 @@ pub trait Device: PtpIo {
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<CopyObject>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<CopyObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -560,7 +580,7 @@ pub trait Device: PtpIo {
         object: ObjectHandle,
         offset: u32,
         len: u32,
-    ) -> impl Future<Output = Result<Response<GetPartialObject>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<Output = Response<GetPartialObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
         async move {
             let transaction_id = self.next_transaction_id();
@@ -578,8 +598,9 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
-    ) -> impl Future<Output = Result<Response<InitiateOpenCapture>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<InitiateOpenCapture, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -595,8 +616,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<Response<GetObjectPropsSupported>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<GetObjectPropsSupported, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -612,7 +634,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<Response<GetObjectPropDesc<T>>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<
+        Output = Response<GetObjectPropDesc<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
     where
         T: ObjectProperty,
     {
@@ -631,7 +655,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectPropValue<T>>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<
+        Output = Response<GetObjectPropValue<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
     where
         T: ObjectProperty,
     {
@@ -651,7 +677,9 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         value: T::DataType,
-    ) -> impl Future<Output = Result<Response<SetObjectPropValue<T>>, <Self as PtpIo>::Error>> + Send
+    ) -> impl Future<
+        Output = Response<SetObjectPropValue<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
     where
         T: ObjectProperty,
     {
@@ -660,7 +688,7 @@ pub trait Device: PtpIo {
             let mut writer = Writer::new(&mut encoded_value);
             value
                 .to_writer(&mut writer, self.endian())
-                .map_err(Into::<crate::error::MtpError>::into)?;
+                .map_err(|e| MtpError::Serialization(e.into()))?;
 
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -676,8 +704,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         object: ObjectHandle,
-    ) -> impl Future<Output = Result<Response<GetObjectReferences>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<GetObjectReferences, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -694,12 +723,13 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         references: Array<ObjectHandle>,
-    ) -> impl Future<Output = Result<Response<SetObjectReferences>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<SetObjectReferences, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let encoded_references = references
                 .to_bytes()
-                .map_err(Into::<crate::error::MtpError>::into)?;
+                .map_err(|e| MtpError::Serialization(e.into()))?;
 
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -715,7 +745,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         skip: u32,
-    ) -> impl Future<Output = Result<Response<Skip>, <Self as PtpIo>::Error>> + Send {
+    ) -> impl Future<Output = Response<Skip, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(Skip::new(transaction_id, session_id, skip), None)
@@ -736,8 +767,8 @@ pub trait Device: PtpIo {
         property: ObjectPropertyCode,
         group: Option<u32>,
         depth: Option<u32>,
-    ) -> impl Future<Output = Result<Response<GetObjectPropList>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<Output = Response<GetObjectPropList, MtpError<<Self as PtpIo>::TransportError>>>
+    + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -761,8 +792,8 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         props: Vec<u8>, // TODO: Actually define the ObjectPropList
-    ) -> impl Future<Output = Result<Response<SetObjectPropList>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<Output = Response<SetObjectPropList, MtpError<<Self as PtpIo>::TransportError>>>
+    + Send {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -778,8 +809,9 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         format: ObjectFormatCode,
-    ) -> impl Future<Output = Result<Response<GetInterdependentPropDesc>, <Self as PtpIo>::Error>>
-    {
+    ) -> impl Future<
+        Output = Response<GetInterdependentPropDesc, MtpError<<Self as PtpIo>::TransportError>>,
+    > {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
@@ -799,8 +831,9 @@ pub trait Device: PtpIo {
         format: ObjectFormatCode,
         size: u64,
         properties: impl IntoIterator<Item = SerializedProperty> + Send,
-    ) -> impl Future<Output = Result<Response<SendObjectPropList>, <Self as PtpIo>::Error>> + Send
-    {
+    ) -> impl Future<
+        Output = Response<SendObjectPropList, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send {
         async move {
             let mut object_prop_list = Cursor::new(Vec::new());
 
@@ -808,7 +841,7 @@ pub trait Device: PtpIo {
             for property in properties.into_iter() {
                 property
                     .to_writer(&mut writer, self.endian())
-                    .map_err(Into::<crate::error::MtpError>::into)?;
+                    .map_err(|e| MtpError::Serialization(e.into()))?;
             }
 
             let high = (size >> 32) as u32;
