@@ -1,6 +1,6 @@
-use crate::communication::operation::OperationErrorKind;
-
 use crate::object::types::{DateTimeError, NulError};
+
+use crate::communication::response::errors::OperationError;
 use core::fmt::{Display, Formatter};
 
 #[derive(Clone, Debug)]
@@ -76,7 +76,7 @@ pub enum MtpError<E> {
     /// An error while serializing/deserializing operation/response data
     Serialization(SerializationError),
     /// An error from the protocol layer (e.g. the responder doesn't support an operation)
-    Protocol(OperationErrorKind),
+    Protocol(OperationError),
     /// An error from the transport layer (e.g. failed to decode a USB packet)
     Transport(E),
     /// Generic error for unsupported operations performed by high-level utilities

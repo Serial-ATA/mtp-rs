@@ -9,13 +9,12 @@
 use crate::communication::operation::{
     CloseSession, CopyObject, DeleteObject, DynOperation, FormatStore, GetDeviceInfo,
     GetDevicePropDesc, GetDevicePropValue, GetInterdependentPropDesc, GetNumObjects, GetObject,
-    GetObjectHandles, GetObjectInfo, GetObjectPropDesc, GetObjectPropDescError, GetObjectPropList,
-    GetObjectPropValue, GetObjectPropsSupported, GetObjectReferences, GetPartialObject,
-    GetStorageIDs, GetStorageInfo, GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject,
-    OpenSession, OperationErrorKind, PowerDown, ResetDevice, ResetDevicePropValue, SelfTest,
-    SelfTestType, SendObject, SendObjectInfo, SendObjectPropList, SetDevicePropValue,
-    SetObjectPropList, SetObjectPropValue, SetObjectProtection, SetObjectReferences, Skip,
-    TerminateOpenCapture,
+    GetObjectHandles, GetObjectInfo, GetObjectPropDesc, GetObjectPropList, GetObjectPropValue,
+    GetObjectPropsSupported, GetObjectReferences, GetPartialObject, GetStorageIDs, GetStorageInfo,
+    GetThumb, InitiateCapture, InitiateOpenCapture, MoveObject, OpenSession, PowerDown,
+    ResetDevice, ResetDevicePropValue, SelfTest, SelfTestType, SendObject, SendObjectInfo,
+    SendObjectPropList, SetDevicePropValue, SetObjectPropList, SetObjectPropValue,
+    SetObjectProtection, SetObjectReferences, Skip, TerminateOpenCapture,
 };
 use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
@@ -34,11 +33,12 @@ use deku::no_std_io::Cursor;
 use deku::writer::Writer;
 use deku::{DekuContainerWrite, DekuWriter};
 
+pub mod extensions;
 pub mod info;
+mod io;
 pub mod properties;
 pub mod storage;
-
-mod io;
+use crate::communication::response::errors::OperationError;
 pub use io::*;
 
 /// An MTP responder device
@@ -93,9 +93,7 @@ pub trait Device: PtpIo {
         async move {
             match self.get_object_prop_desc::<T>(session_id, format).await {
                 Ok(desc) => Ok(desc.data.data.get_set() == GetSet::ReadWrite),
-                Err(MtpError::Protocol(OperationErrorKind::GetObjectPropDesc(
-                    GetObjectPropDescError::ObjectPropNotSupported(_),
-                ))) => Ok(false),
+                Err(MtpError::Protocol(OperationError::ObjectPropNotSupported(_))) => Ok(false),
                 Err(e) => Err(e),
             }
         }

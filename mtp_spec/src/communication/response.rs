@@ -1,8 +1,8 @@
 //! Responder -> Initiator response definitions
 
+pub mod android;
 pub mod errors;
 mod impls;
-
 pub use impls::*;
 
 use crate::communication::TransactionId;

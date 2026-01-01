@@ -58,12 +58,12 @@ impl From<ObjectHandle> for Parameter {
 impl<'a> DekuReader<'a, Endian> for ObjectHandle {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
-        _: Endian,
+        ctx: Endian,
     ) -> Result<Self, DekuError>
     where
         Self: Sized,
     {
-        u32::from_reader_with_ctx(reader, Endian::Little).map(ObjectHandle)
+        u32::from_reader_with_ctx(reader, ctx).map(ObjectHandle)
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::communication::{Parameter, ParameterPriv, SessionId, TransactionId, response};
+use crate::communication::{Parameter, SessionId, TransactionId, response};
 use crate::device::properties::{DeviceProperty, DevicePropertyCode};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
@@ -21,10 +21,6 @@ pub enum DataDirection {
     InitiatorToResponder,
 }
 
-const fn counter<const N: usize>(_: [(); N]) -> usize {
-    N
-}
-
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
         $sub
@@ -32,10 +28,17 @@ macro_rules! replace_expr {
 }
 
 macro_rules! define_operations {
-	($($tt:tt)*) => {
-		parse_operations!(@ON_STRUCT
+	(
+		OPCODE_ENUM: $opcode_enum_name:ident;
+		$($tt:tt)*
+	) => {
+		const fn __counter<const N: usize>(_: [(); N]) -> usize {
+    		N
+		}
+
+		$crate::communication::operation::parse_operations!(@ON_STRUCT
 			OPERATIONS_ENUM: [
-				pub enum Operation {}
+				pub enum $opcode_enum_name {}
 			]
 
 			$($tt)*
@@ -46,7 +49,7 @@ macro_rules! define_operations {
 macro_rules! parse_operations {
 	// Base case, done parsing
 	(@ON_STRUCT OPERATIONS_ENUM: [
-		pub enum Operation {
+		pub enum $opcode_enum_name:ident {
 			$(
 				$(#[$attr:meta])*
 				$variant:ident = $code:literal
@@ -54,7 +57,7 @@ macro_rules! parse_operations {
 		}
 	]) => {
 		/// All operation codes
-		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, DekuRead, DekuWrite)]
+		#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, deku::DekuRead, deku::DekuWrite)]
 		#[repr(u16)]
 		#[deku(
 			id_type = "u16",
@@ -63,45 +66,22 @@ macro_rules! parse_operations {
 			ctx_default = "deku::ctx::Endian::Little"
 		)]
 		#[allow(missing_docs)]
-		pub enum Operation {
+		pub enum $opcode_enum_name {
 			$(
 				$(#[$attr])*
 				$variant = $code,
 			)*
-			#[deku(id_pat = "o if (0x9000_u16..=0x97FF_u16).contains(&o)")]
-			VendorSpecific(u16),
 		}
 
-		impl TryFrom<u16> for Operation {
+		impl TryFrom<u16> for $opcode_enum_name {
 			type Error = ();
 
 			fn try_from(value: u16) -> core::result::Result<Self, Self::Error> {
 				match value {
 					$(
-						$code => Ok(Operation::$variant),
+						$code => Ok($opcode_enum_name::$variant),
 					)*
-					_ if (0x9000_u16..=0x97FF_u16).contains(&value) => Ok(Operation::VendorSpecific(value)),
 					_ => Err(())
-				}
-			}
-		}
-
-		paste::paste! {
-			#[derive(Clone, Debug)]
-			#[allow(missing_docs)]
-			pub enum OperationErrorKind {
-				$(
-				$variant([<$variant Error>])
-				),*
-			}
-
-			impl core::fmt::Display for OperationErrorKind {
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					match self {
-						$(
-							Self::$variant(error) => write!(f, "{error}"),
-						)*
-					}
 				}
 			}
 		}
@@ -138,13 +118,13 @@ macro_rules! parse_operations {
 	) => {
 		$(#[$meta])*
 		pub struct $name {
-			parameters: [$crate::communication::Parameter; counter([$(replace_expr!($param ())),*])],
+			parameters: [$crate::communication::Parameter; __counter([$($crate::communication::operation::replace_expr!($param ())),*])],
 			session_id: Option<$crate::communication::SessionId>,
 			transaction_id: $crate::communication::TransactionId,
 		}
 
 		impl $name {
-			parse_operations!(
+			$crate::communication::operation::parse_operations!(
 				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)?
 
 				visible_parameters: ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*),
@@ -153,7 +133,7 @@ macro_rules! parse_operations {
 			);
 		}
 
-		parse_operations!(@COMMON_OPERATIONS
+		$crate::communication::operation::parse_operations!(@COMMON_OPERATIONS
 		OPERATIONS_ENUM: [$($operations_enum)*]
 
 		$name,
@@ -200,7 +180,7 @@ macro_rules! parse_operations {
 		pub struct $name<T>
 			where T: $($where_clause)*
 		{
-			parameters: [$crate::communication::Parameter; counter([(), $(replace_expr!($param ())),*])],
+			parameters: [$crate::communication::Parameter; __counter([(), $($crate::communication::operation::replace_expr!($param ())),*])],
 			session_id: Option<$crate::communication::SessionId>,
 			transaction_id: $crate::communication::TransactionId,
 			_phantom: core::marker::PhantomData<T>,
@@ -209,7 +189,7 @@ macro_rules! parse_operations {
 		impl<T> $name<T>
 			where T: $($where_clause)*
 		{
-			parse_operations!(
+			$crate::communication::operation::parse_operations!(
 				@CONSTRUCTOR $name, $code, $(SESSION_ID: $session_id,)?
 
 				visible_parameters: ($($(@DEFAULT($default))? $(@RAW($bool))? $param: $ty),*),
@@ -218,7 +198,7 @@ macro_rules! parse_operations {
 			);
 		}
 
-		parse_operations!(@COMMON_OPERATIONS
+		$crate::communication::operation::parse_operations!(@COMMON_OPERATIONS
 		OPERATIONS_ENUM: [$($operations_enum)*]
 
 		$name,
@@ -234,7 +214,7 @@ macro_rules! parse_operations {
 	(
 		@COMMON_OPERATIONS
 		OPERATIONS_ENUM: [
-			pub enum Operation {
+			pub enum $opcode_enum_name:ident {
 				$($variants:tt)*
 			}
 		]
@@ -257,7 +237,7 @@ macro_rules! parse_operations {
 			fn from(value: &'a $($name_with_generic)*) -> $crate::communication::operation::SerializedOperation<'a> {
 				Self {
 					code: <$($name_with_generic)*>::OPCODE,
-					session_id: value.session_id.unwrap_or(SessionId::NONE),
+					session_id: value.session_id.unwrap_or($crate::communication::SessionId::NONE),
 					transaction_id: value.transaction_id,
 					parameters: value.parameters.as_slice(),
 				}
@@ -267,7 +247,7 @@ macro_rules! parse_operations {
 		const _: () = {
 			const MAX_PARAMETERS: usize = 5;
 
-			if counter([$(replace_expr!($param ())),*]) > MAX_PARAMETERS {
+			if __counter([$($crate::communication::operation::replace_expr!($param ())),*]) > MAX_PARAMETERS {
 				panic!("Too many parameters");
 			}
 		};
@@ -277,51 +257,13 @@ macro_rules! parse_operations {
 				const DATA_DIRECTION: Option<DataDirection> = $data_direction;
 
 				type Response = $response;
-				type Error = [<$name Error>];
 			}
 		}
 
-		paste::paste! {
-			// TODO: Need a generic variant. Some operations may return 0x2002 (General error) for example
-			#[doc = "Errors that can occur when executing the [`" $name "`] operation"]
-			#[derive(Clone, Debug, deku::DekuRead)]
-			#[deku(
-				ctx = "endian: deku::ctx::Endian, error_code: u16",
-				id = "error_code",
-				id_endian = "endian",
-			)]
-			#[allow(missing_docs)]
-			pub enum [<$name Error>] {
-				$(
-				// TODO: Ask if this should be supported
-				#[deku(id = crate::communication::response::errors::$error::CODE)]
-				$error($crate::communication::response::errors::$error)
-				),*
-			}
-
-			impl core::fmt::Display for [<$name Error>] {
-				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-					match self {
-						$(
-							Self::$error(error) => write!(f, "{error}"),
-						)*
-					}
-				}
-			}
-
-			impl core::error::Error for [<$name Error>] {}
-
-			impl From<[<$name Error>]> for OperationErrorKind {
-				fn from(value: [<$name Error>]) -> Self {
-					OperationErrorKind::$name(value)
-				}
-			}
-		}
-
-		parse_operations!(
+		$crate::communication::operation::parse_operations!(
 			@ON_STRUCT
 			OPERATIONS_ENUM: [
-				pub enum Operation {
+				pub enum $opcode_enum_name {
 					$($variants)*
 					#[deku(id = $code)]
 					$name = $code,
@@ -347,7 +289,7 @@ macro_rules! parse_operations {
 	) => {
 		pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
 			Self {
-				parameters: [$(parse_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
+				parameters: [$($crate::communication::operation::parse_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
 				session_id: None,
 				transaction_id,
 			}
@@ -367,9 +309,13 @@ macro_rules! parse_operations {
 		operation_parameters: (),
 		[$($error:expr),* $(,)?]
 	) => {
-		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
+		pub fn new(
+			transaction_id: $crate::communication::TransactionId,
+			session_id: $crate::communication::SessionId,
+			$($param: $ty),*
+		) -> Self {
 			Self {
-				parameters: [$(parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
+				parameters: [$($crate::communication::operation::parse_operations!(@PARAM_CONVERT $(@DEFAULT($default))? $(@RAW($bool))? $param: $ty)),*],
 				session_id: Some(session_id),
 				transaction_id,
 			}
@@ -395,7 +341,7 @@ macro_rules! parse_operations {
 	) => {
 		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
 			Self {
-				parameters: [$(ParameterPriv::new($operation_param_expr).0),*],
+				parameters: [$($crate::communication::ParameterPriv::new($operation_param_expr).0),*],
 				session_id: Some(session_id),
 				transaction_id,
 				_phantom: core::marker::PhantomData
@@ -408,7 +354,7 @@ macro_rules! parse_operations {
 		@DEFAULT($default:expr)
 		$param:ident: $_ty:ty
 	) => {
-		ParameterPriv::new($param.unwrap_or($default)).0
+		$crate::communication::ParameterPriv::new($param.unwrap_or($default)).0
 	};
 
 	(
@@ -416,18 +362,22 @@ macro_rules! parse_operations {
 		@RAW($_bool:literal)
 		$param:ident: $_ty:ty
 	) => {
-		ParameterPriv::new_raw($param).0
+		$crate::communication::ParameterPriv::new_raw($param).0
 	};
 
 	(
 		@PARAM_CONVERT
 		$param:ident: $_ty:ty
 	) => {
-		ParameterPriv::new($param).0
+		$crate::communication::ParameterPriv::new($param).0
 	};
 }
 
+pub(super) use {define_operations, parse_operations, replace_expr};
+
 define_operations! {
+    OPCODE_ENUM: BaseOperation;
+
     /// Get the [`DeviceInfo`] of the device.
     ///
     /// This operation is commonly the first operation called by an initiator upon

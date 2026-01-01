@@ -1,7 +1,6 @@
 use super::error::Error;
 use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
 use crate::communication::SessionId;
-use crate::communication::operation::{OpenSessionError, OperationErrorKind};
 use crate::device::Device as _;
 use crate::error::MtpError;
 
@@ -11,6 +10,7 @@ use std::time::Duration;
 
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
+use mtp_spec::communication::response::errors::OperationError;
 pub use nusb;
 use nusb::descriptors::TransferType;
 use nusb::descriptors::language_id::US_ENGLISH;
@@ -87,9 +87,7 @@ impl Device {
 
         match handle.open_session().await {
             Ok((_res, session_id)) => Ok((handle, session_id)),
-            Err(MtpError::Protocol(OperationErrorKind::OpenSession(
-                OpenSessionError::SessionAlreadyOpen(e),
-            ))) => {
+            Err(MtpError::Protocol(OperationError::SessionAlreadyOpen(e))) => {
                 log::warn!("Session {} already open", e.session_id);
                 Ok((handle, e.session_id))
             },

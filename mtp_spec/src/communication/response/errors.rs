@@ -6,60 +6,145 @@ use crate::device::storage::id::StorageId;
 use crate::object::types::properties::ObjectPropertyCode;
 use crate::object::types::{ObjectFormatCode, ObjectHandle};
 
-macro_rules! define_error_response {
+use deku::ctx::Endian;
+use deku::no_std_io::{Read, Seek};
+use deku::reader::Reader;
+use deku::{DekuError, DekuReader};
+
+macro_rules! define_error_responses {
 	(
-		$(#[$meta:meta])*
-		[[error($error_msg:literal)]]
-		pub struct $name:ident {
-			code: $code:literal,
-			$(data: $data:ty,)?
-			$(parameters: ($($param:ident: $ty:ty),* $(,)?),)?
-		}
+		$(
+			$(#[$meta:meta])*
+			[[error($error_msg:literal)]]
+			pub struct $name:ident {
+				code: $code:literal,
+				$(data: $data:ty,)?
+				$(parameters: ($($param:ident: $ty:ty),* $(,)?),)?
+			}
+		)*
 	) => {
-		define_response!(
-			$(#[$meta])*
-			pub struct $name[][] {
-				$(data: $data,)?
-				$(parameters: ($($param: $ty),*),)?
-			}
-		);
+		$(
+			define_response!(
+				$(#[$meta])*
+				pub struct $name[][] {
+					$(data: $data,)?
+					$(parameters: ($($param: $ty),*),)?
+				}
+			);
 
-		impl $name {
-			/// The raw datacode for this error
-			pub const CODE: u16 = $code;
+			impl $name {
+				/// The raw datacode for this error
+				pub const CODE: u16 = $code;
+			}
+
+			impl core::fmt::Display for $name {
+				fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+					write!(f, "{}", ErrorCode::$name)
+				}
+			}
+
+			impl core::error::Error for $name {}
+		)*
+
+		#[derive(Clone, Debug)]
+		pub enum OperationError {
+			$(
+			$name($name),
+			)*
 		}
 
-		impl core::fmt::Display for $name {
+		impl<'a> DekuReader<'a, (Endian, u16)> for OperationError {
+			fn from_reader_with_ctx<R: Read + Seek>(
+				reader: &mut Reader<R>,
+				(endian, code): (Endian, u16),
+			) -> Result<Self, DekuError>
+			where
+				Self: Sized,
+			{
+				match code {
+					$(
+					$code => Ok(OperationError::$name($name::from_reader_with_ctx(reader, endian)?)),
+					)*
+					code => Err(DekuError::Parse(format!("The responder provided an unknown response code: {code:#04X}").into())),
+				}
+			}
+		}
+
+		impl core::fmt::Display for OperationError {
 			fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-				write!(
-					f,
-					"Error (code = {}): {}",
-					$code, $error_msg
-				)
+				match self {
+					$(
+					Self::$name(v) => v.fmt(f),
+					)*
+				}
 			}
 		}
 
-		impl core::error::Error for $name {}
+		impl core::error::Error for OperationError {}
+
+		impl OperationError {
+			pub fn code(&self) -> ErrorCode {
+				match self {
+					$(
+					Self::$name(_) => ErrorCode::$name,
+					)*
+				}
+			}
+		}
+
+		/// All error response codes
+		#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+		#[repr(u16)]
+		pub enum ErrorCode {
+			$(
+			$name = $code,
+			)*
+		}
+
+		impl TryFrom<u16> for ErrorCode {
+			type Error = ();
+
+			fn try_from(value: u16) -> Result<Self, Self::Error> {
+				match value {
+					$(
+					$code => Ok(ErrorCode::$name),
+					)*
+					_ => Err(()),
+				}
+			}
+		}
+
+		impl core::fmt::Display for ErrorCode {
+			fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+				match self {
+					$(
+					Self::$name => write!(
+						f,
+						"Error (code = {}): {}",
+						$code, $error_msg
+					),
+					)*
+				}
+			}
+		}
+
+		impl core::error::Error for ErrorCode {}
 	}
 }
 
-define_error_response! {
+define_error_responses! {
     /// This response code is not used.
     [[error("This response code is not used")]]
     pub struct Undefined {
         code: 0x2000,
     }
-}
 
-define_error_response! {
     /// This operation did not complete, and the reason for the failure is not known.
     [[error("This operation did not complete, and the reason for the failure is not known")]]
     pub struct GeneralError {
         code: 0x2002,
     }
-}
 
-define_error_response! {
     /// Indicates that the session handle identified by the operation dataset for this operation is
     /// not a currently open session.
     [[error("The session handle identified by the operation dataset for this operation is not a currently open session")]]
@@ -67,9 +152,7 @@ define_error_response! {
         code: 0x2003,
         parameters: (session_id: SessionId),
     }
-}
 
-define_error_response! {
     /// Indicates that the [`TransactionID`] of this operation does not identify a valid transaction.
     ///
     /// [`TransactionID`]: crate::communication::TransactionId
@@ -77,9 +160,7 @@ define_error_response! {
     pub struct InvalidTransactionId {
         code: 0x2004,
     }
-}
 
-define_error_response! {
     /// Indicates that an Operation has been called with what appears to be a valid
     /// code, but the responder does not support the operation identified by that code. The
     /// initiator should only invoke operations contained in the responder’s DeviceInfo dataset,
@@ -88,18 +169,14 @@ define_error_response! {
     pub struct OperationNotSupported {
         code: 0x2005,
     }
-}
 
-define_error_response! {
     /// Indicates that a parameter of an operation contains a non-zero value, but is not supported.
     /// This response is different from [`InvalidParameter`](Self::InvalidParameter).
     [[error("The parameter is not supported")]]
     pub struct ParameterNotSupported {
         code: 0x2006,
     }
-}
 
-define_error_response! {
     /// This response shall be sent when a transfer did not complete successfully, and indicates
     /// that data transferred is to be discarded. This response shall not be sent if the transfer was
     /// cancelled by the Initiator.
@@ -107,18 +184,14 @@ define_error_response! {
     pub struct IncompleteTransfer {
         code: 0x2007,
     }
-}
 
-define_error_response! {
     /// Indicates that one or more [StorageId]s sent as parameters of an operation do not refer to
     /// actual StorageIDs on the device.
     [[error("The storage ID is not valid")]]
     pub struct InvalidStorageId {
         code: 0x2008,
     }
-}
 
-define_error_response! {
     /// Indicates that one or more [`ObjectHandle`]s sent in the operation do not refer
     /// to actual Objects on the device.
     ///
@@ -128,9 +201,7 @@ define_error_response! {
     pub struct InvalidObjectHandle {
         code: 0x2009,
     }
-}
 
-define_error_response! {
     /// Indicates that a [`DevicePropCode`] sent as a parameter of an operation appears to be a valid
     /// code, but is not supported by the device. The initiator should only attempt to work with
     /// Device Properties identified in the [`DevicePropertiesSupported`] field of the [`DeviceInfo`]
@@ -140,18 +211,14 @@ define_error_response! {
         code: 0x200A,
         parameters: (device_prop_code: ObjectPropertyCode),
     }
-}
 
-define_error_response! {
     /// Indicates that the device does not support an [`ObjectFormatCode`] supplied in the given context.
     [[error("The object format code is not supported")]]
     pub struct InvalidObjectFormatCode {
         code: 0x200B,
         parameters: (object_format_code: ObjectFormatCode),
     }
-}
 
-define_error_response! {
     /// Indicates that a store identified in this operation is full, and this is preventing the
     /// successful completion of that operation.
     [[error("The store is full")]]
@@ -159,53 +226,41 @@ define_error_response! {
         code: 0x200C,
         parameters: (storage_id: StorageId),
     }
-}
 
-define_error_response! {
     /// Indicates that an object referred to by the operation is write-protected.
     [[error("The object is write-protected")]]
     pub struct ObjectWriteProtected {
         code: 0x200D,
         parameters: (object_handle: ObjectHandle),
     }
-}
 
-define_error_response! {
     /// Indicates that a store referred to by the operation is read-only
     [[error("The store is read-only")]]
     pub struct StoreReadOnly {
         code: 0x200E,
         parameters: (storage_id: StorageId),
     }
-}
 
-define_error_response! {
     /// Indicates that the device does not have permission to access the specified storage.
     [[error("The device does not have permission to access the storage")]]
     pub struct AccessDenied {
         code: 0x200F,
         parameters: (storage_id: StorageId),
     }
-}
 
-define_error_response! {
     /// Indicates that the specified object exists, but a thumbnail cannot be provided.
     [[error("The object does not have a thumbnail")]]
     pub struct NoThumbnailPresent {
         code: 0x2010,
         parameters: (handle: ObjectHandle),
     }
-}
 
-define_error_response! {
     /// Indicates that the device failed a device-specific self test.
     [[error("The device failed a self test")]]
     pub struct SelfTestFailed {
         code: 0x2011,
     }
-}
 
-define_error_response! {
     /// Indicates that only a subset of the requested objects were deleted.
     ///
     /// This could be caused by some of those objects being write-protected or on read-only stores.
@@ -213,9 +268,7 @@ define_error_response! {
     pub struct PartialDeletion {
         code: 0x2012,
     }
-}
 
-define_error_response! {
     /// Indicates that the requested store is not physically available.
     ///
     /// This can be caused by media ejection.
@@ -223,9 +276,7 @@ define_error_response! {
     pub struct StoreNotAvailable {
         code: 0x2013,
     }
-}
 
-define_error_response! {
     /// Indicates that the responder does not support operations with [`ObjectFormatCode`]s.
     ///
     /// The operation should be attempted again without specifying by format. When
@@ -235,9 +286,7 @@ define_error_response! {
     pub struct SpecificationByFormatUnsupported {
         code: 0x2014,
     }
-}
 
-define_error_response! {
     /// Indicates that a [`SendObject`] operation was received without a corresponding [`SendObjectInfo`]
     /// operation.
     ///
@@ -250,33 +299,25 @@ define_error_response! {
     pub struct NoValidObjectInfo {
         code: 0x2015,
     }
-}
 
-define_error_response! {
     /// Indicates that a specified datacode is malformed
     [[error("Malformed datacode")]]
     pub struct InvalidCodeFormat {
         code: 0x2016,
     }
-}
 
-define_error_response! {
     /// Indicates that a vendor-specific datacode was provided, and is unrecognized by the device.
     [[error("Unrecognized vendor-specific datacode")]]
     pub struct UnknownVendorCode {
         code: 0x2017,
     }
-}
 
-define_error_response! {
     /// Indicates that a capture session is already terminated.
     [[error("The capture session is already terminated")]]
     pub struct CaptureAlreadyTerminated {
         code: 0x2018,
     }
-}
 
-define_error_response! {
     /// This response shall be sent when the device is not currently able to process a request
     /// because it, or the specified store, is busy. This response implies that the operation may be
     /// successful at a later time, but is not possible right now. This response shall not be used to
@@ -285,9 +326,7 @@ define_error_response! {
     pub struct DeviceBusy {
         code: 0x2019,
     }
-}
 
-define_error_response! {
     /// Indicates that the specified object is not of type [`ObjectFormatCode::Association`].
     ///
     /// This indicates that the object exists, but is expected to be of type Association in this context.
@@ -295,17 +334,13 @@ define_error_response! {
     pub struct InvalidParentObject {
         code: 0x201A,
     }
-}
 
-define_error_response! {
     /// Malformed [`DevicePropDesc`]
     [[error("The device property description is malformed")]]
     pub struct InvalidDevicePropFormat {
         code: 0x201B,
     }
-}
 
-define_error_response! {
     /// The device does not allow setting the specified [`PropertyValue`]
     ///
     /// [`PropertyValue`]: crate::device::property_describing::PropertyValue
@@ -313,33 +348,25 @@ define_error_response! {
     pub struct InvalidDevicePropValue {
         code: 0x201C,
     }
-}
 
-define_error_response! {
     [[error("The parameter is not valid")]]
     pub struct InvalidParameter {
         code: 0x201D,
     }
-}
 
-define_error_response! {
     /// A session with the specified [`SessionId`] is already open.
     [[error("The session is already open")]]
     pub struct SessionAlreadyOpen {
         code: 0x201E,
         parameters: (session_id: SessionId),
     }
-}
 
-define_error_response! {
     /// The initiator manually cancelled the transaction.
     [[error("The transaction was cancelled")]]
     pub struct TransactionCancelled {
         code: 0x201F,
     }
-}
 
-define_error_response! {
     /// The responder does not support specifying object destinations.
     ///
     /// This response implies that any future attempts to specify the object destination will also
@@ -348,58 +375,44 @@ define_error_response! {
     pub struct SpecificationOfDestinationUnsupported {
         code: 0x2020,
     }
-}
 
-define_error_response! {
     /// The device does not support the sent Object Property Code in this context
     [[error("The device does not support the sent Object Property Code in this context")]]
     pub struct InvalidObjectPropCode {
         code: 0xA801,
     }
-}
 
-define_error_response! {
     /// An object property sent to the device is in an unsupported size or type
     [[error("An object property sent to the device is in an unsupported size or type")]]
     pub struct InvalidObjectPropFormat {
         code: 0xA802,
     }
-}
 
-define_error_response! {
     /// An object is of the correct type, but contains a value which is not supported
     [[error("An object is of the correct type, but contains a value which is not supported")]]
     pub struct InvalidObjectPropValue {
         code: 0xA803,
     }
-}
 
-define_error_response! {
     /// An object reference is invalid, either by it not being present or by it not being supported
     /// by the device.
     [[error("An object reference is invalid")]]
     pub struct InvalidObjectReference {
         code: 0xA804,
     }
-}
 
-define_error_response! {
     /// The provided object property group is not supported by the device
     [[error("The provided object property group is not supported by the device")]]
     pub struct GroupNotSupported {
         code: 0xA805,
     }
-}
 
-define_error_response! {
     /// The dataset sent in the data phase of this operation is invalid
     [[error("The dataset sent in the data phase of this operation is invalid")]]
     pub struct InvalidDataset {
         code: 0xA806,
     }
-}
 
-define_error_response! {
     /// The responder does not support the specification of groups by the initiator
     ///
     /// This response implies that the initiator should not attempt to specify the group code in any
@@ -408,9 +421,7 @@ define_error_response! {
     pub struct SpecificationByGroupUnsupported {
         code: 0xA807,
     }
-}
 
-define_error_response! {
     /// The responder does not support the specification of depth by the initiator
     ///
     /// This response implies that the initiator should not attempt to specify depth in any future
@@ -419,9 +430,7 @@ define_error_response! {
     pub struct SpecificationByDepthUnsupported {
         code: 0xA808,
     }
-}
 
-define_error_response! {
     /// The object desired to be sent cannot be stored in the filesystem of the device
     ///
     /// This implies that the object is too large for the filesystem, ***not*** that the device does not
@@ -432,9 +441,7 @@ define_error_response! {
     pub struct ObjectTooLarge {
         code: 0xA809,
     }
-}
 
-define_error_response! {
     /// The provided object property is not supported by the device
     [[error("The provided object property is not supported by the device")]]
     pub struct ObjectPropNotSupported {
