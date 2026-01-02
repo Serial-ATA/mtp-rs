@@ -233,7 +233,7 @@ define_response! {
 define_response! {
     /// Response to the [`GetObjectPropList`] operation.
     pub struct GetObjectPropList[][] {
-        // TODO: Determine what this even is
+        // TODO: Determine what this even is: it's just a packed list of ObjectPropDesc with the count prepended
         #[deku(read_all)]
         data: Vec<u8>,
     }

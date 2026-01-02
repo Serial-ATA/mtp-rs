@@ -17,6 +17,7 @@ use crate::communication::operation::{
     SetObjectProtection, SetObjectReferences, Skip, TerminateOpenCapture,
 };
 use crate::communication::response::Response;
+use crate::communication::response::errors::OperationError;
 use crate::communication::{SessionId, TransactionId};
 use crate::device::properties::{DeviceProperty, DevicePropertyCode, GetSet};
 use crate::device::storage::id::StorageId;
@@ -38,7 +39,6 @@ pub mod info;
 mod io;
 pub mod properties;
 pub mod storage;
-use crate::communication::response::errors::OperationError;
 pub use io::*;
 
 /// An MTP responder device
@@ -49,6 +49,26 @@ pub use io::*;
 /// [`operations`]: crate::communication::operation
 pub trait Device: PtpIo {
     // === Property checking ===
+
+    /// Check whether the device claims to support Android MTP extensions
+    ///
+    /// If this returns `true`, is *should* be safe to use the methods from [`AndroidDevice`].
+    ///
+    /// [`AndroidDevice`]: extensions::android::AndroidDevice
+    fn is_android(
+        &mut self,
+        session_id: SessionId,
+    ) -> impl Future<Output = Result<bool, MtpError<<Self as PtpIo>::TransportError>>> {
+        async move {
+            let response = self.get_device_info(Some(session_id)).await?;
+
+            let device_info = response.data.data;
+            let extensions = device_info.mtp_extensions.to_string();
+
+            dbg!(&extensions);
+            Ok(extensions.contains("android.com"))
+        }
+    }
 
     /// Check the device's battery level
     ///

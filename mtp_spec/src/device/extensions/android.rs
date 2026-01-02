@@ -3,7 +3,7 @@ use crate::communication::operation::android::{
     BeginEditObject, EndEditObject, GetPartialObject64, SendPartialObject, TruncateObject,
 };
 use crate::communication::response::Response;
-use crate::device::PtpIo;
+use crate::device::{Device, PtpIo};
 use crate::error::MtpError;
 use crate::object::types::ObjectHandle;
 
@@ -19,7 +19,7 @@ pub trait AndroidDevice: PtpIo {
     ) -> impl Future<
         Output = Response<GetPartialObject64, MtpError<<Self as PtpIo>::TransportError>>,
     > + Send {
-        let high = (offset & 0xFFFFFFFF) as u32;
+        let high = (offset & 0xFFFF_FFFF) as u32;
         let low = (offset >> 32) as u32;
         async move {
             let transaction_id = self.next_transaction_id();
@@ -41,7 +41,7 @@ pub trait AndroidDevice: PtpIo {
         data: impl Into<Vec<u8>>,
     ) -> impl Future<Output = Response<SendPartialObject, MtpError<<Self as PtpIo>::TransportError>>>
     + Send {
-        let offset_high = (offset & 0xFFFFFFFF) as u32;
+        let offset_high = (offset & 0xFFFF_FFFF) as u32;
         let offset_low = (offset >> 32) as u32;
         let data = data.into();
         async move {
@@ -69,7 +69,7 @@ pub trait AndroidDevice: PtpIo {
         size: u64,
     ) -> impl Future<Output = Response<TruncateObject, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
-        let high = (size & 0xFFFFFFFF) as u32;
+        let high = (size & 0xFFFF_FFFF) as u32;
         let low = (size >> 32) as u32;
         async move {
             let transaction_id = self.next_transaction_id();
@@ -112,3 +112,5 @@ pub trait AndroidDevice: PtpIo {
         }
     }
 }
+
+impl<T> AndroidDevice for T where T: Device {}

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
             .description
             .as_ref()
             .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
-        let fs = MtpFuse::new(device.clone(), session_id, storage);
+        let fs = MtpFuse::new(device.clone(), session_id, storage).await?;
 
         let target = mount_point.join(&name);
         if !target.exists() {

@@ -295,6 +295,7 @@ pub struct MtpFuse {
     device: Arc<Mutex<DeviceHandle>>,
     session_id: SessionId,
     storage: Storage,
+    is_android: bool,
     dirty: Dirty,
 
     fs: Option<FileSystem>,
@@ -302,7 +303,14 @@ pub struct MtpFuse {
 }
 
 impl MtpFuse {
-    pub fn new(device: Arc<Mutex<DeviceHandle>>, session_id: SessionId, storage: Storage) -> Self {
+    pub async fn new(
+        device: Arc<Mutex<DeviceHandle>>,
+        session_id: SessionId,
+        storage: Storage,
+    ) -> mtp::usb::error::Result<Self> {
+        let is_android = device.lock().await.is_android(session_id).await?;
+        log::debug!("is_android: {is_android}");
+
         let root = INode {
             parent: FUSE_ROOT_ID,
             object_handle: ObjectHandle::NONE,
@@ -319,6 +327,7 @@ impl MtpFuse {
             device,
             session_id,
             storage,
+            is_android,
             dirty: Dirty::new(),
             fs: None,
             inner: FsInner {
@@ -344,7 +353,7 @@ impl MtpFuse {
                 name: "lost+found".into(),
             })),
         );
-        ret
+        Ok(ret)
     }
 
     fn stat(&self, inode: u64, _file_handle: Option<u64>) -> Option<FileAttr> {
