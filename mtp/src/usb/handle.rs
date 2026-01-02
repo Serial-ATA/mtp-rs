@@ -238,8 +238,8 @@ impl PtpIo for DeviceHandle {
 
         // Phase 1: Command
         let command_buf;
+        let op = operation.encode();
         {
-            let op = operation.encode();
             log::debug!("Sending operation of type: {:#X}", op.code());
 
             let command_container = UsbContainer::new(
@@ -264,8 +264,15 @@ impl PtpIo for DeviceHandle {
         let mut responder_data = None;
         match O::DATA_DIRECTION {
             Some(DataDirection::InitiatorToResponder) => {
-                send(
+                let data_container = UsbContainer::new(
+                    ContainerType::Data,
+                    op.code(),
+                    op.transaction_id(),
                     data.expect("data should exist"),
+                );
+
+                send(
+                    data_container.to_bytes()?,
                     &mut self.out_queue,
                     self.endpoints.bulk_out_buffer_size,
                     self.timeout,

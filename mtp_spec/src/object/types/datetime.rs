@@ -388,7 +388,7 @@ impl DekuWriter<Endian> for DateTime {
             return Err(DekuError::InvalidParam(Cow::from("DateTime is invalid")));
         }
 
-        let ptp_str = PtpString::try_from(self.to_string())
+        let ptp_str = PtpString::from_str(&self.to_string())
             .map_err(|e| DekuError::InvalidParam(Cow::from(e.to_string())))?;
         ptp_str.to_writer(writer, ctx)
     }

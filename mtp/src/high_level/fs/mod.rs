@@ -10,6 +10,7 @@ use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize,
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
 use std::io::Write;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// Representation of a file on an MTP-compatible device
@@ -118,15 +119,12 @@ impl File {
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        N: Into<String>,
+        N: AsRef<str>,
     {
-        let name_str = name.into();
+        let name_str = name.as_ref();
         if name_str == self.name {
             return Ok(self.clone());
         }
-
-        let name_ptp = PtpString::try_from(name_str.clone())
-            .map_err(Into::<MtpError<<D as PtpIo>::TransportError>>::into)?;
 
         if !device
             .object_property_can_be_modified::<ObjectFileName>(session_id, self.format)
@@ -135,20 +133,21 @@ impl File {
             return Err(MtpError::UnsupportedOperation.into());
         }
 
+        let name_ptp = PtpString::from_str(name_str)
+            .map_err(Into::<MtpError<<D as PtpIo>::TransportError>>::into)?;
+
         let id = self.id;
         let parent = self.parent;
         let storage_id = self.storage_id;
-        let _ = dbg!(
-            device
-                .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
-                .await?
-        );
+        let _ = device
+            .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
+            .await?;
 
         Ok(Self {
             storage_id,
             parent,
             id,
-            name: name_str,
+            name: name_str.to_string(),
             size: self.size,
             format: self.format,
             protection_status: self.protection_status,
@@ -247,10 +246,10 @@ impl Folder {
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        N: Into<String>,
+        N: AsRef<str>,
     {
-        let name = PtpString::try_from(name.into())?;
-        let name_str = name.to_string();
+        let name_str = name.as_ref();
+        let name = PtpString::from_str(name_str)?;
         let _ = device
             .set_object_prop_value::<ObjectFileName>(session_id, self.id, name)
             .await?;
@@ -258,7 +257,7 @@ impl Folder {
         Ok(Self {
             storage_id: self.storage_id,
             id: self.id,
-            name: name_str,
+            name: name_str.to_string(),
             format: self.format,
             protection_status: self.protection_status,
             date_created: self.date_created,
@@ -382,7 +381,7 @@ impl FolderEntry {
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        N: Into<String>,
+        N: AsRef<str>,
     {
         match self {
             FolderEntry::File(f) => {

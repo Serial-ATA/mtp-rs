@@ -23,7 +23,7 @@ pub trait DeviceFsExt {
     ) -> impl Future<Output = Result<Folder, MtpError<<Self as PtpIo>::TransportError>>> + Send
     where
         Self: Device,
-        N: Into<String> + Send;
+        N: AsRef<str> + Send;
 
     fn create<N>(
         &mut self,
@@ -35,7 +35,7 @@ pub trait DeviceFsExt {
     ) -> impl Future<Output = Result<File, MtpError<<Self as PtpIo>::TransportError>>> + Send
     where
         Self: Device,
-        N: Into<String> + Send;
+        N: AsRef<str> + Send;
 }
 
 impl<D> DeviceFsExt for D
@@ -50,14 +50,14 @@ where
     ) -> Result<Folder, MtpError<<Self as PtpIo>::TransportError>>
     where
         Self: Device,
-        N: Into<String> + Send,
+        N: AsRef<str> + Send,
     {
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
 
         // TODO: Getting invalid parameter when trying to create within a directory and InvalidObjectHandle when trying to create at root.
         //       Maybe samsung issue?
-        let name_ptp = PtpString::try_from(name.into())?;
+        let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
             .send_object_info(
                 session_id,
@@ -114,12 +114,12 @@ where
     ) -> Result<File, MtpError<<Self as PtpIo>::TransportError>>
     where
         Self: Device,
-        N: Into<String> + Send,
+        N: AsRef<str> + Send,
     {
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
 
-        let name_ptp = PtpString::try_from(name.into())?;
+        let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
             .send_object_info(
                 session_id,

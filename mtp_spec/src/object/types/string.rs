@@ -1,5 +1,5 @@
 use alloc::borrow::Cow;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::fmt::{Debug, Display, Formatter};
@@ -75,10 +75,10 @@ impl Display for NulError {
     }
 }
 
-impl TryFrom<String> for PtpString {
+impl TryFrom<&str> for PtpString {
     type Error = NulError;
 
-    fn try_from(value: String) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
         if value.is_empty() {
             return Ok(Self::default());
         }
@@ -108,7 +108,7 @@ impl FromStr for PtpString {
     type Err = NulError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_string())
+        Self::try_from(s)
     }
 }
 
@@ -247,7 +247,15 @@ fn ptp_string_write<W: Write + Seek>(
     elements: &[u16],
     writer: &mut Writer<W>,
 ) -> core::result::Result<(), deku::DekuError> {
-    let num_chars = elements.len() as u8;
+    assert!(elements.len() < 255);
+
+    if elements.is_empty() {
+        0_u16.to_writer(writer, Endian::Little)?;
+        return Ok(());
+    }
+
+    // The character count includes the terminator
+    let num_chars = (elements.len() as u8) + 1;
     num_chars.to_writer(writer, ())?;
 
     for c in elements {

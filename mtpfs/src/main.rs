@@ -11,7 +11,7 @@ use std::sync::Arc;
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use mtp::device::PtpIo;
+use mtp::device::{Device, PtpIo};
 use mtp::usb::error::Error;
 use tokio::sync::Mutex;
 
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Error> {
                     Some(ev) => {
                         match ev {
                             Ok(ev) => {
-                                log::info!("Event received {:?}", ev);
+                                log::info!("Event received: {:?}", ev);
                             },
                             Err(e) => {
                                 log::error!("Failed to receive event: {e}");

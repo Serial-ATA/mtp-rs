@@ -524,7 +524,6 @@ impl MtpFuse {
             Ok(entry) => new_entry = entry,
             // Fallback to copy + delete
             Err(MtpError::UnsupportedOperation) => {
-                todo!();
                 let ret;
                 match &**entry {
                     FolderEntry::Folder(_entry) => {
