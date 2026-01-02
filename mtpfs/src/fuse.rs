@@ -19,7 +19,6 @@ use mtp::device::Device;
 use mtp::error::MtpError;
 use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
-use mtp::object::info::ObjectInfo;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
 use mtp::usb::error::{Error, UsbError};

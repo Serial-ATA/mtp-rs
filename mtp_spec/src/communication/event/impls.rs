@@ -750,9 +750,9 @@ define_events! {
     ///
     /// If the new store contains more than one logical store, then the first parameter shall be set
     /// to [`StorageId::DEFAULT_STORE`] and the initiator should retrieve a new list of StorageIDs using the
-    /// [`GetStorageIds`] operation.
+    /// [`GetStorageIDs`] operation.
     ///
-    /// [`GetStorageIds`]: crate::communication::operation::GetStorageIds
+    /// [`GetStorageIDs`]: crate::communication::operation::GetStorageIDs
     pub struct StoreAdded {
         code: 0x4004,
         storage_id: StorageId,
@@ -818,7 +818,7 @@ define_events! {
     /// This is an indication that the session is about to be closed. All open sessions will receive
     /// this, except for the one that initiated the reset.
     ///
-    /// [`ResetDevice`]: crate::communication::operations::ResetDevice
+    /// [`ResetDevice`]: crate::communication::operation::ResetDevice
     pub struct DeviceReset {
         code: 0x400B,
     }

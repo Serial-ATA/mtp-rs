@@ -333,7 +333,7 @@ impl Device for DeviceHandle {}
 #[derive(PartialEq, Debug, Copy, Clone, DekuRead, DekuWrite)]
 #[repr(u16)]
 #[deku(id_type = "u16", endian = "little")]
-pub enum ContainerType {
+enum ContainerType {
     Undefined = 0x0000,
     Command = 0x0001,
     Data = 0x0002,
@@ -346,15 +346,15 @@ const USB_CONTAINER_HEADER_SIZE: u32 =
 
 #[repr(C)]
 #[derive(DekuRead, DekuWrite)]
-pub struct UsbContainer {
+struct UsbContainer {
     #[deku(assert = "*length >= USB_CONTAINER_HEADER_SIZE", endian = "little")]
-    pub length: u32,
-    pub type_: ContainerType,
+    length: u32,
+    type_: ContainerType,
     #[deku(endian = "little")]
-    pub code: u16,
-    pub transaction_id: TransactionId,
+    code: u16,
+    transaction_id: TransactionId,
     #[deku(read_all)]
-    pub payload: Vec<u8>,
+    payload: Vec<u8>,
 }
 
 impl UsbContainer {

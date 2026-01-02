@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-	"mtp", "mtp-epan",
+	"mtp",
 	"mtp_spec",
 	"mtpfs",
 ]

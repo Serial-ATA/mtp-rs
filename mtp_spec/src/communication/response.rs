@@ -53,13 +53,13 @@ pub enum ErrorCode {
     /// [`ObjectHandle`]: crate::object::types::ObjectHandle
     /// [`ObjectInfo`]: crate::object::info::ObjectInfo
     InvalidObjectHandle = 0x2009,
-    /// A [`DevicePropCode`] sent in an operation is not supported by the device.
+    /// A [`DevicePropertyCode`] sent in an operation is not supported by the device.
     ///
-    /// The initiator should only attempt to work with
-    /// Device Properties identified in the [DevicePropertiesSupported] field of the [`DeviceInfo`]
-    /// Dataset, so this response should not normally be returned.
+    /// The initiator should only attempt to work with device properties identified in the
+    /// `device_properties_supported` field of the [`DeviceInfo`] Dataset, so this response should
+    /// not normally be returned.
     ///
-    /// [`DevicePropCode`]: crate::device::properties::code::DevicePropCode
+    /// [`DevicePropertyCode`]: crate::device::properties::DevicePropertyCode
     /// [`DeviceInfo`]: crate::device::info::DeviceInfo
     DevicePropNotSupported = 0x200A,
     /// The device does not support an [`ObjectFormatCode`] supplied in the given context.
@@ -145,9 +145,14 @@ pub enum ErrorCode {
     /// [`Association`]: crate::object::types::ObjectFormatCode::Association
     /// [`ObjectHandle`]: crate::object::types::ObjectHandle
     InvalidParentObject = 0x201A,
-    /// An attempt is made to set a [DeviceProperty], but the [`DevicePropDesc`] dataset sent is not the correct size or format.
+    /// An attempt is made to set a [`DeviceProperty`], but the [`DevicePropDesc`] dataset sent is not the correct size or format.
+    ///
+    /// [`DeviceProperty`]: crate::device::properties::DeviceProperty
+    /// [`DevicePropDesc`]: crate::device::properties::DevicePropDesc
     InvalidDevicePropFormat = 0x201B,
-    /// An attempt is made to set a [DeviceProperty] to a particular value, but that value is not allowed by the device.
+    /// An attempt is made to set a [`DeviceProperty`] to a particular value, but that value is not allowed by the device.
+    ///
+    /// [`DeviceProperty`]: crate::device::properties::DeviceProperty
     InvalidDevicePropValue = 0x201C,
     /// A parameter of the operation is not a valid value.
     ///
@@ -177,13 +182,13 @@ pub enum ErrorCode {
     ///
     /// [`ObjectPropertyCode`]: crate::object::types::properties::ObjectPropertyCode
     InvalidObjectPropCode = 0x2021,
-    /// An object property sent to the device is in an unsupported size or type.
+    /// An [`ObjectProperty`] sent to the device is in an unsupported size or type.
+    ///
+    /// [`ObjectProperty`]: crate::object::types::properties::ObjectProperty
     InvalidObjectPropFormat = 0x2022,
-    /// An object property sent to the device is the correct type, but contains a value which is not supported.
+    /// An [`ObjectProperty`] sent to the device is the correct type, but contains a value which is not supported.
     ///
-    /// The supported values shall be identified by the [ObjectPropDesc] dataset.
-    ///
-    /// [`ObjectPropDesc`]: crate::object::types::ObjectPropDesc
+    /// [`ObjectProperty`]: crate::object::types::properties::ObjectProperty
     InvalidObjectPropValue = 0x2023,
     /// A sent Object Reference is invalid.
     ///
@@ -361,7 +366,11 @@ impl Display for ErrorCode {
 
 /// The result of a successful or failed operation
 ///
-/// See [`SuccessResponse`] and [`TransportError`]
+/// `TransportError` is the transport-specific error implementation, provided by [`PtpIo`].
+///
+/// See also: [`SuccessResponse`]
+///
+/// [`PtpIo`]: crate::device::PtpIo
 pub type Response<O, TransportError> =
     Result<SuccessResponse<<O as DynOperation>::Response>, TransportError>;
 

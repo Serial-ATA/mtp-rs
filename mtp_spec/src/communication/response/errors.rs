@@ -171,7 +171,7 @@ define_error_responses! {
     }
 
     /// Indicates that a parameter of an operation contains a non-zero value, but is not supported.
-    /// This response is different from [`InvalidParameter`](Self::InvalidParameter).
+    /// This response is different from [`InvalidParameter`].
     [[error("The parameter is not supported")]]
     pub struct ParameterNotSupported {
         code: 0x2006,
@@ -197,15 +197,20 @@ define_error_responses! {
     ///
     /// The list of valid [`ObjectHandle`]s should be requested again, along with any appropriate
     /// [`ObjectInfo`] datasets.
+    ///
+    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
     [[error("The object handle is not valid")]]
     pub struct InvalidObjectHandle {
         code: 0x2009,
     }
 
-    /// Indicates that a [`DevicePropCode`] sent as a parameter of an operation appears to be a valid
-    /// code, but is not supported by the device. The initiator should only attempt to work with
-    /// Device Properties identified in the [`DevicePropertiesSupported`] field of the [`DeviceInfo`]
+    /// Indicates that a [`DevicePropertyCode`] sent as a parameter of an operation is not supported by the device.
+    ///
+    /// The initiator should only attempt to work with device properties identified in the `device_properties_supported` field of the [`DeviceInfo`]
     /// Dataset, so this response should not normally be returned.
+    ///
+    /// [`DevicePropertyCode`]: crate::device::properties::DevicePropertyCode
+    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
     [[error("The device property is not supported")]]
     pub struct DevicePropNotSupported {
         code: 0x200A,
@@ -336,6 +341,8 @@ define_error_responses! {
     }
 
     /// Malformed [`DevicePropDesc`]
+    ///
+    /// [`DevicePropDesc`]: crate::device::properties::DevicePropDesc
     [[error("The device property description is malformed")]]
     pub struct InvalidDevicePropFormat {
         code: 0x201B,
@@ -343,7 +350,7 @@ define_error_responses! {
 
     /// The device does not allow setting the specified [`PropertyValue`]
     ///
-    /// [`PropertyValue`]: crate::device::property_describing::PropertyValue
+    /// [`PropertyValue`]: crate::object::types::PropertyValue
     [[error("The device does not allow setting the specified property value")]]
     pub struct InvalidDevicePropValue {
         code: 0x201C,

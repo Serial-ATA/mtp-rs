@@ -287,6 +287,9 @@ macro_rules! parse_operations {
 		operation_parameters: (),
 		[$($error:expr),* $(,)?]
 	) => {
+		#[doc = "Create a new `"]
+		#[doc = stringify!($name)]
+		#[doc = "` operation"]
 		pub fn new(transaction_id: $crate::communication::TransactionId, $($param: $ty),*) -> Self {
 			Self {
 				parameters: [$($crate::communication::operation::parse_operations!(@PARAM_CONVERT $(@RAW($bool))? $(@DEFAULT($default))? $param: $ty)),*],
@@ -309,6 +312,9 @@ macro_rules! parse_operations {
 		operation_parameters: (),
 		[$($error:expr),* $(,)?]
 	) => {
+		#[doc = "Create a new `"]
+		#[doc = stringify!($name)]
+		#[doc = "` operation"]
 		pub fn new(
 			transaction_id: $crate::communication::TransactionId,
 			session_id: $crate::communication::SessionId,
@@ -339,6 +345,9 @@ macro_rules! parse_operations {
 		),
 		[$($error:expr),* $(,)?]
 	) => {
+		#[doc = "Create a new `"]
+		#[doc = stringify!($name)]
+		#[doc = "` operation"]
 		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
 			Self {
 				parameters: [$($crate::communication::ParameterPriv::new($operation_param_expr).0),*],
@@ -793,6 +802,8 @@ define_operations! {
     ///
     /// NOTE: This is the same as the `current_value` field in [`DevicePropDesc`], provided by the
     ///       [`GetDevicePropDesc`] operation.
+    ///
+    /// [`DevicePropDesc`]: crate::device::properties::DevicePropDesc
     pub partial struct GetDevicePropValue<T>
         where T: [DeviceProperty]
     {
@@ -1195,7 +1206,7 @@ define_operations! {
         ]
     }
 
-    /// Send a modified [`ObjectPropList`] to the responder
+    /// Send a modified object property list to the responder
     ///
     /// This is to be used before a [`SendObject`] operation, to inform the responder of the properties
     /// of the objects to come.
