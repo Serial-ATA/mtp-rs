@@ -3,9 +3,8 @@ use crate::communication::event::Event;
 use crate::communication::operation::{DataDirection, DynOperation, SerializedOperation};
 use crate::communication::response::{CODE_OK, Response, SuccessResponse};
 use crate::communication::{SessionId, TransactionId};
-use crate::device::{Device, PtpIo};
+use crate::device::{Device, DeviceFlags, PtpIo};
 use crate::error::MtpError;
-use crate::usb::UsbDeviceFlags;
 
 use std::io::Cursor;
 use std::pin::Pin;
@@ -39,7 +38,7 @@ pub(super) struct Endpoints {
 #[expect(dead_code)]
 pub struct DeviceHandle {
     _device: nusb::Device,
-    flags: UsbDeviceFlags,
+    flags: DeviceFlags,
     interface: nusb::Interface,
     endpoints: Endpoints,
     out_queue: Endpoint<Bulk, Out>,
@@ -54,11 +53,11 @@ pub struct DeviceHandle {
 impl DeviceHandle {
     pub(super) fn new(
         device: nusb::Device,
-        flags: UsbDeviceFlags,
+        flags: DeviceFlags,
         interface: nusb::Interface,
         endpoints: Endpoints,
     ) -> Result<Self, Error> {
-        let timeout = if flags.contains(UsbDeviceFlags::LONG_TIMEOUT) {
+        let timeout = if flags.contains(DeviceFlags::LONG_TIMEOUT) {
             Duration::from_millis(60000)
         } else {
             Duration::from_millis(20000)

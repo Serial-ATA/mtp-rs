@@ -1,5 +1,5 @@
 use super::error::Error;
-use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlags};
+use super::{DeviceFlags, MtpEligibility, UsbDeviceDescriptor};
 use crate::communication::SessionId;
 use crate::device::Device as _;
 use crate::error::MtpError;
@@ -47,7 +47,7 @@ use nusb::transfer::Direction;
 pub struct Device {
     info: nusb::DeviceInfo,
     well_known_info: Option<UsbDeviceDescriptor>,
-    flags: UsbDeviceFlags,
+    flags: DeviceFlags,
     handle: Option<nusb::Device>,
 }
 
@@ -64,7 +64,7 @@ impl From<nusb::DeviceInfo> for Device {
         Self {
             info,
             well_known_info: None,
-            flags: UsbDeviceFlags::empty(),
+            flags: DeviceFlags::empty(),
             handle: None,
         }
     }

@@ -11,6 +11,7 @@ readme.workspace = true
 workspace = true
 
 [dependencies]
+bitflags.workspace = true
 paste.workspace = true
 deku = { workspace = true, default-features = false, features = ["alloc", "logging"] }
 log.workspace = true

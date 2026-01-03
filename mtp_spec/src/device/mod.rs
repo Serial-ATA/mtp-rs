@@ -35,11 +35,13 @@ use deku::writer::Writer;
 use deku::{DekuContainerWrite, DekuWriter};
 
 pub mod extensions;
+mod flags;
+pub use flags::*;
 pub mod info;
 mod io;
+pub use io::*;
 pub mod properties;
 pub mod storage;
-pub use io::*;
 
 /// An MTP responder device
 ///
