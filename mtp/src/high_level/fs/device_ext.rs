@@ -3,7 +3,6 @@ use super::{File, Folder};
 use std::future::Future;
 
 use mtp_spec::communication::{SessionId, response};
-use mtp_spec::device::storage::id::StorageId;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
@@ -61,8 +60,6 @@ where
         let response = self
             .send_object_info(
                 session_id,
-                storage,
-                parent_object,
                 ObjectInfo {
                     storage_id: storage.unwrap_or_default(),
                     object_format: ObjectFormatCode::Association,
@@ -94,6 +91,7 @@ where
         Ok(Folder {
             id: reserved_handle,
             storage_id,
+            parent: None,
             name: object_info.filename.to_string(),
             format: ObjectFormatCode::Association,
             protection_status: ProtectionStatus::NoProtection,
@@ -123,19 +121,17 @@ where
         let response = self
             .send_object_info(
                 session_id,
-                storage,
-                parent_object,
                 ObjectInfo {
+                    storage_id: storage.unwrap_or_default(),
+                    parent_object,
                     object_format: format,
                     compressed_size: data.len() as u32,
                     association: None,
                     filename: name_ptp,
 
                     // Not required for SendObjectInfo
-                    storage_id: StorageId::DEFAULT_STORE,
                     protection_status: ProtectionStatus::default(),
                     thumbnail: None,
-                    parent_object: None,
                     sequence_number: 0,
                     date_created: None,
                     date_modified: None,
@@ -165,7 +161,7 @@ where
         Ok(File {
             storage_id,
             id: reserved_handle,
-            parent,
+            parent: None, // TODO
             name: object_info.filename.to_string(),
             size: size_response.data.data,
             format: object_info.object_format,

@@ -16,7 +16,7 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 /// previous values shall be assumed to be invalid, and the contents of the Responder must be
 /// re-enumerated if object handles are needed
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, DekuRead, DekuWrite)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, DekuRead, DekuWrite)]
 #[deku(endian = "little")]
 pub struct ObjectHandle(u32);
 

@@ -646,7 +646,7 @@ define_operations! {
         code: 0x100d,
         visible_parameters: (),
         data_direction: Some(DataDirection::InitiatorToResponder),
-        response: response::SendObject,
+        response: response::Empty,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -1176,7 +1176,7 @@ define_operations! {
         code: 0x9806,
         visible_parameters: (),
         data_direction: Some(DataDirection::InitiatorToResponder),
-        response: response::SetObjectPropList,
+        response: response::Empty,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,

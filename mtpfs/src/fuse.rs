@@ -1,24 +1,28 @@
 use std::ffi::OsStr;
 use std::fmt::{Debug, Formatter};
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::iter;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use fuser::{
-    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData,
-    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, KernelConfig, PollHandle, ReplyAttr, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyPoll, ReplyStatfs, ReplyWrite, Request,
 };
 use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
 use indicatif::{ProgressBar, ProgressStyle};
-use libc::{EINVAL, EIO, ENOENT, ENOTDIR, c_int};
+use libc::{EINVAL, EIO, ENOENT, ENOTDIR, ENOTSUP, c_int};
 use log::info;
 use mtp::communication::SessionId;
+use mtp::communication::response::{Response, SendObjectInfo};
 use mtp::device::Device;
+use mtp::device::extensions::android::AndroidDevice;
 use mtp::error::MtpError;
-use mtp::high_level::fs::{DeviceFsExt, FileSystem, FolderEntry};
+use mtp::high_level::fs::{DeviceFsExt, File, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
+use mtp::object::info::ObjectInfo;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
 use mtp::usb::error::{Error, UsbError};
@@ -89,7 +93,7 @@ struct InjectedEntry {
 
 #[derive(Clone)]
 enum Entry {
-    Real(Arc<FolderEntry>),
+    Real(FolderEntry),
     Injected(Arc<InjectedEntry>),
     /// This is a temporary state. It is not valid for an entry to remain in this state by the end of an operation.
     Empty,
@@ -198,8 +202,8 @@ impl FsInner {
             .entry = entry;
     }
 
-    fn insert_entry(&mut self, parent_inode: u64, entry: Arc<FolderEntry>) -> Option<u64> {
-        match &*entry {
+    fn insert_entry(&mut self, parent_inode: u64, entry: FolderEntry) -> Option<u64> {
+        match entry {
             FolderEntry::File(file) => self.insert(
                 parent_inode,
                 FileAttr {
@@ -226,7 +230,7 @@ impl FsInner {
                     flags: 0,
                 },
                 file.id,
-                Entry::Real(entry),
+                Entry::Real(FolderEntry::File(file)),
             ),
             FolderEntry::Folder(folder) => {
                 let ino = self.insert(
@@ -262,7 +266,7 @@ impl FsInner {
                     self.insert_entry(ino, child);
                 }
 
-                self.update_entry(ino, Entry::Real(entry));
+                self.update_entry(ino, Entry::Real(FolderEntry::Folder(folder)));
                 Some(ino)
             },
         }
@@ -309,7 +313,12 @@ impl MtpFuse {
         storage: Storage,
     ) -> mtp::usb::error::Result<Self> {
         let is_android = device.lock().await.is_android(session_id).await?;
-        log::debug!("is_android: {is_android}");
+        if !is_android {
+            log::warn!(
+                "The selected device doesn't support the Android MTP extensions. Writes will \
+                 likely have bad performance."
+            )
+        }
 
         let root = INode {
             parent: FUSE_ROOT_ID,
@@ -420,7 +429,7 @@ impl MtpFuse {
         }
 
         let mut root_inodes = Vec::new();
-        for entry in fs.contents.iter().cloned() {
+        for entry in fs.root.children.iter().cloned() {
             let Some(ino) = self.inner.insert(
                 FUSE_ROOT_ID,
                 FileAttr {
@@ -440,8 +449,8 @@ impl MtpFuse {
                     blksize: 0,
                     flags: 0,
                 },
-                entry.id,
-                Entry::Real(Arc::new(FolderEntry::Folder(entry))),
+                entry.handle(),
+                Entry::Real(entry),
             ) else {
                 continue;
             };
@@ -449,10 +458,8 @@ impl MtpFuse {
             root_inodes.push(ino);
         }
 
-        for (root, inode) in fs.contents.iter().zip(root_inodes.into_iter()) {
-            for child in root.children.iter().cloned() {
-                self.inner.insert_entry(inode, child);
-            }
+        for (entry, inode) in fs.root.children.iter().zip(root_inodes.into_iter()) {
+            self.inner.insert_entry(inode, entry.clone());
         }
 
         let storage_name = self
@@ -495,6 +502,22 @@ impl MtpFuse {
         Err(ENOENT)
     }
 
+    fn file(&self, ino: u64) -> Result<&File, c_int> {
+        let Some((inode, _)) = self.inner.get(ino) else {
+            return Err(ENOENT);
+        };
+
+        let Entry::Real(entry) = &inode.entry else {
+            return Err(EINVAL);
+        };
+
+        let FolderEntry::File(file) = entry else {
+            return Err(EINVAL);
+        };
+
+        Ok(&**file)
+    }
+
     async fn rename(
         &mut self,
         parent: u64,
@@ -522,7 +545,7 @@ impl MtpFuse {
             return Err(EINVAL);
         };
 
-        let FolderEntry::Folder(parent) = &**parent else {
+        let FolderEntry::Folder(parent) = &*parent else {
             return Err(EINVAL);
         };
 
@@ -533,13 +556,13 @@ impl MtpFuse {
             // Fallback to copy + delete
             Err(MtpError::UnsupportedOperation) => {
                 let ret;
-                match &**entry {
+                match entry {
                     FolderEntry::Folder(_entry) => {
                         let folder = device
                             .mkdir(self.session_id, Some(parent), name_str)
                             .await
                             .map_err(|_| EIO)?;
-                        ret = FolderEntry::Folder(folder);
+                        ret = FolderEntry::Folder(Arc::new(folder));
                     },
                     FolderEntry::File(entry) => {
                         let mut f = entry
@@ -556,7 +579,7 @@ impl MtpFuse {
                             .await
                             .map_err(|_| EIO)?;
 
-                        ret = FolderEntry::File(file);
+                        ret = FolderEntry::File(Arc::new(file));
                     },
                 }
 
@@ -570,8 +593,7 @@ impl MtpFuse {
             Err(_) => return Err(EIO),
         }
 
-        self.inner
-            .update_entry(ino, Entry::Real(Arc::new(new_entry)));
+        self.inner.update_entry(ino, Entry::Real(new_entry));
 
         Ok(())
     }
@@ -640,7 +662,7 @@ impl Filesystem for MtpFuse {
                 return;
             };
 
-            let FolderEntry::Folder(dir) = &**entry else {
+            let FolderEntry::Folder(dir) = entry else {
                 reply.error(EINVAL);
                 return;
             };
@@ -651,7 +673,11 @@ impl Filesystem for MtpFuse {
         let result = futures::executor::block_on(async {
             let mut device = self.device.lock().await;
             device
-                .mkdir(self.session_id, parent_dir, name.to_string())
+                .mkdir(
+                    self.session_id,
+                    parent_dir.map(Arc::as_ref),
+                    name.to_string(),
+                )
                 .await
         });
 
@@ -659,7 +685,7 @@ impl Filesystem for MtpFuse {
             Ok(folder) => {
                 let Some(inode) = self
                     .inner
-                    .insert_entry(parent, Arc::new(FolderEntry::Folder(folder)))
+                    .insert_entry(parent, FolderEntry::Folder(Arc::new(folder)))
                 else {
                     reply.error(ENOENT);
                     return;
@@ -672,8 +698,8 @@ impl Filesystem for MtpFuse {
 
                 reply.entry(&TTL, &inode.attr, 0);
             },
-            Err(_) => {
-                reply.error(EIO);
+            Err(e) => {
+                reply.error(e.to_errno());
                 return;
             },
         }
@@ -713,6 +739,17 @@ impl Filesystem for MtpFuse {
         }
     }
 
+    fn symlink(
+        &mut self,
+        _req: &Request<'_>,
+        _parent: u64,
+        _link_name: &OsStr,
+        _target: &Path,
+        reply: ReplyEntry,
+    ) {
+        reply.error(ENOTSUP);
+    }
+
     fn rename(
         &mut self,
         _req: &Request<'_>,
@@ -743,25 +780,18 @@ impl Filesystem for MtpFuse {
         _ino: u64,
         _newparent: u64,
         _newname: &OsStr,
-        _reply: ReplyEntry,
+        reply: ReplyEntry,
     ) {
-        todo!()
+        reply.error(ENOTSUP);
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        let Some((inode, _)) = self.inner.get(ino) else {
-            reply.error(ENOENT);
-            return;
-        };
-
-        let Entry::Real(entry) = &inode.entry else {
-            reply.error(EINVAL);
-            return;
-        };
-
-        let FolderEntry::File(file) = &**entry else {
-            reply.error(EINVAL);
-            return;
+        let file = match self.file(ino) {
+            Ok(file) => file,
+            Err(e) => {
+                reply.error(e);
+                return;
+            },
         };
 
         futures::executor::block_on(async {
@@ -769,14 +799,7 @@ impl Filesystem for MtpFuse {
             match device.get_object_info(self.session_id, file.id).await {
                 Ok(_fd) => reply.opened(0, flags as u32),
                 Err(e) => {
-                    if let MtpError::Transport(e) = e {
-                        if let UsbError::Native(e) = &*e {
-                            reply.error(e.os_error().map(|e| e as c_int).unwrap_or(EIO));
-                            return;
-                        }
-                    }
-
-                    reply.error(EIO);
+                    reply.error(e.to_errno());
                 },
             }
         });
@@ -793,19 +816,12 @@ impl Filesystem for MtpFuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let Some((inode, _)) = self.inner.get(ino) else {
-            reply.error(ENOENT);
-            return;
-        };
-
-        let Entry::Real(entry) = &inode.entry else {
-            reply.error(EINVAL);
-            return;
-        };
-
-        let FolderEntry::File(file) = &**entry else {
-            reply.error(EINVAL);
-            return;
+        let file = match self.file(ino) {
+            Ok(file) => file,
+            Err(e) => {
+                reply.error(e);
+                return;
+            },
         };
 
         futures::executor::block_on(async {
@@ -816,14 +832,7 @@ impl Filesystem for MtpFuse {
             {
                 Ok(response) => reply.data(&response.data.data),
                 Err(e) => {
-                    if let MtpError::Transport(e) = e {
-                        if let UsbError::Native(e) = &*e {
-                            reply.error(e.os_error().map(|e| e as c_int).unwrap_or(EIO));
-                            return;
-                        }
-                    }
-
-                    reply.error(EIO);
+                    reply.error(e.to_errno());
                 },
             }
         });
@@ -832,16 +841,116 @@ impl Filesystem for MtpFuse {
     fn write(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         _fh: u64,
-        _offset: i64,
-        _data: &[u8],
+        offset: i64,
+        data: &[u8],
         _write_flags: u32,
         _flags: i32,
         _lock_owner: Option<u64>,
-        _reply: ReplyWrite,
+        reply: ReplyWrite,
     ) {
-        todo!()
+        let file = match self.file(ino) {
+            Ok(file) => file,
+            Err(e) => {
+                reply.error(e);
+                return;
+            },
+        };
+
+        futures::executor::block_on(async {
+            let mut device = self.device.lock().await;
+
+            // Android has a fast path, where we can actually edit files in-place
+            if self.is_android {
+                match device
+                    .send_partial_object(
+                        self.session_id,
+                        file.id,
+                        offset as u64,
+                        data.len() as u32,
+                        data,
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        reply.written(response.data.length);
+                        return;
+                    },
+                    Err(e) => {
+                        reply.error(e.to_errno());
+                        return;
+                    },
+                }
+            }
+
+            // Otherwise, we need to:
+            // - Create a temp file and perform the write
+            // - Delete the old object on the device
+            // - Send a new copy of the object to the device
+
+            let mut temp = match file.open(&mut *device, self.session_id).await {
+                Ok(file) => file,
+                Err(e) => {
+                    reply.error(e.to_errno());
+                    return;
+                },
+            };
+
+            if let Err(e) = temp.seek(SeekFrom::Start(offset as u64)) {
+                reply.error(e.raw_os_error().unwrap_or(EIO));
+                return;
+            }
+
+            if let Err(e) = temp.write_all(data) {
+                reply.error(e.raw_os_error().unwrap_or(EIO));
+                return;
+            }
+
+            let mut object_data = Vec::new();
+            if let Err(e) = temp.read_to_end(&mut object_data) {
+                reply.error(e.raw_os_error().unwrap_or(EIO));
+                return;
+            }
+
+            let Ok(object_info) = file.object_info() else {
+                reply.error(EINVAL);
+                return;
+            };
+
+            if let Err(e) = device.delete_object(self.session_id, file.id, None).await {
+                reply.error(e.to_errno());
+                return;
+            }
+
+            let storage;
+            let parent;
+            let id;
+            match device.send_object_info(self.session_id, object_info).await {
+                Ok(response) => {
+                    SendObjectInfo {
+                        storage_id: storage,
+                        parent,
+                        reserved_handle: id,
+                    } = response.data;
+                },
+                Err(e) => {
+                    reply.error(e.to_errno());
+                    return;
+                },
+            }
+
+            match device.send_object(self.session_id, object_data).await {
+                Ok(_) => {
+                    reply.written(data.len() as u32);
+                    return;
+                },
+                Err(e) => {
+                    reply.error(e.to_errno());
+                    return;
+                },
+            }
+        });
     }
 
     fn flush(
@@ -853,17 +962,6 @@ impl Filesystem for MtpFuse {
         reply: ReplyEmpty,
     ) {
         reply.ok()
-    }
-
-    fn fsync(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        _reply: ReplyEmpty,
-    ) {
-        todo!()
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
@@ -926,28 +1024,6 @@ impl Filesystem for MtpFuse {
         reply.ok();
     }
 
-    fn releasedir(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _flags: i32,
-        reply: ReplyEmpty,
-    ) {
-        reply.ok()
-    }
-
-    fn fsyncdir(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        reply: ReplyEmpty,
-    ) {
-        reply.ok()
-    }
-
     fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
         let blocks = self.storage.max_capacity / u64::from(BLOCK_SIZE);
         let blocks_free = self.storage.free_space / u64::from(BLOCK_SIZE);
@@ -963,5 +1039,31 @@ impl Filesystem for MtpFuse {
             0,
             0,
         );
+    }
+}
+
+trait ToErrno {
+    fn to_errno(&self) -> c_int;
+}
+
+impl ToErrno for MtpError<Arc<UsbError>> {
+    fn to_errno(&self) -> c_int {
+        if let MtpError::Transport(e) = self {
+            if let UsbError::Native(e) = &**e {
+                return e.os_error().map(|e| e as c_int).unwrap_or(EIO);
+            }
+        }
+
+        EIO
+    }
+}
+
+impl ToErrno for Error {
+    fn to_errno(&self) -> c_int {
+        match self {
+            Error::Io(e) => e.raw_os_error().unwrap_or(EIO),
+            Error::Core(e) => e.to_errno(),
+            Error::EventStream(_) | Error::Generic(_) => EIO,
+        }
     }
 }

@@ -1,3 +1,5 @@
+//! Android-specific device extensions
+
 use crate::communication::SessionId;
 use crate::communication::operation::android::{
     BeginEditObject, EndEditObject, GetPartialObject64, SendPartialObject, TruncateObject,

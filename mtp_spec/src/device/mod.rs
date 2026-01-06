@@ -327,11 +327,15 @@ pub trait Device: PtpIo {
     fn send_object_info(
         &mut self,
         session_id: SessionId,
-        storage: Option<StorageId>,
-        parent: Option<ObjectHandle>,
         object_info: ObjectInfo,
     ) -> impl Future<Output = Response<SendObjectInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
+        let storage = if object_info.storage_id == StorageId::DEFAULT_STORE {
+            None
+        } else {
+            Some(object_info.storage_id)
+        };
+        let parent = object_info.parent_object;
         async move {
             let encoded_object_info = object_info
                 .to_bytes()

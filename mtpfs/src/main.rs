@@ -11,7 +11,7 @@ use std::sync::Arc;
 use fuser::MountOption;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use mtp::device::PtpIo;
+use mtp::device::{Device, PtpIo};
 use mtp::usb::error::Error;
 use tokio::sync::Mutex;
 

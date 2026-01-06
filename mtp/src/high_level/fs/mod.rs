@@ -1,28 +1,31 @@
 mod device_ext;
+
 pub use device_ext::*;
+use std::collections::HashMap;
 
 use crate::communication::SessionId;
 use crate::device::storage::id::StorageId;
 use crate::device::{Device, PtpIo};
 use crate::error::{Error, MtpError};
-use crate::object::info::ProtectionStatus;
+use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
+use mtp_spec::communication::response::errors::{InvalidObjectHandle, OperationError};
 use std::io::Write;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// Representation of a file on an MTP-compatible device
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `File`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct File {
     /// The device-specific ID of the storage where this file lives
     pub storage_id: StorageId,
     pub id: ObjectHandle,
-    pub parent: ObjectHandle,
+    pub parent: Option<Weak<Folder>>,
     pub name: String,
     pub size: u64,
     pub format: ObjectFormatCode,
@@ -137,7 +140,7 @@ impl File {
             .map_err(Into::<MtpError<<D as PtpIo>::TransportError>>::into)?;
 
         let id = self.id;
-        let parent = self.parent;
+        let parent = self.parent.clone();
         let storage_id = self.storage_id;
         let _ = device
             .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
@@ -197,17 +200,36 @@ impl File {
         &self,
         device: &mut D,
         session_id: SessionId,
-        parent: Option<ObjectHandle>,
+        destination: Arc<Folder>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
-            .move_object(session_id, self.id, self.storage_id, parent)
+            .move_object(session_id, self.id, self.storage_id, Some(destination.id))
             .await?;
-
         Ok(())
+    }
+
+    pub fn object_info(&self) -> Result<ObjectInfo, <PtpString as FromStr>::Err> {
+        let filename = self.name.parse()?;
+        let Some(parent_object) = self.parent.as_ref().and_then(Weak::upgrade).map(|p| p.id) else {
+            todo!()
+        };
+        Ok(ObjectInfo {
+            storage_id: self.storage_id,
+            object_format: self.format,
+            protection_status: self.protection_status,
+            compressed_size: 0,
+            thumbnail: None,
+            parent_object: Some(parent_object),
+            association: None,
+            sequence_number: 0,
+            filename,
+            date_created: self.date_created,
+            date_modified: self.date_modified,
+            keywords: Default::default(),
+        })
     }
 }
 
@@ -215,17 +237,18 @@ impl File {
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `Folder`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Folder {
     /// The device-specific ID of the storage where this folder lives
     pub id: ObjectHandle,
     pub storage_id: StorageId,
+    pub parent: Option<Weak<Folder>>,
     pub name: String,
     pub format: ObjectFormatCode,
     pub protection_status: ProtectionStatus,
     pub date_created: Option<DateTime>,
     pub date_modified: Option<DateTime>,
-    pub children: Vec<Arc<FolderEntry>>,
+    pub children: Vec<FolderEntry>,
 }
 
 impl Folder {
@@ -263,6 +286,7 @@ impl Folder {
             date_created: self.date_created,
             date_modified: self.date_modified,
             children: self.children.clone(),
+            parent: self.parent.clone(),
         })
     }
 
@@ -307,24 +331,24 @@ impl Folder {
         &self,
         device: &mut D,
         session_id: SessionId,
-        parent: Option<ObjectHandle>,
+        parent: Option<Arc<Self>>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         device
-            .move_object(session_id, self.id, self.storage_id, parent)
+            .move_object(session_id, self.id, self.storage_id, parent.map(|p| p.id))
             .await?;
 
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum FolderEntry {
-    File(File),
-    Folder(Folder),
+    File(Arc<File>),
+    Folder(Arc<Folder>),
 }
 
 impl FolderEntry {
@@ -384,12 +408,12 @@ impl FolderEntry {
         N: AsRef<str>,
     {
         match self {
-            FolderEntry::File(f) => {
-                Ok(FolderEntry::File(f.rename(device, session_id, name).await?))
-            },
-            FolderEntry::Folder(f) => Ok(FolderEntry::Folder(
+            FolderEntry::File(f) => Ok(FolderEntry::File(Arc::new(
                 f.rename(device, session_id, name).await?,
-            )),
+            ))),
+            FolderEntry::Folder(f) => Ok(FolderEntry::Folder(Arc::new(
+                f.rename(device, session_id, name).await?,
+            ))),
         }
     }
 
@@ -423,14 +447,22 @@ impl FolderEntry {
         &self,
         device: &mut D,
         session_id: SessionId,
-        parent: Option<ObjectHandle>,
+        parent: Option<Arc<Folder>>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
-            FolderEntry::File(f) => f.move_(device, session_id, parent).await,
+            FolderEntry::File(f) => {
+                let Some(parent) = parent else {
+                    return Err(MtpError::Protocol(OperationError::InvalidObjectHandle(
+                        InvalidObjectHandle {},
+                    )));
+                };
+
+                f.move_(device, session_id, parent).await
+            },
             FolderEntry::Folder(f) => f.move_(device, session_id, parent).await,
         }
     }
@@ -439,7 +471,7 @@ impl FolderEntry {
 pub struct FileSystem {
     session_id: SessionId,
     storage_id: StorageId,
-    pub contents: Vec<Folder>,
+    pub root: Arc<Folder>,
 }
 
 impl FileSystem {
@@ -473,20 +505,147 @@ impl FileSystem {
         device: &mut D,
         session_id: SessionId,
         storage_id: StorageId,
-        callback: F,
+        mut callback: F,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         F: FnMut(ObjectHandle),
     {
-        let mut ret = Self {
+        let handles_res = device
+            .get_object_handles(session_id, storage_id, None, None)
+            .await?;
+        let handles = handles_res.data.data;
+
+        let mut raw_data: HashMap<ObjectHandle, (ObjectHandle, FolderEntry)> = HashMap::new();
+
+        for handle in handles {
+            callback(handle);
+
+            let parent_id = device
+                .get_object_prop_value::<ParentObject>(session_id, handle)
+                .await?
+                .data
+                .data;
+            let name_ptp = device
+                .get_object_prop_value::<ObjectFileName>(session_id, handle)
+                .await?
+                .data
+                .data;
+            let format = device
+                .get_object_prop_value::<ObjectFormat>(session_id, handle)
+                .await?
+                .data
+                .data;
+
+            let name = name_ptp.to_string();
+            if format == ObjectFormatCode::Association {
+                let folder = Folder {
+                    id: handle,
+                    storage_id,
+                    parent: None,
+                    name,
+                    format,
+                    protection_status: ProtectionStatus::ReadOnly,
+                    date_created: None,
+                    date_modified: None,
+                    children: Vec::new(),
+                };
+                raw_data.insert(handle, (parent_id, FolderEntry::Folder(Arc::new(folder))));
+            } else {
+                let file = File {
+                    id: handle,
+                    storage_id,
+                    parent: None,
+                    name,
+                    size: device
+                        .get_object_prop_value::<ObjectSize>(session_id, handle)
+                        .await?
+                        .data
+                        .data,
+                    format,
+                    protection_status: ProtectionStatus::ReadOnly,
+                    date_created: None,
+                    date_modified: None,
+                };
+                raw_data.insert(handle, (parent_id, FolderEntry::File(Arc::new(file))));
+            }
+        }
+
+        let root = Arc::new_cyclic(|weak_root| {
+            let mut children = Vec::new();
+            Self::assemble_recursive(
+                ObjectHandle::NONE,
+                weak_root.clone(),
+                &mut raw_data,
+                &mut children,
+            );
+
+            Folder {
+                id: ObjectHandle::NONE,
+                storage_id,
+                parent: None,
+                name: "/".to_string(),
+                format: ObjectFormatCode::Association,
+                protection_status: ProtectionStatus::ReadOnly,
+                date_created: None,
+                date_modified: None,
+                children,
+            }
+        });
+
+        Ok(Self {
             session_id,
             storage_id,
-            contents: Vec::new(),
-        };
+            root,
+        })
+    }
 
-        ret.refresh_with_callback(device, callback).await?;
-        Ok(ret)
+    /// Internal recursive helper to build child nodes and link them to parents
+    fn assemble_recursive(
+        parent_id: ObjectHandle,
+        parent_weak: Weak<Folder>,
+        raw_data: &mut HashMap<ObjectHandle, (ObjectHandle, FolderEntry)>,
+        out_children: &mut Vec<FolderEntry>,
+    ) {
+        let child_handles: Vec<ObjectHandle> = raw_data
+            .iter()
+            .filter(|(_, (p, _))| *p == parent_id)
+            .map(|(h, _)| *h)
+            .collect();
+
+        for h in child_handles {
+            let (_, entry) = raw_data.remove(&h).expect("Exists");
+
+            match entry {
+                FolderEntry::File(mut file) => {
+                    {
+                        let file = Arc::get_mut(&mut file).expect("should be valid");
+                        file.parent = Some(parent_weak.clone());
+                    }
+
+                    out_children.push(FolderEntry::File(file));
+                },
+                FolderEntry::Folder(folder_arc) => {
+                    let assembled_folder = Arc::new_cyclic(|me_weak| {
+                        let mut children = Vec::new();
+                        Self::assemble_recursive(h, me_weak.clone(), raw_data, &mut children);
+
+                        Folder {
+                            id: folder_arc.id,
+                            storage_id: folder_arc.storage_id,
+                            parent: Some(parent_weak.clone()),
+                            name: folder_arc.name.clone(),
+                            format: folder_arc.format,
+                            protection_status: folder_arc.protection_status,
+                            date_created: folder_arc.date_created.clone(),
+                            date_modified: folder_arc.date_modified.clone(),
+                            children,
+                        }
+                    });
+                    out_children.push(FolderEntry::Folder(assembled_folder));
+                },
+            }
+        }
     }
 
     /// Refresh the `FileSystem` to match the new state of the device
@@ -522,145 +681,146 @@ impl FileSystem {
     where
         D: Device,
     {
-        let objects_response = device
-            .get_object_handles(self.session_id, self.storage_id, None, None)
-            .await?;
-        let objects = objects_response.data.data;
-
-        let mut entries = Vec::with_capacity(objects.len());
-        for object in objects.iter().copied() {
-            callback(object);
-
-            let parent = match device
-                .get_object_prop_value::<ParentObject>(self.session_id, object)
-                .await
-            {
-                Ok(parent) => {
-                    if parent.data.data == ObjectHandle::NONE {
-                        None
-                    } else {
-                        Some(parent.data.data)
-                    }
-                },
-                Err(e) => {
-                    log::warn!("Failed to get parent object, skipping: {e}");
-                    continue;
-                },
-            };
-
-            let name = match device
-                .get_object_prop_value::<ObjectFileName>(self.session_id, object)
-                .await
-            {
-                Ok(name) => name.data.data,
-                Err(e) => {
-                    log::warn!("Failed to get object name, skipping: {e}");
-                    continue;
-                },
-            };
-
-            let format = match device
-                .get_object_prop_value::<ObjectFormat>(self.session_id, object)
-                .await
-            {
-                Ok(format) => format.data.data,
-                Err(e) => {
-                    log::warn!("Failed to get object format, skipping: {e}");
-                    continue;
-                },
-            };
-
-            match parent {
-                Some(parent) => match format {
-                    ObjectFormatCode::Association => {
-                        entries.push((
-                            parent,
-                            FolderEntry::Folder(Folder {
-                                storage_id: self.storage_id,
-                                id: object,
-                                name: name.to_string(),
-                                format,
-                                protection_status: ProtectionStatus::ReadOnly,
-                                date_created: None,
-                                date_modified: None,
-                                children: Vec::new(),
-                            }),
-                        ));
-                    },
-                    _ => {
-                        let size = match device
-                            .get_object_prop_value::<ObjectSize>(self.session_id, object)
-                            .await
-                        {
-                            Ok(size) => size.data.data,
-                            Err(e) => {
-                                log::warn!("Failed to get object size, skipping: {e}");
-                                continue;
-                            },
-                        };
-
-                        entries.push((
-                            parent,
-                            FolderEntry::File(File {
-                                storage_id: self.storage_id,
-                                id: object,
-                                parent,
-                                name: name.to_string(),
-                                size,
-                                format,
-                                protection_status: ProtectionStatus::ReadOnly,
-                                date_created: None,
-                                date_modified: None,
-                            }),
-                        ));
-                    },
-                },
-                None => {
-                    self.contents.push(Folder {
-                        storage_id: self.storage_id,
-                        id: object,
-                        name: name.to_string(),
-                        format,
-                        protection_status: ProtectionStatus::ReadOnly,
-                        date_created: None,
-                        date_modified: None,
-                        children: Vec::new(),
-                    });
-                },
-            }
-        }
-
-        let root_ids = self.contents.iter().map(|dir| dir.id).collect::<Vec<_>>();
-        for (index, root) in root_ids.iter().enumerate() {
-            let children = collect_children(*root, &entries);
-            self.contents[index].children = children;
-        }
-
-        Ok(())
+        todo!()
+        // let objects_response = device
+        //     .get_object_handles(self.session_id, self.storage_id, None, None)
+        //     .await?;
+        // let objects = objects_response.data.data;
+        //
+        // let mut entries = Vec::with_capacity(objects.len());
+        // for object in objects.iter().copied() {
+        //     callback(object);
+        //
+        //     let parent = match device
+        //         .get_object_prop_value::<ParentObject>(self.session_id, object)
+        //         .await
+        //     {
+        //         Ok(parent) => {
+        //             if parent.data.data == ObjectHandle::NONE {
+        //                 None
+        //             } else {
+        //                 Some(parent.data.data)
+        //             }
+        //         },
+        //         Err(e) => {
+        //             log::warn!("Failed to get parent object, skipping: {e}");
+        //             continue;
+        //         },
+        //     };
+        //
+        //     let name = match device
+        //         .get_object_prop_value::<ObjectFileName>(self.session_id, object)
+        //         .await
+        //     {
+        //         Ok(name) => name.data.data,
+        //         Err(e) => {
+        //             log::warn!("Failed to get object name, skipping: {e}");
+        //             continue;
+        //         },
+        //     };
+        //
+        //     let format = match device
+        //         .get_object_prop_value::<ObjectFormat>(self.session_id, object)
+        //         .await
+        //     {
+        //         Ok(format) => format.data.data,
+        //         Err(e) => {
+        //             log::warn!("Failed to get object format, skipping: {e}");
+        //             continue;
+        //         },
+        //     };
+        //
+        //     match parent {
+        //         Some(parent) => match format {
+        //             ObjectFormatCode::Association => {
+        //                 entries.push((
+        //                     parent,
+        //                     FolderEntry::Folder(Folder {
+        //                         storage_id: self.storage_id,
+        //                         id: object,
+        //                         name: name.to_string(),
+        //                         format,
+        //                         protection_status: ProtectionStatus::ReadOnly,
+        //                         date_created: None,
+        //                         date_modified: None,
+        //                         children: Vec::new(),
+        //                     }),
+        //                 ));
+        //             },
+        //             _ => {
+        //                 let size = match device
+        //                     .get_object_prop_value::<ObjectSize>(self.session_id, object)
+        //                     .await
+        //                 {
+        //                     Ok(size) => size.data.data,
+        //                     Err(e) => {
+        //                         log::warn!("Failed to get object size, skipping: {e}");
+        //                         continue;
+        //                     },
+        //                 };
+        //
+        //                 entries.push((
+        //                     parent,
+        //                     FolderEntry::File(File {
+        //                         storage_id: self.storage_id,
+        //                         id: object,
+        //                         parent,
+        //                         name: name.to_string(),
+        //                         size,
+        //                         format,
+        //                         protection_status: ProtectionStatus::ReadOnly,
+        //                         date_created: None,
+        //                         date_modified: None,
+        //                     }),
+        //                 ));
+        //             },
+        //         },
+        //         None => {
+        //             self.contents.push(Folder {
+        //                 storage_id: self.storage_id,
+        //                 id: object,
+        //                 name: name.to_string(),
+        //                 format,
+        //                 protection_status: ProtectionStatus::ReadOnly,
+        //                 date_created: None,
+        //                 date_modified: None,
+        //                 children: Vec::new(),
+        //             });
+        //         },
+        //     }
+        // }
+        //
+        // let root_ids = self.contents.iter().map(|dir| dir.id).collect::<Vec<_>>();
+        // for (index, root) in root_ids.iter().enumerate() {
+        //     let children = collect_children(*root, &entries);
+        //     self.contents[index].children = children;
+        // }
+        //
+        // Ok(())
     }
 }
 
-fn collect_children(
-    root: ObjectHandle,
-    all_entries: &[(ObjectHandle, FolderEntry)],
-) -> Vec<Arc<FolderEntry>> {
-    let mut entries = Vec::new();
-    for (parent, entry) in all_entries.iter() {
-        if *parent != root {
-            continue;
-        }
-
-        match entry {
-            FolderEntry::File(_) => {
-                entries.push(Arc::new(entry.clone()));
-            },
-            FolderEntry::Folder(folder) => {
-                let mut entry = folder.clone();
-                entry.children = collect_children(folder.id, all_entries);
-                entries.push(Arc::new(FolderEntry::Folder(entry)));
-            },
-        }
-    }
-
-    entries
-}
+// fn collect_children(
+//     root: ObjectHandle,
+//     all_entries: &[(ObjectHandle, FolderEntry)],
+// ) -> Vec<Arc<FolderEntry>> {
+//     let mut entries = Vec::new();
+//     for (parent, entry) in all_entries.iter() {
+//         if *parent != root {
+//             continue;
+//         }
+//
+//         match entry {
+//             FolderEntry::File(_) => {
+//                 entries.push(Arc::new(entry.clone()));
+//             },
+//             FolderEntry::Folder(folder) => {
+//                 let mut entry = folder.clone();
+//                 entry.children = collect_children(folder.id, all_entries);
+//                 entries.push(Arc::new(FolderEntry::Folder(entry)));
+//             },
+//         }
+//     }
+//
+//     entries
+// }

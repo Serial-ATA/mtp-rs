@@ -1,8 +1,9 @@
+use crate::communication::response::errors::OperationError;
 use crate::object::types::{DateTimeError, NulError};
 
-use crate::communication::response::errors::OperationError;
 use core::fmt::{Display, Formatter};
 
+/// Errors while serializing/deserializing operation data
 #[derive(Clone, Debug)]
 pub enum SerializationError {
     /// Attempting to send data to a responder, when the data direction is [`DataDirection::ResponderToInitiator`]

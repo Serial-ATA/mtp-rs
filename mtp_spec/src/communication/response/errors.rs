@@ -18,8 +18,7 @@ macro_rules! define_error_responses {
 			[[error($error_msg:literal)]]
 			pub struct $name:ident {
 				code: $code:literal,
-				$(data: $data:ty,)?
-				$(parameters: ($($param:ident: $ty:ty),* $(,)?),)?
+				$($param:ident: $ty:ty),* $(,)?
 			}
 		)*
 	) => {
@@ -27,8 +26,7 @@ macro_rules! define_error_responses {
 			define_response!(
 				$(#[$meta])*
 				pub struct $name[][] {
-					$(data: $data,)?
-					$(parameters: ($($param: $ty),*),)?
+					$($param: $ty),*
 				}
 			);
 
@@ -46,6 +44,7 @@ macro_rules! define_error_responses {
 			impl core::error::Error for $name {}
 		)*
 
+		/// All defined operation error codes
 		#[derive(Clone, Debug)]
 		pub enum OperationError {
 			$(
@@ -83,6 +82,7 @@ macro_rules! define_error_responses {
 		impl core::error::Error for OperationError {}
 
 		impl OperationError {
+			/// Get the raw error code for this error
 			pub fn code(&self) -> ErrorCode {
 				match self {
 					$(
@@ -150,7 +150,7 @@ define_error_responses! {
     [[error("The session handle identified by the operation dataset for this operation is not a currently open session")]]
     pub struct SessionNotOpen {
         code: 0x2003,
-        parameters: (session_id: SessionId),
+        session_id: SessionId,
     }
 
     /// Indicates that the [`TransactionID`] of this operation does not identify a valid transaction.
@@ -214,14 +214,14 @@ define_error_responses! {
     [[error("The device property is not supported")]]
     pub struct DevicePropNotSupported {
         code: 0x200A,
-        parameters: (device_prop_code: ObjectPropertyCode),
+        device_prop_code: ObjectPropertyCode,
     }
 
     /// Indicates that the device does not support an [`ObjectFormatCode`] supplied in the given context.
     [[error("The object format code is not supported")]]
     pub struct InvalidObjectFormatCode {
         code: 0x200B,
-        parameters: (object_format_code: ObjectFormatCode),
+        object_format_code: ObjectFormatCode,
     }
 
     /// Indicates that a store identified in this operation is full, and this is preventing the
@@ -229,35 +229,35 @@ define_error_responses! {
     [[error("The store is full")]]
     pub struct StoreFull {
         code: 0x200C,
-        parameters: (storage_id: StorageId),
+        storage_id: StorageId,
     }
 
     /// Indicates that an object referred to by the operation is write-protected.
     [[error("The object is write-protected")]]
     pub struct ObjectWriteProtected {
         code: 0x200D,
-        parameters: (object_handle: ObjectHandle),
+        object_handle: ObjectHandle,
     }
 
     /// Indicates that a store referred to by the operation is read-only
     [[error("The store is read-only")]]
     pub struct StoreReadOnly {
         code: 0x200E,
-        parameters: (storage_id: StorageId),
+        storage_id: StorageId,
     }
 
     /// Indicates that the device does not have permission to access the specified storage.
     [[error("The device does not have permission to access the storage")]]
     pub struct AccessDenied {
         code: 0x200F,
-        parameters: (storage_id: StorageId),
+        storage_id: StorageId,
     }
 
     /// Indicates that the specified object exists, but a thumbnail cannot be provided.
     [[error("The object does not have a thumbnail")]]
     pub struct NoThumbnailPresent {
         code: 0x2010,
-        parameters: (handle: ObjectHandle),
+        handle: ObjectHandle,
     }
 
     /// Indicates that the device failed a device-specific self test.
@@ -365,7 +365,7 @@ define_error_responses! {
     [[error("The session is already open")]]
     pub struct SessionAlreadyOpen {
         code: 0x201E,
-        parameters: (session_id: SessionId),
+        session_id: SessionId,
     }
 
     /// The initiator manually cancelled the transaction.

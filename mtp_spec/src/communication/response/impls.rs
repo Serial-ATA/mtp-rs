@@ -21,34 +21,24 @@ macro_rules! define_response {
 		$(#[$meta:meta])*
 		pub struct $name:ident [$($generics:tt)*][$($where_clause:tt)*] {
 			$(
-				$(#[$deku_meta:meta])*
-				data: $data:ty,
-			)?
-			$(
-				parameters: (
-					$(
-						$(#[$param_meta:meta])*
-						$param:ident: $ty:ty
-					),* $(,)?
-				),
-			)?
+				$(#[$param_meta:meta])*
+				$param:ident: $ty:ty
+			),* $(,)?
 		}
 	) => {
-		$(
-			const _: () = {
-				const fn counter<const N: usize>(_: [(); N]) -> usize {
-					N
-				}
+		const _: () = {
+			const fn counter<const N: usize>(_: [(); N]) -> usize {
+				N
+			}
 
-				const MAX_PARAMETERS: usize = 5;
+			const MAX_PARAMETERS: usize = 5;
 
-				if counter(
-					[$($crate::communication::response::impls::replace_expr!($param ())),*]
-				) > MAX_PARAMETERS {
-					panic!("Too many parameters");
-				}
-			};
-		)?
+			if counter(
+				[$($crate::communication::response::impls::replace_expr!($param ())),*]
+			) > MAX_PARAMETERS {
+				panic!("Too many parameters");
+			}
+		};
 
 		$(#[$meta])*
 		#[derive(Clone, Debug, PartialEq, deku::DekuRead)]
@@ -60,16 +50,9 @@ macro_rules! define_response {
 		)]
 		pub struct $name $($generics)* $($where_clause)* {
 			$(
-				$(#[$deku_meta])*
-				/// The decoded data from the responder
-				pub data: $data,
-			)?
-			$(
-				$(
-					$(#[$param_meta])*
-					pub $param: $ty
-				),*
-			)?
+				$(#[$param_meta])*
+				pub $param: $ty
+			),*
 		}
 	}
 }
@@ -78,9 +61,7 @@ pub(super) use {define_response, replace_expr};
 
 define_response! {
     /// Empty response, responder has nothing to provide
-    pub struct Empty[][] {
-        data: (),
-    }
+    pub struct Empty[][] {}
 }
 
 define_response! {
@@ -107,7 +88,7 @@ define_response! {
 define_response! {
     /// Response to the [`GetNumObjects`] operation.
     pub struct GetNumObjects[][] {
-        parameters: (num_objects: u32),
+        num_objects: u32,
     }
 }
 
@@ -143,14 +124,12 @@ define_response! {
 define_response! {
     /// Response to the [`SendObjectInfo`] operation.
     pub struct SendObjectInfo[][] {
-        parameters: (
-            /// The storage id of the incoming object
-            storage_id: StorageId,
-            /// The parent of the incoming object
-            parent: ObjectHandle,
-            /// The responder's reserved handle for the incoming object
-            reserved_handle: ObjectHandle,
-        ),
+        /// The storage id of the incoming object
+        storage_id: StorageId,
+        /// The parent of the incoming object
+        parent: ObjectHandle,
+        /// The responder's reserved handle for the incoming object
+        reserved_handle: ObjectHandle,
     }
 }
 
@@ -240,15 +219,6 @@ define_response! {
 }
 
 define_response! {
-    /// Response to the [`SetObjectPropList`] operation.
-    pub struct SetObjectPropList[][] {
-        // TODO: Determine what this even is
-        #[deku(read_all)]
-        data: Vec<u8>,
-    }
-}
-
-define_response! {
     /// Response to the [`GetInterdependentPropDesc`] operation.
     pub struct GetInterdependentPropDesc[][] {
         // TODO: Determine what this even is
@@ -260,8 +230,13 @@ define_response! {
 define_response! {
     /// Response to the [`SendObjectPropList`] operation.
     pub struct SendObjectPropList[][] {
-        // TODO: Determine what this even is
-        #[deku(read_all)]
-        data: Vec<u8>,
+        /// The storage id of the incoming object
+        storage_id: StorageId,
+        /// The parent of the incoming object
+        parent: ObjectHandle,
+        /// The responder's reserved handle for the incoming object
+        reserved_handle: ObjectHandle,
+        /// In the event of an error, this is the index of the first invalid property
+        failed_index: Option<u32>,
     }
 }

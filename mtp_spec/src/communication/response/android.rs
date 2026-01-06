@@ -9,7 +9,7 @@ define_response! {
     ///
     /// [`SendPartialObject`]: crate::communication::operation::android::SendPartialObject
     pub struct SendPartialObject[][] {
-        // TODO: Ugly, should have the parameters just be bare fields so that doc comments can also be used
-        parameters: (length: u32),
+        /// The number of bytes written
+        length: u32,
     }
 }
