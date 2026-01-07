@@ -1,8 +1,8 @@
-use deku::ctx::Endian;
-use deku::{DekuReader, DekuWriter};
-
 use crate::device::properties::GetSet;
 use crate::object::types::{ObjectHandle, PropertyDataType, PropertyValue};
+
+use deku::ctx::Endian;
+use deku::{DekuReader, DekuWriter};
 
 /// Marker trait for properties
 pub trait Property:
@@ -48,6 +48,7 @@ pub struct SerializedProperty {
     value: PropertyValue,
 }
 
+/// A [`Property`] that can be serialized for transport
 pub trait SerializeableProperty<T>: Send {
     /// Serialize a [`Property`] for transport
     ///
@@ -58,6 +59,7 @@ pub trait SerializeableProperty<T>: Send {
     /// ```
     /// use mtp_spec::object::types::properties::{DateCreated, DateModified, ObjectPropList};
     /// use mtp_spec::object::types::{DateTime, ObjectHandle};
+    /// use mtp_spec::property::SerializeableProperty;
     ///
     /// // Some object handle obtained from the device...
     /// let object: ObjectHandle = ObjectHandle::NONE;

@@ -216,6 +216,12 @@ impl From<PtpString> for PropertyValue {
     }
 }
 
+impl From<DateTime> for PropertyValue {
+    fn from(v: DateTime) -> Self {
+        Self::String(v.into())
+    }
+}
+
 /// Marker trait for types that are valid for use as an [`ObjectProperty`] value
 ///
 /// [`ObjectProperty`]: properties::ObjectProperty

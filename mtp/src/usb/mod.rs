@@ -14,13 +14,14 @@
 //! storage devices.
 //!
 //! ```rust,no_run
+//! use futures::stream::StreamExt;
 //! use mtp::high_level::storages::DeviceStorageExt;
 //! use mtp::usb::device_list;
 //!
 //! # #[tokio::main]
-//! # async fn main() -> mtp::error::Result<()> {
-//! let mut all_mtp_devices = device_list()?;
-//! for maybe_device in all_mtp_devices {
+//! # async fn main() -> mtp::usb::error::Result<()> {
+//! let mut all_mtp_devices = device_list().await?;
+//! while let Some(maybe_device) = all_mtp_devices.next().await {
 //!     let device = maybe_device?;
 //!
 //!     println!(

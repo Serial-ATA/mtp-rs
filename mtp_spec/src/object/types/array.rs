@@ -17,7 +17,7 @@ use deku::{DekuReader, DekuWriter, deku_derive};
 #[deku(
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Big"
+    ctx_default = "deku::ctx::Endian::Little"
 )]
 pub struct Array<T: ArrayEncodable>(
     // Array Definition
@@ -64,6 +64,19 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Array<T>
+where
+    T: ArrayEncodable,
+{
+    type Item = &'a T;
+
+    type IntoIter = core::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
     }
 }
 
@@ -208,7 +221,7 @@ mod tests {
 						let mut bytes = Vec::new();
 						bytes.extend_from_slice(&3u32.to_le_bytes());
 						$(
-							let elem_bytes = $v.to_be_bytes();
+							let elem_bytes = $v.to_le_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());
 						)+
 						bytes
@@ -238,7 +251,7 @@ mod tests {
 						let mut bytes = Vec::new();
 						bytes.extend_from_slice(&3u32.to_le_bytes());
 						$(
-							let elem_bytes = $v.to_be_bytes();
+							let elem_bytes = $v.to_le_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());
 						)+
 						bytes

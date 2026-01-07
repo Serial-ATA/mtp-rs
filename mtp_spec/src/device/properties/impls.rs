@@ -919,23 +919,23 @@ define_device_properties! {
 )]
 #[allow(missing_docs)]
 pub enum PerceivedDeviceTypeValue {
-    #[deku(id = "0x00000000")]
-    Generic = 0x00000000,
+    #[deku(id = "0x0000_0000")]
+    Generic = 0x0000_0000,
     /// Still Image/Video Camera
-    #[deku(id = "0x00000001")]
-    StillCamera = 0x00000001,
+    #[deku(id = "0x0000_0001")]
+    StillCamera = 0x0000_0001,
     /// Media (Audio/Video) Player
-    #[deku(id = "0x00000002")]
-    MediaPlayer = 0x00000002,
-    #[deku(id = "0x00000003")]
-    MobileHandset = 0x00000003,
-    #[deku(id = "0x00000004")]
-    VideoPlayer = 0x00000004,
+    #[deku(id = "0x0000_0002")]
+    MediaPlayer = 0x0000_0002,
+    #[deku(id = "0x0000_0003")]
+    MobileHandset = 0x0000_0003,
+    #[deku(id = "0x0000_0004")]
+    VideoPlayer = 0x0000_0004,
     /// Personal Information Manager / Personal Digital Assistant
-    #[deku(id = "0x00000005")]
-    PersonalInformationManager = 0x00000005,
-    #[deku(id = "0x00000006")]
-    AudioRecorder = 0x00000006,
+    #[deku(id = "0x0000_0005")]
+    PersonalInformationManager = 0x0000_0005,
+    #[deku(id = "0x0000_0006")]
+    AudioRecorder = 0x0000_0006,
     #[deku(id_pat = "o if o & (1 << 15) > 0")]
     VendorSpecific(u8),
     #[deku(id_pat = "o if o & (1 << 15) == 0")]

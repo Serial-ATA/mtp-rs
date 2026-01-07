@@ -1,7 +1,7 @@
 use alloc::borrow::Cow;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::{format, vec};
 use core::fmt::{Debug, Display, Formatter};
 use core::str::FromStr;
 
@@ -26,14 +26,15 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 ///
 /// ```rust
 /// use mtp_spec::object::types::PtpString;
+/// use std::str::FromStr;
 ///
-/// // Converting `String`s to `PtpString`
-/// let some_text = String::from("foo");
-/// let some_text_ptp = PtpString::try_from(some_text).expect("string contains no null bytes");
+/// // Converting `str`s to `PtpString`
+/// let some_text = "foo";
+/// let some_text_ptp = PtpString::from_str(some_text).expect("string contains no null bytes");
 ///
 /// let some_long_text = "X".repeat(300);
 /// let some_long_text_ptp =
-///     PtpString::try_from(some_long_text).expect("string contains no null bytes");
+///     PtpString::from_str(&some_long_text).expect("string contains no null bytes");
 ///
 /// // `some_long_text` was truncated to 254 bytes + 1 for the null terminator
 /// assert_eq!(some_long_text_ptp.len(), 255);
@@ -47,13 +48,14 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 pub struct PtpString(
     #[deku(
         reader = "ptp_string_read(deku::reader, endian)",
-        writer = "ptp_string_write(&self.0, deku::writer)"
+        writer = "ptp_string_write(&self.0, endian, deku::writer)"
     )]
     Vec<u16>,
 );
 
 impl PtpString {
     /// In some contexts, empty strings are used to signify no value. Convert them to `Option`s.
+    #[allow(clippy::unnecessary_wraps)] // Used in parsing code, results are expected
     pub(crate) fn parse_optional(string: PtpString) -> Result<Option<PtpString>, DekuError> {
         if string.is_empty() {
             Ok(None)
@@ -129,10 +131,9 @@ impl PtpString {
     ///
     /// ```rust
     /// use mtp_spec::object::types::PtpString;
+    /// use std::str::FromStr;
     ///
-    /// let some_message = String::from("Hello, world!");
-    /// let string = PtpString::try_from(some_message).unwrap();
-    ///
+    /// let string = PtpString::from_str("Hello, world!").unwrap();
     /// assert_eq!(string.len(), 14);
     /// ```
     pub fn len(&self) -> usize {
@@ -145,57 +146,18 @@ impl PtpString {
     ///
     /// ```rust
     /// use mtp_spec::object::types::PtpString;
+    /// use std::str::FromStr;
     ///
-    /// let message = String::new();
-    /// let ptp_string = PtpString::try_from(message).unwrap();
+    /// let message = "";
+    /// let ptp_string = PtpString::from_str(message).unwrap();
     /// assert!(ptp_string.is_empty());
     ///
-    /// let filled_message = String::from("Hello, world!");
+    /// let filled_message = "Hello, world!";
     /// let ptp_string = PtpString::try_from(filled_message).unwrap();
     /// assert!(!ptp_string.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-
-    /// Convert the `PtpString` into bytes, for transport
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use mtp_spec::object::types::PtpString;
-    ///
-    /// let message = String::from("Hello, world!");
-    /// let ptp_string = PtpString::try_from(message.clone()).unwrap();
-    ///
-    /// let bytes = ptp_string.as_bytes();
-    ///
-    /// // A `PtpString` is just a null-terminated UTF-16 string
-    /// let mut expected_bytes = message.encode_utf16().collect::<Vec<_>>();
-    /// expected_bytes.extend_from_slice(&[0, 0]);
-    ///
-    /// assert_eq!(bytes, expected_bytes);
-    /// ```
-    #[allow(clippy::missing_panics_doc)]
-    pub fn as_bytes(&self) -> Vec<u8> {
-        // §3.2.3: "An empty string is represented by a single 8-bit integer containing a value of 0x00"
-        if self.0.is_empty() {
-            return vec![0x00];
-        }
-
-        // §3.2.3: "Strings are limited to 255 characters, including the terminating null character."
-        assert!(self.0.len() < Self::MAX_LENGTH);
-
-        let mut ret = Vec::with_capacity((self.0.len() + 1) * 2);
-        ret.push((self.0.len() + 1) as u8);
-
-        for c in self.0.iter().copied() {
-            ret.extend_from_slice(&c.to_be_bytes());
-        }
-
-        ret.extend_from_slice(&[0x00, 0x00]);
-
-        ret
     }
 }
 
@@ -245,12 +207,15 @@ fn ptp_string_read<R: Read + Seek>(
 
 fn ptp_string_write<W: Write + Seek>(
     elements: &[u16],
+    endian: Endian,
     writer: &mut Writer<W>,
 ) -> core::result::Result<(), deku::DekuError> {
+    // §3.2.3: "Strings are limited to 255 characters, including the terminating null character."
     assert!(elements.len() < 255);
 
+    // §3.2.3: "An empty string is represented by a single 8-bit integer containing a value of 0x00"
     if elements.is_empty() {
-        0_u16.to_writer(writer, Endian::Little)?;
+        0_u16.to_writer(writer, endian)?;
         return Ok(());
     }
 
@@ -259,10 +224,10 @@ fn ptp_string_write<W: Write + Seek>(
     num_chars.to_writer(writer, ())?;
 
     for c in elements {
-        c.to_writer(writer, Endian::Little)?;
+        c.to_writer(writer, endian)?;
     }
 
-    0_u16.to_writer(writer, Endian::Little)?;
+    0_u16.to_writer(writer, endian)?;
 
     Ok(())
 }
@@ -276,7 +241,7 @@ mod tests {
     #[test]
     fn string_truncation() {
         let string = "X".repeat(512);
-        let ptp_string = PtpString::try_from(string).unwrap();
+        let ptp_string = PtpString::from_str(&string).unwrap();
 
         assert_eq!(ptp_string.len(), 254 + 1);
         assert_eq!(ptp_string.to_string(), "X".repeat(254));
@@ -289,7 +254,7 @@ mod tests {
         // space for one more. We should remove the character entirely.
         string.push('𝕊');
 
-        let ptp_string = PtpString::try_from(string).unwrap();
+        let ptp_string = PtpString::from_str(&string).unwrap();
 
         assert_eq!(ptp_string.len(), 253 + 1);
         assert_eq!(ptp_string.to_string(), "X".repeat(253));
@@ -297,17 +262,15 @@ mod tests {
 
     #[test]
     fn string_null() {
-        let string = "Hello, \0world!".to_string();
-        let ptp_string = PtpString::try_from(string);
-
+        let ptp_string = PtpString::from_str("Hello, \0world!");
         assert!(ptp_string.is_err());
     }
 
     #[test]
     fn round_trip() {
-        let message = String::from("Hello, world!");
-        let ptp_string = PtpString::try_from(message).unwrap();
+        let message = "Hello, world!";
+        let ptp_string = PtpString::from_str(message).unwrap();
 
-        assert_eq!(ptp_string.to_string(), "Hello, world!");
+        assert_eq!(ptp_string.to_string(), message);
     }
 }

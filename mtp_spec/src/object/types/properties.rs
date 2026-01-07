@@ -79,7 +79,7 @@ impl DekuWriter<Endian> for ObjectPropList {
     }
 }
 
-impl<'a> DekuReader<'a, Endian> for ObjectPropList {
+impl DekuReader<'_, Endian> for ObjectPropList {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
         ctx: Endian,

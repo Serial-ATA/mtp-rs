@@ -92,6 +92,7 @@ impl Thumbnail {
         bit_depth: 0,
     };
 
+    #[allow(clippy::unnecessary_wraps)] // Used in parsing code, results are expected
     fn parse_optional(thumbnail: Thumbnail) -> Result<Option<Thumbnail>, DekuError> {
         if thumbnail.format == ObjectFormatCode::Unknown(0)
             && thumbnail.compressed_size == 0
@@ -151,6 +152,7 @@ impl DekuReader<'_, ()> for ObjectInfo {
 
 // Parsing of ObjectInfo is extra complicated due to Samsung writing 64-bit compressed sizes for some reason ??
 impl DekuReader<'_, Endian> for ObjectInfo {
+    #[allow(clippy::items_after_statements)]
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
         ctx: Endian,

@@ -44,7 +44,7 @@ impl TryFrom<u16> for Operation {
     }
 }
 
-impl<'a> DekuReader<'a, Endian> for Operation {
+impl DekuReader<'_, Endian> for Operation {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
         ctx: Endian,

@@ -847,7 +847,7 @@ define_operations! {
     {
         code: 0x1014,
         visible_parameters: (),
-        operation_parameters: (Parameter::new(T::CODE as u32)),
+        operation_parameters: (Parameter::new(u32::from(T::CODE))),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetDevicePropDesc,
         valid_error_codes: [
@@ -872,7 +872,7 @@ define_operations! {
     {
         code: 0x1015,
         visible_parameters: (),
-        operation_parameters: (Parameter::new(T::CODE as u32)),
+        operation_parameters: (Parameter::new(u32::from(T::CODE))),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetDevicePropValue<T>,
         valid_error_codes: [
@@ -892,7 +892,7 @@ define_operations! {
     {
         code: 0x1016,
         visible_parameters: (),
-        operation_parameters: (Parameter::new(T::CODE as u32)),
+        operation_parameters: (Parameter::new(u32::from(T::CODE))),
         data_direction: Some(DataDirection::InitiatorToResponder),
         response: response::Empty,
         valid_error_codes: [
@@ -914,7 +914,7 @@ define_operations! {
     {
         code: 0x1017,
         visible_parameters: (),
-        operation_parameters: (Parameter::new(T::CODE as u32)),
+        operation_parameters: (Parameter::new(u32::from(T::CODE))),
         data_direction: None,
         response: response::Empty,
         valid_error_codes: [
@@ -1109,7 +1109,7 @@ define_operations! {
     {
         code: 0x9802,
         visible_parameters: (format: ObjectFormatCode),
-        operation_parameters: (Parameter::new(T::CODE as u32), format),
+        operation_parameters: (Parameter::new(u32::from(T::CODE)), format),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetObjectPropDesc<T>,
         valid_error_codes: [
@@ -1137,7 +1137,7 @@ define_operations! {
     {
         code: 0x9803,
         visible_parameters: (object: ObjectHandle),
-        operation_parameters: (object, Parameter::new(T::CODE as u32)),
+        operation_parameters: (object, Parameter::new(u32::from(T::CODE))),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetObjectPropValue<T>,
         valid_error_codes: [
@@ -1164,7 +1164,7 @@ define_operations! {
     {
         code: 0x9804,
         visible_parameters: (object: ObjectHandle),
-        operation_parameters: (object, Parameter::new(T::CODE as u32)),
+        operation_parameters: (object, Parameter::new(u32::from(T::CODE))),
         data_direction: Some(DataDirection::InitiatorToResponder),
         response: response::Empty,
         valid_error_codes: [
@@ -1417,6 +1417,6 @@ impl From<u16> for SelfTestType {
 
 impl From<SelfTestType> for Parameter {
     fn from(value: SelfTestType) -> Self {
-        Parameter::new(value.0 as u32)
+        Parameter::new(u32::from(value.0))
     }
 }

@@ -50,7 +50,6 @@ unknown_lints = "allow"
 
 [workspace.lints.clippy]
 dbg_macro = "forbid"
-string_to_string = "forbid"
 pedantic = { level = "deny", priority = -1 }
 all = { level = "deny", priority = -1 }
 too_many_lines = "allow"

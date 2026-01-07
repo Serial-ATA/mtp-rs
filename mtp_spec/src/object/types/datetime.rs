@@ -56,13 +56,13 @@ use deku::{DekuError, DekuReader, DekuWriter};
 ///
 /// ```rust
 /// use mtp_spec::object::types::{DateTime, PtpString};
+/// use std::str::FromStr;
 ///
-/// let ptp_string =
-///     PtpString::try_from(String::from("19840102T030405.6")).expect("valid PtpString");
+/// let ptp_string = PtpString::from_str("19840102T030405.6").expect("valid PtpString");
 ///
-/// let dt: DateTime = "19840102T030405.6".parse().expect("valid DateTime");
+/// let dt: DateTime = ptp_string.try_into().expect("valid DateTime");
 /// ```
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Default)]
 #[allow(missing_docs)]
 pub struct DateTime {
     pub year: u16,
@@ -87,20 +87,20 @@ impl DateTime {
         }
 
         let mut tm = libc::tm {
-            tm_sec: self.second.unwrap_or(0) as _,
-            tm_min: self.minute.unwrap_or(0) as _,
-            tm_hour: self.hour.unwrap_or(0) as _,
-            tm_mday: self.day.unwrap_or(0) as _,
-            tm_mon: self.month.unwrap_or(0) as _,
-            tm_year: self.year as _,
+            tm_sec: libc::c_int::from(self.second.unwrap_or(0)),
+            tm_min: libc::c_int::from(self.minute.unwrap_or(0)),
+            tm_hour: libc::c_int::from(self.hour.unwrap_or(0)),
+            tm_mday: libc::c_int::from(self.day.unwrap_or(0)),
+            tm_mon: libc::c_int::from(self.month.unwrap_or(0)),
+            tm_year: libc::c_int::from(self.year),
             tm_wday: 0,
             tm_yday: 0,
             tm_isdst: -1,
             tm_gmtoff: 0,
-            tm_zone: c"".as_ptr() as _,
+            tm_zone: c"".as_ptr().cast(),
         };
 
-        let time = unsafe { libc::mktime(&mut tm) };
+        let time = unsafe { libc::mktime(&raw mut tm) };
 
         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(time as u64))
     }
@@ -162,6 +162,13 @@ impl TryFrom<PtpString> for DateTime {
     }
 }
 
+impl From<DateTime> for PtpString {
+    fn from(value: DateTime) -> Self {
+        // TODO: Could probably be more efficient
+        value.to_string().parse().expect("should be valid")
+    }
+}
+
 /// Errors that can occur while parsing a [`DateTime`]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DateTimeError {
@@ -220,28 +227,28 @@ impl FromStr for DateTime {
             }
 
             if s.len() < 2 {
-                return Err(DateTimeError::BadSegmentLength.into());
+                return Err(DateTimeError::BadSegmentLength);
             }
 
             let segment = &s[..2];
             *s = &s[2..];
 
             let Ok(ret) = segment.parse::<u8>() else {
-                return Err(DateTimeError::NonDigit.into());
+                return Err(DateTimeError::NonDigit);
             };
 
             Ok(Some(ret))
         }
 
         if s.len() < 4 {
-            return Err(DateTimeError::TooShort.into());
+            return Err(DateTimeError::TooShort);
         }
 
         let year = &s[..4];
         s = &s[4..];
 
         let Ok(year) = year.parse() else {
-            return Err(DateTimeError::MissingYear.into());
+            return Err(DateTimeError::MissingYear);
         };
 
         let mut datetime = DateTime {
@@ -271,7 +278,7 @@ impl FromStr for DateTime {
                     break 'segments;
                 }
 
-                return Err(DateTimeError::MissingTimeMarker.into());
+                return Err(DateTimeError::MissingTimeMarker);
             }
 
             s = &s[1..];
@@ -297,11 +304,11 @@ impl FromStr for DateTime {
 
             let mut remaining_chars = s.chars();
             if remaining_chars.next() != Some('.') {
-                return Err(DateTimeError::MissingDecisecondMarker.into());
+                return Err(DateTimeError::MissingDecisecondMarker);
             }
 
             let Some(deciseconds) = remaining_chars.next() else {
-                return Err(DateTimeError::MissingDecisecond.into());
+                return Err(DateTimeError::MissingDecisecond);
             };
             datetime.decisecond = deciseconds.to_digit(10).map(|d| d as u8);
         }
@@ -311,7 +318,7 @@ impl FromStr for DateTime {
         //       that the time zone is unspecified.
 
         if !datetime.validate() {
-            return Err(DateTimeError::FailedValidation.into());
+            return Err(DateTimeError::FailedValidation);
         }
 
         Ok(datetime)
@@ -464,10 +471,10 @@ mod tests {
         assert_eq!(datetime.year, 2024);
         assert_eq!(datetime.month, Some(1));
         assert_eq!(datetime.day, Some(1));
-        assert_eq!(datetime.hour, None);
-        assert_eq!(datetime.minute, None);
-        assert_eq!(datetime.second, None);
-        assert_eq!(datetime.decisecond, None);
+        assert_eq!(datetime.hour, Some(12));
+        assert_eq!(datetime.minute, Some(34));
+        assert_eq!(datetime.second, Some(56));
+        assert_eq!(datetime.decisecond, Some(7));
     }
 
     #[test]
@@ -476,10 +483,10 @@ mod tests {
         assert_eq!(datetime.year, 2024);
         assert_eq!(datetime.month, Some(1));
         assert_eq!(datetime.day, Some(1));
-        assert_eq!(datetime.hour, None);
-        assert_eq!(datetime.minute, None);
-        assert_eq!(datetime.second, None);
-        assert_eq!(datetime.decisecond, None);
+        assert_eq!(datetime.hour, Some(12));
+        assert_eq!(datetime.minute, Some(34));
+        assert_eq!(datetime.second, Some(56));
+        assert_eq!(datetime.decisecond, Some(7));
     }
 
     #[test]
@@ -488,9 +495,9 @@ mod tests {
         assert_eq!(datetime.year, 2024);
         assert_eq!(datetime.month, Some(1));
         assert_eq!(datetime.day, Some(1));
-        assert_eq!(datetime.hour, None);
-        assert_eq!(datetime.minute, None);
-        assert_eq!(datetime.second, None);
-        assert_eq!(datetime.decisecond, None);
+        assert_eq!(datetime.hour, Some(12));
+        assert_eq!(datetime.minute, Some(34));
+        assert_eq!(datetime.second, Some(56));
+        assert_eq!(datetime.decisecond, Some(7));
     }
 }

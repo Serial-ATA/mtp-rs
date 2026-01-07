@@ -23,23 +23,24 @@ use nusb::transfer::Direction;
 /// # Usage
 ///
 /// ```rust,no_run
+/// use futures::stream::StreamExt;
 /// use mtp::device::Device;
 /// use mtp::usb;
 ///
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), mtp::error::Error> {
+/// # async fn main() -> Result<(), mtp::usb::error::Error> {
 /// // Get all MTP-eligible devices
-/// let devices = usb::device_list()?;
+/// let mut devices = usb::device_list().await?;
 ///
-/// for device in devices {
+/// while let Some(device) = devices.next().await {
 ///     // An error may have occurred while determining MTP eligibility
 ///     let device = device?;
 ///
 ///     // Open up the device for MTP communication
-///     let mut handle = device.open()?;
+///     let (mut handle, session_id) = device.open().await?;
 ///
-///     // At this point, the device is now ready
-///     handle.open_session().await?;
+///     // The device is now ready to receive operations
+///     let _device_info = handle.get_device_info(Some(session_id)).await?;
 /// }
 /// # Ok(()) }
 /// ```
@@ -189,15 +190,16 @@ impl Device {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use futures::stream::StreamExt;
     /// use mtp::device::Device;
     /// use mtp::usb;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), mtp::error::Error> {
+    /// # async fn main() -> Result<(), mtp::usb::error::Error> {
     /// // Get all MTP-eligible devices
-    /// let devices = usb::device_list()?;
+    /// let mut devices = usb::device_list().await?;
     ///
-    /// for device in devices {
+    /// while let Some(device) = devices.next().await {
     ///     // An error may have occurred while determining MTP eligibility
     ///     let device = device?;
     ///
@@ -313,12 +315,13 @@ impl Device {
 /// # Examples
 ///
 /// ```rust
+/// use futures::stream::StreamExt;
 /// use mtp::usb::device_list;
 ///
 /// # #[tokio::main]
-/// # async fn main() -> mtp::error::Result<()> {
-/// let devices = device_list().await?;
-/// for maybe_device in devices {
+/// # async fn main() -> mtp::usb::error::Result<()> {
+/// let mut devices = device_list().await?;
+/// while let Some(maybe_device) = devices.next().await {
 ///     let device = maybe_device?;
 ///     println!(
 ///         "{:?} is an MTP compatible device",

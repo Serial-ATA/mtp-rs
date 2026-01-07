@@ -51,14 +51,16 @@ impl File {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use futures::stream::StreamExt;
     /// use mtp::high_level::fs::{FileSystem, FolderEntry};
     /// use mtp::high_level::storages::DeviceStorageExt;
     /// use mtp::usb::device_list;
+    /// use std::io::Read;
     ///
+    /// # #[tokio::main]
     /// # async fn main() -> mtp::usb::error::Result<()> {
     /// // Get the first MTP-eligible device
-    /// use std::io::Read;
-    /// let device = device_list()?.next().expect("No devices");
+    /// let device = device_list().await?.next().await.expect("No devices");
     /// let (mut handle, session_id) = device?.open().await?;
     ///
     /// // Get whatever the first storage happens to be
@@ -67,23 +69,21 @@ impl File {
     ///
     /// // Load the storage and find the first file
     /// let fs = FileSystem::load(&mut handle, session_id, storage.id).await?;
-    /// 'outer: for folder in fs.contents {
-    ///     for child in folder.children {
-    ///         let FolderEntry::File(file) = child else {
-    ///             continue;
-    ///         };
+    /// for child in &fs.root.children {
+    ///     let FolderEntry::File(file) = child else {
+    ///         continue;
+    ///     };
     ///
-    ///         // Print out whatever the first file's contents happen to be
-    ///         let mut open_file = file.open(&mut handle, session_id).await?;
+    ///     // Print out whatever the first file's contents happen to be
+    ///     let mut open_file = file.open(&mut handle, session_id).await?;
     ///
-    ///         println!("Contents of: {}", file.name);
+    ///     println!("Contents of: {}", file.name);
     ///
-    ///         let mut contents = Vec::new();
-    ///         open_file.read_to_end(&mut contents)?;
+    ///     let mut contents = Vec::new();
+    ///     open_file.read_to_end(&mut contents)?;
     ///
-    ///         println!("{:X?}", contents);
-    ///         break 'outer;
-    ///     }
+    ///     println!("{:X?}", contents);
+    ///     break;
     /// }
     ///
     /// # Ok(()) }

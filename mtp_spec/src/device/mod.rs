@@ -66,7 +66,6 @@ pub trait Device: PtpIo {
             let device_info = response.data.data;
             let extensions = device_info.mtp_extensions.to_string();
 
-            dbg!(&extensions);
             Ok(extensions.contains("android.com"))
         }
     }
@@ -849,7 +848,7 @@ pub trait Device: PtpIo {
     }
 
     /// Send a [`SendObjectPropList`] operation
-    fn send_object_prop_list<'a>(
+    fn send_object_prop_list(
         &mut self,
         session_id: SessionId,
         destination: Option<StorageId>,

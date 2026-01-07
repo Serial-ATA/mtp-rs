@@ -42,6 +42,7 @@ impl ObjectHandle {
     pub const ALL: Self = ObjectHandle(u32::MAX);
 
     /// In some contexts, we want to convert empty handles to `None` when parsing.
+    #[allow(clippy::unnecessary_wraps)] // Used in parsing code, results are expected
     pub(crate) fn parse_optional(handle: ObjectHandle) -> Result<Option<ObjectHandle>, DekuError> {
         if handle == Self::NONE {
             Ok(None)
@@ -63,7 +64,7 @@ impl From<ObjectHandle> for Parameter {
     }
 }
 
-impl<'a> DekuReader<'a, Endian> for ObjectHandle {
+impl DekuReader<'_, Endian> for ObjectHandle {
     fn from_reader_with_ctx<R: Read + Seek>(
         reader: &mut Reader<R>,
         ctx: Endian,

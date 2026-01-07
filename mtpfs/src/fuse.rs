@@ -8,21 +8,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use fuser::{
-    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, KernelConfig, PollHandle, ReplyAttr, ReplyData,
-    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyPoll, ReplyStatfs, ReplyWrite, Request,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
 use id_tree::{InsertBehavior, Node, NodeId, RemoveBehavior, Tree};
 use indicatif::{ProgressBar, ProgressStyle};
 use libc::{EINVAL, EIO, ENOENT, ENOTDIR, ENOTSUP, c_int};
 use log::info;
 use mtp::communication::SessionId;
-use mtp::communication::response::{Response, SendObjectInfo};
+use mtp::communication::response::SendObjectInfo;
 use mtp::device::Device;
 use mtp::device::extensions::android::AndroidDevice;
 use mtp::error::MtpError;
 use mtp::high_level::fs::{DeviceFsExt, File, FileSystem, FolderEntry};
 use mtp::high_level::storages::Storage;
-use mtp::object::info::ObjectInfo;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
 use mtp::usb::error::{Error, UsbError};
