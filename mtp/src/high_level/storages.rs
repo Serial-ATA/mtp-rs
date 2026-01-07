@@ -34,6 +34,7 @@ pub struct Storage {
     pub volume_identifier: String,
 }
 
+/// High-level methods to work with storages on a device
 pub trait DeviceStorageExt: Device {
     /// Get all [`Storage`]s on the device
     ///

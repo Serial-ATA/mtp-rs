@@ -14,6 +14,7 @@ use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpStri
 /// This provides higher-level methods to perform operations on MTP-compatible devices as if they
 /// were real filesystems.
 pub trait DeviceFsExt {
+    /// Create a new directory on the target device
     fn mkdir<N>(
         &mut self,
         session_id: SessionId,
@@ -24,6 +25,7 @@ pub trait DeviceFsExt {
         Self: Device,
         N: AsRef<str> + Send;
 
+    /// Create a new file with the given `data` on the target device
     fn create<N>(
         &mut self,
         session_id: SessionId,

@@ -1,5 +1,5 @@
 use crate::communication::{Parameter, SessionId, TransactionId, response};
-use crate::device::properties::{DeviceProperty, DevicePropertyCode};
+use crate::device::properties::DeviceProperty;
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::object::info::ProtectionStatus;
@@ -1305,6 +1305,8 @@ define_operations! {
     }
 
     /// Update the object properties contained in the given [`ObjectPropList`]
+    ///
+    /// [`ObjectPropList`]: crate::object::types::properties::ObjectPropList
     pub struct SetObjectPropList {
         code: 0x9806,
         visible_parameters: (),

@@ -48,6 +48,7 @@ macro_rules! define_error_responses {
 		#[derive(Clone, Debug)]
 		pub enum OperationError {
 			$(
+			$(#[$meta])*
 			$name($name),
 			)*
 		}

@@ -1,5 +1,6 @@
 //! Initiator -> Responder operation definitions
 
+use crate::communication::response::errors::OperationError;
 use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::SerializationError;
 use crate::object::types::ArrayEncodable;
@@ -7,25 +8,26 @@ use crate::object::types::ArrayEncodable;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use deku::ctx::Endian;
-use deku::no_std_io::Cursor;
+use deku::no_std_io::{Cursor, Read, Seek, Write};
 use deku::reader::Reader;
 use deku::writer::Writer;
 use deku::{DekuError, DekuReader, DekuWrite, DekuWriter};
-use std::io::{Read, Seek, Write};
 
 pub mod android;
 use android::AndroidOperation;
 
 mod impls;
-use crate::communication::response::errors::OperationError;
 pub use impls::*;
 
 /// All operation codes
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u16)]
 pub enum Operation {
+    /// Base operations from the MTP specification
     Base(BaseOperation),
+    /// Android-specific MTP extensions
     Android(AndroidOperation),
+    /// Some other vendor-specific MTP extension
     VendorSpecific(u16),
 }
 

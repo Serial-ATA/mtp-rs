@@ -1,5 +1,5 @@
 use crate::device::info::DeviceInfo;
-use crate::device::properties::{DevicePropDesc, DeviceProperty, PropertyValueWrapper};
+use crate::device::properties::{DevicePropDesc, DeviceProperty};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::StorageInfo;
 use crate::object::info::{ObjectInfo, Thumbnail};
