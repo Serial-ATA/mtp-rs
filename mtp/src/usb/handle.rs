@@ -38,6 +38,7 @@ pub(super) struct Endpoints {
 #[expect(dead_code)]
 pub struct DeviceHandle {
     _device: nusb::Device,
+    endian: Endian,
     flags: DeviceFlags,
     interface: nusb::Interface,
     endpoints: Endpoints,
@@ -76,7 +77,8 @@ impl DeviceHandle {
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(100);
         let event_tx_clone = event_tx.clone();
 
-        // TODO: Actually determine the endianness of the device
+        // TODO: Actually determine the endianness of the device.
+        //       Not that important, since (seemingly) all devices use LE, but would be nice to verify.
         let endian = Endian::Little;
         let events_task = tokio::task::spawn(async move {
             struct UsbEventStream {
@@ -143,6 +145,7 @@ impl DeviceHandle {
 
         Ok(Self {
             _device: device,
+            endian,
             flags,
             interface,
             endpoints,
@@ -191,8 +194,7 @@ impl PtpIo for DeviceHandle {
 
     #[inline]
     fn endian(&self) -> Endian {
-        // TODO: Needs to be provided from some global context
-        Endian::Little
+        self.endian
     }
 
     fn event_stream(&self) -> Self::EventStream {

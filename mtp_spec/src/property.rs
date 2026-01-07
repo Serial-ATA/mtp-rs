@@ -33,22 +33,62 @@ pub(crate) mod sealed {
 /// A serialized [`Property`] for transport
 ///
 /// See [`SerializeableProperty::serialize()`]
-#[derive(Clone, Debug, PartialEq, Eq, deku::DekuWrite)]
+#[derive(Clone, Debug, PartialEq, Eq, deku::DekuRead, deku::DekuWrite)]
 #[deku(
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
 )]
 pub struct SerializedProperty {
+    object: ObjectHandle,
     code: u16,
     data_type: u16,
-    object: ObjectHandle,
     // Passing in a dummy data type, doesn't actually matter for writing
     #[deku(ctx = "0")]
     value: PropertyValue,
 }
 
 pub trait SerializeableProperty<T>: Send {
+    /// Serialize a [`Property`] for transport
+    ///
+    /// This is useful for operations such as [`SetObjectPropList`] and [`SendObjectPropList`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mtp_spec::object::types::properties::{DateCreated, DateModified, ObjectPropList};
+    /// use mtp_spec::object::types::{DateTime, ObjectHandle};
+    ///
+    /// // Some object handle obtained from the device...
+    /// let object: ObjectHandle = ObjectHandle::NONE;
+    ///
+    /// // Then the properties can be used to build up an `ObjectPropList`.
+    /// // It's important to note that the properties in a list do **NOT** all
+    /// // have to refer to the same object handle.
+    /// let properties = [
+    ///     DateCreated::serialize(
+    ///         object,
+    ///         DateTime {
+    ///             year: 1984,
+    ///             ..Default::default()
+    ///         },
+    ///     ),
+    ///     DateModified::serialize(
+    ///         object,
+    ///         DateTime {
+    ///             year: 1984,
+    ///             ..Default::default()
+    ///         },
+    ///     ),
+    /// ]
+    /// .into_iter()
+    /// .collect::<ObjectPropList>();
+    ///
+    /// // Then the resulting `properties` can be used in SetObjectPropList, etc.
+    /// ```
+    ///
+    /// [`SetObjectPropList`]: crate::communication::operation::SetObjectPropList
+    /// [`SendObjectPropList`]: crate::communication::operation::SendObjectPropList
     fn serialize(object: ObjectHandle, value: T) -> SerializedProperty;
 }
 

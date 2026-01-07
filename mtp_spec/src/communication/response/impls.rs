@@ -3,7 +3,7 @@ use crate::device::properties::{DevicePropDesc, DeviceProperty, PropertyValueWra
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::StorageInfo;
 use crate::object::info::{ObjectInfo, Thumbnail};
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
+use crate::object::types::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectHandle};
 
 use alloc::vec::Vec;
@@ -156,13 +156,6 @@ define_response! {
 }
 
 define_response! {
-    /// Response to the [`SetDevicePropValue`] operation.
-    pub struct SetDevicePropValue[][] {
-        data: PropertyValueWrapper,
-    }
-}
-
-define_response! {
     /// Response to the [`GetPartialObject`] operation.
     pub struct GetPartialObject[][] {
         #[deku(read_all)]
@@ -198,13 +191,6 @@ define_response! {
     }
 }
 
-define_response! {
-    /// Response to the [`SetObjectReferences`] operation.
-    pub struct SetObjectReferences[][] {
-        data: Array<ObjectHandle>,
-    }
-}
-
 // Enhanced Operations
 //
 // Defined in Appendix E
@@ -212,9 +198,7 @@ define_response! {
 define_response! {
     /// Response to the [`GetObjectPropList`] operation.
     pub struct GetObjectPropList[][] {
-        // TODO: Determine what this even is: it's just a packed list of ObjectPropDesc with the count prepended
-        #[deku(read_all)]
-        data: Vec<u8>,
+        data: ObjectPropList,
     }
 }
 

@@ -408,6 +408,10 @@ define_operations! {
     /// In the event that an active session already exists, a response of [`SessionAlreadyOpen`]
     /// will be returned.
     ///
+    /// ## Parameters
+    ///
+    /// * `session_id` - An ID to assign to the session.
+    ///
     /// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
     [[session_id(false)]]
     pub struct OpenSession {
@@ -458,6 +462,10 @@ define_operations! {
 
     /// Get the [`StorageInfo`] of the given [`StorageId`].
     ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to query.
+    ///
     /// [`StorageInfo`]: crate::device::storage::info::StorageInfo
     /// [`StorageId`]: crate::device::storage::id::StorageId
     pub struct GetStorageInfo {
@@ -475,8 +483,13 @@ define_operations! {
         ]
     }
 
-    // TODO: Explain the optional parameters
     /// Get the number of objects on the device
+    ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to query, or [`StorageId::ALL_STORAGES`] for an aggregated total across all storages.
+    /// * `format` - Only count objects of a certain format, or omit to include objects of all types.
+    /// * `parent` - Only count objects directly contained in the parent object.
     pub struct GetNumObjects {
         code: 0x1006,
         visible_parameters: (
@@ -503,8 +516,13 @@ define_operations! {
         ]
     }
 
-    // TODO: Explain the optional parameters
     /// Get the [`ObjectHandle`]s of the contents on the device
+    ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to query, or [`StorageId::ALL_STORAGES`] for an aggregated list across all storages.
+    /// * `format` - Only include objects of a certain format, or omit to include objects of all types.
+    /// * `parent` - Only include objects directly contained in the parent object.
     pub struct GetObjectHandles {
         code: 0x1007,
         visible_parameters: (
@@ -512,7 +530,7 @@ define_operations! {
             @DEFAULT(ObjectFormatCode::from(0))
             format: Option<ObjectFormatCode>,
             @DEFAULT(ObjectHandle::from(0))
-            object: Option<ObjectHandle>
+            parent: Option<ObjectHandle>
         ),
         data_direction: Some(DataDirection::ResponderToInitiator),
         response: response::GetObjectHandles,
@@ -533,6 +551,10 @@ define_operations! {
 
     /// Get the [`ObjectInfo`] of the given [`ObjectHandle`].
     ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
+    ///
     /// [`ObjectInfo`]: crate::object::info::ObjectInfo
     pub struct GetObjectInfo {
         code: 0x1008,
@@ -550,6 +572,10 @@ define_operations! {
     }
 
     /// Get the binary contents of the given [`ObjectHandle`].
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
     pub struct GetObject {
         code: 0x1009,
         visible_parameters: (object: ObjectHandle),
@@ -569,6 +595,10 @@ define_operations! {
     }
 
     /// Get the thumbnail of an image object at the given [`ObjectHandle`].
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
     pub struct GetThumb {
         code: 0x100a,
         visible_parameters: (object: ObjectHandle),
@@ -586,10 +616,19 @@ define_operations! {
         ]
     }
 
-    /// Delete the object at the given [`ObjectHandle`].
+    /// Delete an object on the responder
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to delete, or [`ObjectHandle::ALL`] to delete all objects on the responder.
+    /// * `format` - If `object` is [`ObjectHandle::ALL`], then this can be used to restrict the types of objects deleted.
     pub struct DeleteObject {
         code: 0x100b,
-        visible_parameters: (object: ObjectHandle, format: ObjectFormatCode),
+        visible_parameters: (
+            object: ObjectHandle,
+            @DEFAULT(ObjectFormatCode::Unknown(0))
+            format: Option<ObjectFormatCode>
+        ),
         data_direction: None,
         response: response::Empty,
         valid_error_codes: [
@@ -609,8 +648,14 @@ define_operations! {
         ]
     }
 
-    // TODO: explain optional parameters
-    /// Received from the device, indicating it wishes to send a new object
+    /// Allocate an object on the responder
+    ///
+    /// NOTE: This ***should***, on success, be followed by a [`SendObject`] operation.
+    ///
+    /// ## Parameters
+    ///
+    /// * `destination` - The storage to store the new object, or omit to leave it up to the responder.
+    /// * `parent` - The parent in which the new object should be placed, or omit to leave it up to the responder.
     pub struct SendObjectInfo {
         code: 0x100c,
         visible_parameters: (
@@ -641,7 +686,9 @@ define_operations! {
         ]
     }
 
-    /// Received from the device after a successful [`SendObjectInfo`], contains the binary data of the new object
+    /// Send the binary data of an object after a successful [`SendObjectInfo`]
+    ///
+    /// NOTE: This ***must*** be preceded by a successful [`SendObjectInfo`] operation.
     pub struct SendObject {
         code: 0x100d,
         visible_parameters: (),
@@ -663,8 +710,12 @@ define_operations! {
         ]
     }
 
-    // TODO: optional parameters
     /// Produce a new data object using an object capture mechanism
+    ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to store the captured object, or omit to leave it up to the responder.
+    /// * `format` - The desired capture format, or omit to leave it up to the responder.
     pub struct InitiateCapture {
         code: 0x100e,
         visible_parameters: (
@@ -691,13 +742,18 @@ define_operations! {
         ]
     }
 
-    // TODO: Explain optional parameters
     /// Format the media indicated by the given [`StorageId`]
+    ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to format.
+    /// * `fs` - The desired filesystem format, or omit to leave it up to the responder.
     pub struct FormatStore {
         code: 0x100f,
         visible_parameters: (
             storage: StorageId,
-            fs: FilesystemType
+            @DEFAULT(FilesystemType::Undefined)
+            fs: Option<FilesystemType>
         ),
         data_direction: None,
         response: response::Empty,
@@ -728,9 +784,11 @@ define_operations! {
         ]
     }
 
-    /// Return the device to a default state
+    /// Perform some device-specific test
     ///
-    /// See [`SelfTestType`]
+    /// ## Parameters
+    ///
+    /// * `test_type` - The type of self-test to perform.
     pub struct SelfTest {
         code: 0x1011,
         visible_parameters: (test_type: SelfTestType),
@@ -745,6 +803,11 @@ define_operations! {
     }
 
     /// Set the write-protection status of an object
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to update.
+    /// * `status` - The new write-protection status of the `object`.
     pub struct SetObjectProtection {
         code: 0x1012,
         visible_parameters: (object: ObjectHandle, status: ProtectionStatus),
@@ -824,11 +887,14 @@ define_operations! {
     }
 
     /// Set the value of the given property code
-    pub struct SetDevicePropValue {
+    pub partial struct SetDevicePropValue<T>
+        where T: [DeviceProperty]
+    {
         code: 0x1016,
-        visible_parameters: (code: DevicePropertyCode),
+        visible_parameters: (),
+        operation_parameters: (Parameter::new(T::CODE as u32)),
         data_direction: Some(DataDirection::InitiatorToResponder),
-        response: response::SetDevicePropValue,
+        response: response::Empty,
         valid_error_codes: [
             SessionNotOpen,
             InvalidTransactionId,
@@ -843,9 +909,12 @@ define_operations! {
     }
 
     /// Factory reset the device property value
-    pub struct ResetDevicePropValue {
+    pub partial struct ResetDevicePropValue<T>
+        where T: [DeviceProperty]
+    {
         code: 0x1017,
-        visible_parameters: (code: DevicePropertyCode),
+        visible_parameters: (),
+        operation_parameters: (Parameter::new(T::CODE as u32)),
         data_direction: None,
         response: response::Empty,
         valid_error_codes: [
@@ -860,6 +929,10 @@ define_operations! {
     }
 
     /// End an [`InitiateOpenCapture`] operation
+    ///
+    /// ## Parameters
+    ///
+    /// * `transaction` - The transaction ID obtained from the corresponding [`InitiateOpenCapture`] operation.
     pub struct TerminateOpenCapture {
         code: 0x1018,
         visible_parameters: (transaction: TransactionId),
@@ -877,7 +950,11 @@ define_operations! {
 
     /// Change the location of an object
     ///
-    /// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
+    /// ## Parameters
+    ///
+    /// * `object` - The object to move.
+    /// * `storage` - The storage to move the object to.
+    /// * `parent` - The parent object to move `object` into, or omit to place the `object` in the root of the `storage`.
     pub struct MoveObject {
         code: 0x1019,
         visible_parameters: (
@@ -906,7 +983,11 @@ define_operations! {
 
     /// Create a copy of an object and place it in a new location
     ///
-    /// If no `parent` object is specified, the copy will be placed in the root of the `storage`.
+    /// ## Parameters
+    ///
+    /// * `object` - The object to copy.
+    /// * `storage` - The storage to copy the object to.
+    /// * `parent` - The parent object the place the copy into, or omit to place the copy in the root of the `storage`.
     pub struct CopyObject {
         code: 0x101A,
         visible_parameters: (
@@ -933,7 +1014,12 @@ define_operations! {
 
     /// Get a partial object from the device, may be used in place of [`GetObject`]
     ///
-    /// If the entire object is desired, `len` can be set to [`u32::MAX`].
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
+    /// * `offset` - The offset at which to start the selection.
+    /// * `len` - The length of the selection.
+    /// 	* If the entire object is desired, `len` can be set to [`u32::MAX`].
     pub struct GetPartialObject {
         code: 0x101B,
         visible_parameters: (object: ObjectHandle, @RAW(true) offset: u32, @RAW(true) len: u32),
@@ -956,8 +1042,16 @@ define_operations! {
     ///
     /// NOTES:
     ///
-    /// * If `storage` is not specified, the responder determines the location
-    /// * If `format` is not specified, the responder determines the format
+    /// * This is an asynchronous operation, and must be terminated with a [`TerminateOpenCapture`] operation.
+    /// * If the capture is ended manually with a [`TerminateOpenCapture`] operation, the responder will **not**
+    ///   produce an [`Event::CaptureComplete`].
+    ///
+    /// ## Parameters
+    ///
+    /// * `storage` - The storage to store the captured objects, or omit to leave it up to the responder.
+    /// * `format` - The desired capture format, or omit to leave it up to the responder.
+    ///
+    /// [`Event::CaptureComplete`]: crate::communication::event::Event::CaptureComplete
     pub struct InitiateOpenCapture {
         code: 0x101C,
         visible_parameters: (
@@ -984,7 +1078,11 @@ define_operations! {
         ]
     }
 
-    /// Get all supported object property codes for the given format
+    /// Get all supported [`ObjectPropertyCode`]s for the given format
+    ///
+    /// ## Parameters
+    ///
+    /// * `format` - The object format to query.
     pub struct GetObjectPropsSupported {
         code: 0x9801,
         visible_parameters: (format: ObjectFormatCode),
@@ -1002,6 +1100,10 @@ define_operations! {
     ///
     /// The parameter `T` specifies the object property to be returned.
     /// See [`crate::object::types::properties`] for a list of properties.
+    ///
+    /// ## Parameters
+    ///
+    /// * `format` - The object format to query.
     pub partial struct GetObjectPropDesc<T>
         where T: [ObjectProperty]
     {
@@ -1022,7 +1124,14 @@ define_operations! {
         ]
     }
 
-    /// Get the value for the given object property code
+    /// Get the current value for the given object property code
+    ///
+    /// The parameter `T` specifies the object property to query.
+    /// See [`crate::object::types::properties`] for a list of properties.
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
     pub partial struct GetObjectPropValue<T>
         where T: [ObjectProperty]
     {
@@ -1043,6 +1152,13 @@ define_operations! {
     }
 
     /// Set the value for the given object property code
+    ///
+    /// The parameter `T` specifies the object property to set.
+    /// See [`crate::object::types::properties`] for a list of properties.
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to update.
     pub partial struct SetObjectPropValue<T>
         where T: [ObjectProperty]
     {
@@ -1065,6 +1181,10 @@ define_operations! {
     }
 
     /// Get an array of all active [`ObjectHandle`]s
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The object to query.
     pub struct GetObjectReferences {
         code: 0x9810,
         visible_parameters: (object: ObjectHandle),
@@ -1079,12 +1199,16 @@ define_operations! {
         ]
     }
 
-    /// Replace the references on an object
+    /// Replace the object references on an object
+    ///
+    /// ## Parameters
+    ///
+    /// * `object` - The target object.
     pub struct SetObjectReferences {
         code: 0x9811,
         visible_parameters: (object: ObjectHandle),
         data_direction: Some(DataDirection::InitiatorToResponder),
-        response: response::SetObjectReferences,
+        response: response::Empty,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -1101,14 +1225,16 @@ define_operations! {
 
     /// Update the playback of the current object
     ///
-    /// The `skip` determines the depth and direction into the playback queue. Meaning a value of 1
-    /// indicates the device should skip ahead one media object, and a value of -1 indicates the
-    /// device should skip back one media object.
+    /// ## Parameters
+    ///
+    /// * `skip` - The depth and direction into the playback queue.
+    /// 	* For example, a value of `1` indicates the device should skip ahead one media object,
+    ///       and a value of `-1` indicates the device should skip back one media object.
     pub struct Skip {
         code: 0x9820,
         visible_parameters: (@RAW(true) skip: u32),
         data_direction: None,
-        response: response::SetObjectReferences,
+        response: response::Empty,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -1132,21 +1258,28 @@ define_operations! {
     /// This is a more optimized way of accessing object properties without needing to individually
     /// query each {object, property} pair.
     ///
-    /// NOTES:
+    /// ## Parameters
     ///
-    /// * The `format` can be specified to limit the response to only the properties of objects
-    ///   of the given format. If unspecified, the response will contain the properties of all
-    ///   formats.
-    /// * The `depth` can be specified to limit the query to objects at a certain level of a folder
-    ///   hierarchy. If unspecified, the response will contain the properties of objects only at the
-    ///   top level.
+    /// * `object` - The object to root the query.
+    /// 	* This can also be [`ObjectHandle::ALL`] to query all objects, or [`ObjectHandle::NONE`] to query
+    ///       all root-level objects.
+    /// * `format` - Only query objects of the given format, or omit to query objects of all formats.
+    /// * `prop` - The property being requested.
+    /// 	* This can also be [`ObjectPropertyCode::All`] to query all properties, or omitted to instead
+    ///       query by the `group`.
+    /// * `group` - The retrieval group code to query.
+    /// 	* This is only used if `prop` is omitted.
+    /// * `depth` - Restrict the query to a certain depth in the folder hierarchy, down from the root `object`.
+    /// 	* A value of `0` will query only the objects at the top (root) level, including the root `object`.
+    /// 	* A value of [`u16::MAX`] will query all objects in the hierarchy, rooted at `object`.
     pub struct GetObjectPropList {
         code: 0x9805,
         visible_parameters: (
             object: ObjectHandle,
             @DEFAULT(ObjectFormatCode::from(0))
             format: Option<ObjectFormatCode>,
-            prop: ObjectPropertyCode,
+            @DEFAULT(ObjectPropertyCode::All)
+            prop: Option<ObjectPropertyCode>,
             @RAW(true) group: u32,
             @RAW(true) depth: u32,
         ),
@@ -1171,7 +1304,7 @@ define_operations! {
         ]
     }
 
-    /// Set object properties container in the given dataset
+    /// Update the object properties contained in the given [`ObjectPropList`]
     pub struct SetObjectPropList {
         code: 0x9806,
         visible_parameters: (),
@@ -1208,6 +1341,8 @@ define_operations! {
 
     /// Send a modified object property list to the responder
     ///
+    /// This is the same as [`SendObjectInfo`], but allows setting object properties at creation time.
+    ///
     /// This is to be used before a [`SendObject`] operation, to inform the responder of the properties
     /// of the objects to come.
     ///
@@ -1219,6 +1354,15 @@ define_operations! {
     /// * If `destination` is unspecified, the responder will determine the store to place it in.
     /// * If `parent` is specified, `destination` **must** also be specified. If it is unspecified,
     ///   the responder will determine the store to place it in.
+    ///
+    /// ## Parameters
+    ///
+    /// * `destination` - The storage to store the new object, or omit to leave it up to the responder.
+    /// * `parent` - The parent object to store the new object into, or omit to leave it up to the responder.
+    /// 	* `destination` **must** be specified if this is specified.
+    /// 	* To guarantee that the object is stored in the root of the storage, [`ObjectHandle::ALL`] can be used.
+    /// * `format` - The format of the new object.
+    /// * `size` - The 64-bit size of the object's binary data.
     pub struct SendObjectPropList {
         code: 0x9808,
         visible_parameters: (

@@ -37,14 +37,66 @@ use crate::device::properties::{EnumerationForm, GetSet, RangeForm};
 use crate::object::types::{
     Array, ArrayEncodable, DateTime, ObjectFormatCode, ObjectHandle, PropertyDataType, PtpString,
 };
-use crate::property::Property;
+use crate::property::{Property, SerializedProperty};
 
 use alloc::borrow::Cow;
 use alloc::format;
 
-use deku::DekuReader;
 use deku::ctx::Endian;
-use deku::no_std_io::{Read, Seek};
+use deku::no_std_io::{Read, Seek, Write};
+use deku::prelude::{Reader, Writer};
+use deku::{DekuError, DekuReader, DekuWriter};
+
+/// An [`ObjectProperty`] list
+///
+/// This is used in the [`GetObjectPropList`], [`SetObjectPropList`], and [`SendObjectPropList`] operations.
+///
+/// [`GetObjectPropList`]: crate::communication::operation::GetObjectPropList
+/// [`SetObjectPropList`]: crate::communication::operation::SetObjectPropList
+/// [`SendObjectPropList`]: crate::communication::operation::SendObjectPropList
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectPropList(pub Vec<SerializedProperty>);
+
+impl FromIterator<SerializedProperty> for ObjectPropList {
+    fn from_iter<T: IntoIterator<Item = SerializedProperty>>(iter: T) -> Self {
+        Self(Vec::from_iter(iter))
+    }
+}
+
+impl DekuWriter<Endian> for ObjectPropList {
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Endian,
+    ) -> Result<(), DekuError> {
+        (self.0.len() as u32).to_writer(writer, ctx)?;
+
+        for prop in &self.0 {
+            prop.to_writer(writer, ctx)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> DekuReader<'a, Endian> for ObjectPropList {
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Endian,
+    ) -> Result<Self, DekuError>
+    where
+        Self: Sized,
+    {
+        let count = u32::from_reader_with_ctx(reader, ctx)?;
+        let mut props = Vec::with_capacity(count as usize);
+
+        for _ in 0..count {
+            props.push(SerializedProperty::from_reader_with_ctx(reader, ctx)?);
+        }
+
+        Ok(Self(props))
+    }
+}
 
 /// Marker trait for object properties
 pub trait ObjectProperty: Property {}
@@ -135,6 +187,8 @@ macro_rules! define_object_property_descriptions {
 			#[deku(id = $code)]
 			$name = $code,
 			)*
+			#[deku(id = 0xFFFF)]
+			All,
 			#[deku(id_pat = "_")]
 			SomethingElse,
 		}

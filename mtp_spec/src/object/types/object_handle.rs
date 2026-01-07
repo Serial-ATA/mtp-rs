@@ -33,6 +33,14 @@ impl ObjectHandle {
     /// in contexts where missing objects are not errors.
     pub const NONE: Self = ObjectHandle(0);
 
+    /// Indicates a selection of *all* objects in the context
+    ///
+    /// For example in the [`DeleteObject`] operation, this can be used to delete all objects on the
+    /// responder.
+    ///
+    /// [`DeleteObject`]: crate::communication::operation::DeleteObject
+    pub const ALL: Self = ObjectHandle(u32::MAX);
+
     /// In some contexts, we want to convert empty handles to `None` when parsing.
     pub(crate) fn parse_optional(handle: ObjectHandle) -> Result<Option<ObjectHandle>, DekuError> {
         if handle == Self::NONE {

@@ -19,14 +19,13 @@ use crate::communication::operation::{
 use crate::communication::response::Response;
 use crate::communication::response::errors::OperationError;
 use crate::communication::{SessionId, TransactionId};
-use crate::device::properties::{DeviceProperty, DevicePropertyCode, GetSet};
+use crate::device::properties::{DeviceProperty, GetSet};
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::FilesystemType;
 use crate::error::MtpError;
 use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
+use crate::object::types::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
 use crate::object::types::{Array, ObjectFormatCode, ObjectHandle, PtpString};
-use crate::property::SerializedProperty;
 
 use alloc::vec::Vec;
 
@@ -311,12 +310,7 @@ pub trait Device: PtpIo {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
-                DeleteObject::new(
-                    transaction_id,
-                    session_id,
-                    object,
-                    format.unwrap_or(ObjectFormatCode::Unknown(0)),
-                ),
+                DeleteObject::new(transaction_id, session_id, object, format),
                 None,
             )
             .await
@@ -392,7 +386,7 @@ pub trait Device: PtpIo {
         &mut self,
         session_id: SessionId,
         storage: StorageId,
-        fs: FilesystemType,
+        fs: Option<FilesystemType>,
     ) -> impl Future<Output = Response<FormatStore, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
         async move {
@@ -505,18 +499,20 @@ pub trait Device: PtpIo {
     }
 
     /// Send a [`SetDevicePropValue`] operation
-    fn set_device_prop_value(
+    fn set_device_prop_value<T>(
         &mut self,
         session_id: SessionId,
-        code: DevicePropertyCode,
         value: Vec<u8>,
     ) -> impl Future<
-        Output = Response<SetDevicePropValue, MtpError<<Self as PtpIo>::TransportError>>,
-    > + Send {
+        Output = Response<SetDevicePropValue<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
+    where
+        T: DeviceProperty,
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
-                SetDevicePropValue::new(transaction_id, session_id, code),
+                SetDevicePropValue::<T>::new(transaction_id, session_id),
                 Some(value),
             )
             .await
@@ -524,17 +520,19 @@ pub trait Device: PtpIo {
     }
 
     /// Send a [`ResetDevicePropValue`] operation
-    fn reset_device_prop_value(
+    fn reset_device_prop_value<T>(
         &mut self,
         session_id: SessionId,
-        code: DevicePropertyCode,
     ) -> impl Future<
-        Output = Response<ResetDevicePropValue, MtpError<<Self as PtpIo>::TransportError>>,
-    > + Send {
+        Output = Response<ResetDevicePropValue<T>, MtpError<<Self as PtpIo>::TransportError>>,
+    > + Send
+    where
+        T: DeviceProperty,
+    {
         async move {
             let transaction_id = self.next_transaction_id();
             self.send_operation(
-                ResetDevicePropValue::new(transaction_id, session_id, code),
+                ResetDevicePropValue::<T>::new(transaction_id, session_id),
                 None,
             )
             .await
@@ -788,7 +786,7 @@ pub trait Device: PtpIo {
         session_id: SessionId,
         object: ObjectHandle,
         format: Option<ObjectFormatCode>,
-        property: ObjectPropertyCode,
+        property: Option<ObjectPropertyCode>,
         group: Option<u32>,
         depth: Option<u32>,
     ) -> impl Future<Output = Response<GetObjectPropList, MtpError<<Self as PtpIo>::TransportError>>>
@@ -815,14 +813,18 @@ pub trait Device: PtpIo {
     fn set_object_prop_list(
         &mut self,
         session_id: SessionId,
-        props: Vec<u8>, // TODO: Actually define the ObjectPropList
+        props: ObjectPropList,
     ) -> impl Future<Output = Response<SetObjectPropList, MtpError<<Self as PtpIo>::TransportError>>>
     + Send {
         async move {
+            let mut object_prop_list = Cursor::new(Vec::new());
+            let mut writer = Writer::new(&mut object_prop_list);
+            props.to_writer(&mut writer, self.endian())?;
+
             let transaction_id = self.next_transaction_id();
             self.send_operation(
                 SetObjectPropList::new(transaction_id, session_id),
-                Some(props),
+                Some(object_prop_list.into_inner()),
             )
             .await
         }
@@ -854,19 +856,14 @@ pub trait Device: PtpIo {
         parent: Option<ObjectHandle>,
         format: ObjectFormatCode,
         size: u64,
-        properties: impl IntoIterator<Item = SerializedProperty> + Send,
+        properties: ObjectPropList,
     ) -> impl Future<
         Output = Response<SendObjectPropList, MtpError<<Self as PtpIo>::TransportError>>,
     > + Send {
         async move {
             let mut object_prop_list = Cursor::new(Vec::new());
-
             let mut writer = Writer::new(&mut object_prop_list);
-            for property in properties.into_iter() {
-                property
-                    .to_writer(&mut writer, self.endian())
-                    .map_err(|e| MtpError::Serialization(e.into()))?;
-            }
+            properties.to_writer(&mut writer, self.endian())?;
 
             let high = (size >> 32) as u32;
             let low = size as u32;
