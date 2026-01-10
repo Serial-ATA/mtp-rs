@@ -1,5 +1,5 @@
 use super::error::Error;
-use super::{DeviceFlags, MtpEligibility, UsbDeviceDescriptor};
+use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlagSet};
 use crate::communication::SessionId;
 use crate::device::Device as _;
 use crate::error::MtpError;
@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bitflags::Flags;
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
 use mtp_spec::communication::response::errors::OperationError;
@@ -48,7 +49,7 @@ use nusb::transfer::Direction;
 pub struct Device {
     info: nusb::DeviceInfo,
     well_known_info: Option<UsbDeviceDescriptor>,
-    flags: DeviceFlags,
+    flags: UsbDeviceFlagSet,
     handle: Option<nusb::Device>,
 }
 
@@ -65,7 +66,7 @@ impl From<nusb::DeviceInfo> for Device {
         Self {
             info,
             well_known_info: None,
-            flags: DeviceFlags::empty(),
+            flags: UsbDeviceFlagSet::empty(),
             handle: None,
         }
     }

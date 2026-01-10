@@ -94,6 +94,7 @@ macro_rules! define_error_responses {
 		}
 
 		/// All error response codes
+		#[allow(missing_docs)]
 		#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 		#[repr(u16)]
 		pub enum ErrorCode {
@@ -172,7 +173,9 @@ define_error_responses! {
     }
 
     /// Indicates that a parameter of an operation contains a non-zero value, but is not supported.
-    /// This response is different from [`InvalidParameter`].
+    ///
+    /// This response is different from [`InvalidParameter`], which indicates that the parameter is
+    /// supported, but contains an invalid value.
     [[error("The parameter is not supported")]]
     pub struct ParameterNotSupported {
         code: 0x2006,
@@ -357,6 +360,10 @@ define_error_responses! {
         code: 0x201C,
     }
 
+    /// A parameter of the operation is not a valid value
+    ///
+    /// This is different from [`ParameterNotSupported`], which indicates that no value was expected
+    /// in this parameter.
     [[error("The parameter is not valid")]]
     pub struct InvalidParameter {
         code: 0x201D,

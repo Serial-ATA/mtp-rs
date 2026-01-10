@@ -73,7 +73,7 @@ pub struct UsbDeviceDescriptor {
     /// The USB product ID, specified in the `idProduct` field of the device descriptor.
     pub product_id: u16,
     /// Flags indicating problematic behavior of the device
-    pub flags: DeviceFlags,
+    pub flags: UsbDeviceFlagSet,
 }
 
 enum MtpEligibility {

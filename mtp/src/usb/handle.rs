@@ -7,11 +7,13 @@ use crate::device::{Device, DeviceFlags, PtpIo};
 use crate::error::MtpError;
 
 use std::io::Cursor;
+use std::ops::BitOr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use bitflags::{Flag, Flags};
 use deku::ctx::Endian;
 use deku::reader::Reader;
 use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuReader, DekuWrite};
@@ -32,6 +34,127 @@ pub(super) struct Endpoints {
     pub(super) interrupt_buffer_size: usize,
 }
 
+const BASE_DEVICE_FLAGS_BITS: u32 = DeviceFlags::all().bits().count_ones();
+
+bitflags::bitflags! {
+    /// USB-specific device flags
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+    pub struct UsbDeviceFlags: u32 {
+        const NO_RELEASE_INTERFACE = 1 << BASE_DEVICE_FLAGS_BITS;
+        const UNLOAD_DRIVER = 1 << (BASE_DEVICE_FLAGS_BITS + 1);
+        /// The device requires an explicit USB reset after each connection
+        const FORCE_RESET_ON_CLOSE = 3 << (BASE_DEVICE_FLAGS_BITS + 2);
+        const ALWAYS_PROBE_DESCRIPTOR = 4 << (BASE_DEVICE_FLAGS_BITS + 3);
+        const NO_ZERO_READS = 5 << (BASE_DEVICE_FLAGS_BITS + 4);
+        /// The device provides garbage opcodes and [`TransactionId`]s in its packet headers
+        const IGNORE_HEADER_ERRORS = 6 << (BASE_DEVICE_FLAGS_BITS + 5);
+    }
+}
+
+/// A flag set combining [`DeviceFlags`] and [`UsbDeviceFlags`]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct UsbDeviceFlagSet {
+    /// Base MTP device flags
+    pub base: DeviceFlags,
+    /// USB-specific device flags
+    pub usb: UsbDeviceFlags,
+}
+
+impl UsbDeviceFlagSet {
+    /// Bugs on all devices using the Android MTP stack
+    pub const ANDROID_BUGS: Self = Self {
+        base: DeviceFlags::from_bits_truncate(
+            DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST_ALL.bits()
+                | DeviceFlags::BROKEN_SET_OBJECT_PROP_LIST.bits()
+                | DeviceFlags::BROKEN_SEND_OBJECT_PROP_LIST.bits()
+                | DeviceFlags::LONG_TIMEOUT.bits(),
+        ),
+        usb: UsbDeviceFlags::from_bits_truncate(
+            UsbDeviceFlags::UNLOAD_DRIVER.bits() | UsbDeviceFlags::FORCE_RESET_ON_CLOSE.bits(),
+        ),
+    };
+
+    /// Bugs on SONY NWZ Walkman players
+    pub const SONY_NWZ_BUGS: Self = Self {
+        base: DeviceFlags::from_bits_truncate(
+            DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST_ALL.bits()
+                | DeviceFlags::UNIQUE_FILENAMES.bits(),
+        ),
+        usb: UsbDeviceFlags::from_bits_truncate(
+            UsbDeviceFlags::UNLOAD_DRIVER.bits() | UsbDeviceFlags::FORCE_RESET_ON_CLOSE.bits(),
+        ),
+    };
+
+    /// Bugs on devices using the Aricent MTP stack
+    pub const ARICENT_BUGS: Self = Self {
+        base: DeviceFlags::from_bits_truncate(
+            DeviceFlags::BROKEN_SEND_OBJECT_PROP_LIST.bits()
+                | DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST.bits(),
+        ),
+        usb: UsbDeviceFlags::IGNORE_HEADER_ERRORS,
+    };
+}
+
+impl Flags for UsbDeviceFlagSet {
+    const FLAGS: &'static [Flag<Self>] = &[
+        Flag::new("ANDROID_BUGS", Self::ANDROID_BUGS),
+        Flag::new("SONY_NWZ_BUGS", Self::SONY_NWZ_BUGS),
+        Flag::new("ARICENT_BUGS", Self::ARICENT_BUGS),
+    ];
+    type Bits = u32;
+
+    fn all() -> Self {
+        Self {
+            base: DeviceFlags::all(),
+            usb: UsbDeviceFlags::all(),
+        }
+    }
+
+    fn bits(&self) -> Self::Bits {
+        self.base.bits() | self.usb.bits()
+    }
+
+    fn from_bits_retain(bits: Self::Bits) -> Self {
+        Self {
+            base: DeviceFlags::from_bits_retain(bits),
+            usb: UsbDeviceFlags::from_bits_retain(bits),
+        }
+    }
+}
+
+impl BitOr<DeviceFlags> for UsbDeviceFlagSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: DeviceFlags) -> Self::Output {
+        Self {
+            base: self.base | rhs,
+            usb: self.usb,
+        }
+    }
+}
+
+impl BitOr<UsbDeviceFlags> for UsbDeviceFlagSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: UsbDeviceFlags) -> Self::Output {
+        Self {
+            base: self.base,
+            usb: self.usb | rhs,
+        }
+    }
+}
+
+impl BitOr<UsbDeviceFlagSet> for UsbDeviceFlagSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: UsbDeviceFlagSet) -> Self::Output {
+        Self {
+            base: self.base | rhs.base,
+            usb: self.usb | rhs.usb,
+        }
+    }
+}
+
 /// A handle to an open USB device
 ///
 /// This implements [`Device`], which is how it should be interacted with primarily.
@@ -39,7 +162,7 @@ pub(super) struct Endpoints {
 pub struct DeviceHandle {
     _device: nusb::Device,
     endian: Endian,
-    flags: DeviceFlags,
+    flags: UsbDeviceFlagSet,
     interface: nusb::Interface,
     endpoints: Endpoints,
     out_queue: Endpoint<Bulk, Out>,
@@ -54,11 +177,11 @@ pub struct DeviceHandle {
 impl DeviceHandle {
     pub(super) fn new(
         device: nusb::Device,
-        flags: DeviceFlags,
+        flags: UsbDeviceFlagSet,
         interface: nusb::Interface,
         endpoints: Endpoints,
     ) -> Result<Self, Error> {
-        let timeout = if flags.contains(DeviceFlags::LONG_TIMEOUT) {
+        let timeout = if flags.base.contains(DeviceFlags::LONG_TIMEOUT) {
             Duration::from_millis(60000)
         } else {
             Duration::from_millis(20000)
@@ -329,7 +452,11 @@ impl PtpIo for DeviceHandle {
     }
 }
 
-impl Device for DeviceHandle {}
+impl Device for DeviceHandle {
+    fn flags(&self) -> DeviceFlags {
+        self.flags.base
+    }
+}
 
 #[derive(PartialEq, Debug, Copy, Clone, DekuRead, DekuWrite)]
 #[repr(u16)]

@@ -49,6 +49,11 @@ pub mod storage;
 ///
 /// [`operations`]: crate::communication::operation
 pub trait Device: PtpIo {
+    /// Get the [`DeviceFlags`] for this device
+    ///
+    /// These flags may be used behind-the-scenes for certain high-level operations.
+    fn flags(&self) -> DeviceFlags;
+
     // === Property checking ===
 
     /// Check whether the device claims to support Android MTP extensions
