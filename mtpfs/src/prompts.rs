@@ -2,7 +2,8 @@ use dialoguer::Select;
 use dialoguer::theme::ColorfulTheme;
 use futures::executor::block_on_stream;
 use mtp::communication::SessionId;
-use mtp::high_level::storages::{DeviceStorageExt, Storage};
+use mtp::device::session::MtpSession;
+use mtp::high_level::storages::{SessionStorageExt, Storage};
 
 pub async fn prompt_for_device() -> mtp::usb::error::Result<mtp::usb::Device> {
     fn extract_device_name(device: &mtp::usb::Device) -> String {
@@ -54,10 +55,9 @@ pub async fn prompt_for_device() -> mtp::usb::error::Result<mtp::usb::Device> {
 }
 
 pub async fn prompt_for_storages(
-    device: &mut mtp::usb::DeviceHandle,
-    session_id: SessionId,
+    session: &mut MtpSession<mtp::usb::DeviceHandle>,
 ) -> mtp::usb::error::Result<Vec<Storage>> {
-    let mut storages = match device.storages(session_id).await {
+    let mut storages = match session.storages().await {
         Ok(storages) => storages,
         Err(e) => {
             eprintln!("Failed to get storage list: {e}");

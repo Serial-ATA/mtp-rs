@@ -1,4 +1,4 @@
-use crate::communication::SessionId;
+use crate::device::session::MtpSession;
 use crate::device::storage::id::StorageId;
 use crate::device::storage::info::{AccessCapability, FilesystemType, StorageType};
 use crate::device::{Device, PtpIo};
@@ -9,7 +9,7 @@ use crate::error::MtpError;
 /// This has the same contents as [`StorageInfo`], but with the [`PtpString`]s pre-converted to
 /// [`String`]s.
 ///
-/// These are obtained from [`DeviceStorageExt::storages()`].
+/// These are obtained from [`SessionStorageExt::storages()`].
 ///
 /// [`StorageInfo`]: crate::device::storage::info::StorageInfo
 /// [`PtpString`]: crate::object::types::PtpString
@@ -35,7 +35,10 @@ pub struct Storage {
 }
 
 /// High-level methods to work with storages on a device
-pub trait DeviceStorageExt: Device {
+pub trait SessionStorageExt<D>
+where
+    D: Device,
+{
     /// Get all [`Storage`]s on the device
     ///
     /// This is a combination of the [`GetStorageIDs`] and [`GetStorageInfo`] operations.
@@ -44,26 +47,20 @@ pub trait DeviceStorageExt: Device {
     /// [`GetStorageInfo`]: crate::communication::operation::GetStorageInfo
     fn storages(
         &mut self,
-        session_id: SessionId,
-    ) -> impl Future<Output = Result<Vec<Storage>, MtpError<<Self as PtpIo>::TransportError>>> + Send
-    where
-        Self: Device;
+    ) -> impl Future<Output = Result<Vec<Storage>, MtpError<<D as PtpIo>::TransportError>>> + Send;
 }
 
-impl<D> DeviceStorageExt for D
+impl<D> SessionStorageExt<D> for MtpSession<D>
 where
     D: Device,
 {
-    async fn storages(
-        &mut self,
-        session_id: SessionId,
-    ) -> Result<Vec<Storage>, MtpError<<D as PtpIo>::TransportError>> {
-        let storage_ids_response = self.get_storage_ids(session_id).await?;
+    async fn storages(&mut self) -> Result<Vec<Storage>, MtpError<<D as PtpIo>::TransportError>> {
+        let storage_ids_response = self.get_storage_ids().await?;
         let storage_ids = storage_ids_response.data.data;
 
         let mut storages = Vec::with_capacity(storage_ids.len());
         for storage_id in storage_ids.iter().copied() {
-            let storage_info_response = self.get_storage_info(session_id, storage_id).await?;
+            let storage_info_response = self.get_storage_info(storage_id).await?;
             let storage_info = storage_info_response.data.data;
 
             storages.push(Storage {

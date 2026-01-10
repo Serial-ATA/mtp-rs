@@ -15,7 +15,7 @@
 //!
 //! ```rust,no_run
 //! use futures::stream::StreamExt;
-//! use mtp::high_level::storages::DeviceStorageExt;
+//! use mtp::high_level::storages::SessionStorageExt;
 //! use mtp::usb::device_list;
 //!
 //! # #[tokio::main]
@@ -28,8 +28,8 @@
 //!         "Storages for device '{:?}':",
 //!         device.info().product_string()
 //!     );
-//!     let (mut handle, session_id) = device.open().await?;
-//!     let all_storages = handle.storages(session_id).await?;
+//!     let mut session = device.open().await?;
+//!     let all_storages = session.storages().await?;
 //!
 //!     for storage in all_storages {
 //!         println!(

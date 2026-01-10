@@ -1,7 +1,5 @@
 use super::error::Error;
 use super::{MtpEligibility, UsbDeviceDescriptor, UsbDeviceFlagSet};
-use crate::communication::SessionId;
-use crate::device::Device as _;
 use crate::error::MtpError;
 
 use std::fmt::Debug;
@@ -11,7 +9,7 @@ use std::time::Duration;
 use bitflags::Flags;
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use mtp_spec::communication::response::errors::OperationError;
+use mtp_spec::device::session::MtpSession;
 pub use nusb;
 use nusb::descriptors::TransferType;
 use nusb::descriptors::language_id::US_ENGLISH;
@@ -38,10 +36,10 @@ use nusb::transfer::Direction;
 ///     let device = device?;
 ///
 ///     // Open up the device for MTP communication
-///     let (mut handle, session_id) = device.open().await?;
+///     let mut session = device.open().await?;
 ///
 ///     // The device is now ready to receive operations
-///     let _device_info = handle.get_device_info(Some(session_id)).await?;
+///     let _device_info = session.get_device_info().await?;
 /// }
 /// # Ok(()) }
 /// ```
@@ -84,17 +82,11 @@ impl Device {
     #[allow(clippy::missing_panics_doc)] // Not possible
     pub async fn open(
         self,
-    ) -> Result<(super::handle::DeviceHandle, SessionId), super::error::Error> {
-        let mut handle = self.open_raw().await?;
-
-        match handle.open_session().await {
-            Ok((_res, session_id)) => Ok((handle, session_id)),
-            Err(MtpError::Protocol(OperationError::SessionAlreadyOpen(e))) => {
-                log::warn!("Session {} already open", e.session_id);
-                Ok((handle, e.session_id))
-            },
-            Err(e) => Err(Error::Generic(Arc::new(e))),
-        }
+    ) -> Result<MtpSession<super::handle::DeviceHandle>, super::error::Error> {
+        let handle = self.open_raw().await?;
+        MtpSession::open(handle)
+            .await
+            .map_err(|e| Error::Generic(Arc::new(e)))
     }
 
     /// Attempt to open the device for MTP communication

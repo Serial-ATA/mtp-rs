@@ -3,6 +3,7 @@ use super::{File, Folder};
 use std::future::Future;
 
 use mtp_spec::communication::{SessionId, response};
+use mtp_spec::device::session::MtpSession;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
 use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
@@ -13,44 +14,41 @@ use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpStri
 ///
 /// This provides higher-level methods to perform operations on MTP-compatible devices as if they
 /// were real filesystems.
-pub trait DeviceFsExt {
+pub trait SessionFsExt<D>
+where
+    D: Device,
+{
     /// Create a new directory on the target device
     fn mkdir<N>(
         &mut self,
-        session_id: SessionId,
         parent: Option<&Folder>,
         name: N,
-    ) -> impl Future<Output = Result<Folder, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    ) -> impl Future<Output = Result<Folder, MtpError<<D as PtpIo>::TransportError>>> + Send
     where
-        Self: Device,
         N: AsRef<str> + Send;
 
     /// Create a new file with the given `data` on the target device
     fn create<N>(
         &mut self,
-        session_id: SessionId,
         parent: Option<&Folder>,
         name: N,
         format: ObjectFormatCode,
         data: Vec<u8>,
-    ) -> impl Future<Output = Result<File, MtpError<<Self as PtpIo>::TransportError>>> + Send
+    ) -> impl Future<Output = Result<File, MtpError<<D as PtpIo>::TransportError>>> + Send
     where
-        Self: Device,
         N: AsRef<str> + Send;
 }
 
-impl<D> DeviceFsExt for D
+impl<D> SessionFsExt<D> for MtpSession<D>
 where
     D: Device,
 {
     async fn mkdir<N>(
         &mut self,
-        session_id: SessionId,
         parent: Option<&Folder>,
         name: N,
-    ) -> Result<Folder, MtpError<<Self as PtpIo>::TransportError>>
+    ) -> Result<Folder, MtpError<<D as PtpIo>::TransportError>>
     where
-        Self: Device,
         N: AsRef<str> + Send,
     {
         let storage = parent.map(|p| p.storage_id);
@@ -60,23 +58,20 @@ where
         //       Maybe samsung issue?
         let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
-            .send_object_info(
-                session_id,
-                ObjectInfo {
-                    storage_id: storage.unwrap_or_default(),
-                    object_format: ObjectFormatCode::Association,
-                    protection_status: ProtectionStatus::NoProtection,
-                    parent_object,
-                    association: Some(Association::GenericFolder {
-                        ty: FolderType::Generic,
-                    }),
-                    filename: name_ptp,
-                    ..Default::default()
-                },
-            )
+            .send_object_info(ObjectInfo {
+                storage_id: storage.unwrap_or_default(),
+                object_format: ObjectFormatCode::Association,
+                protection_status: ProtectionStatus::NoProtection,
+                parent_object,
+                association: Some(Association::GenericFolder {
+                    ty: FolderType::Generic,
+                }),
+                filename: name_ptp,
+                ..Default::default()
+            })
             .await?;
 
-        self.send_object(session_id, Vec::new()).await?;
+        self.send_object(Vec::new()).await?;
 
         let response::SendObjectInfo {
             storage_id,
@@ -84,11 +79,7 @@ where
             reserved_handle,
         } = response.data;
 
-        let object_info = self
-            .get_object_info(session_id, reserved_handle)
-            .await?
-            .data
-            .data;
+        let object_info = self.get_object_info(reserved_handle).await?.data.data;
 
         Ok(Folder {
             id: reserved_handle,
@@ -106,14 +97,12 @@ where
     // TODO: Error if format is association
     async fn create<N>(
         &mut self,
-        session_id: SessionId,
         parent: Option<&Folder>,
         name: N,
         format: ObjectFormatCode,
         data: Vec<u8>,
-    ) -> Result<File, MtpError<<Self as PtpIo>::TransportError>>
+    ) -> Result<File, MtpError<<D as PtpIo>::TransportError>>
     where
-        Self: Device,
         N: AsRef<str> + Send,
     {
         let storage = parent.map(|p| p.storage_id);
@@ -121,25 +110,22 @@ where
 
         let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
-            .send_object_info(
-                session_id,
-                ObjectInfo {
-                    storage_id: storage.unwrap_or_default(),
-                    parent_object,
-                    object_format: format,
-                    compressed_size: data.len() as u32,
-                    association: None,
-                    filename: name_ptp,
+            .send_object_info(ObjectInfo {
+                storage_id: storage.unwrap_or_default(),
+                parent_object,
+                object_format: format,
+                compressed_size: data.len() as u32,
+                association: None,
+                filename: name_ptp,
 
-                    // Not required for SendObjectInfo
-                    protection_status: ProtectionStatus::default(),
-                    thumbnail: None,
-                    sequence_number: 0,
-                    date_created: None,
-                    date_modified: None,
-                    keywords: Default::default(),
-                },
-            )
+                // Not required for SendObjectInfo
+                protection_status: ProtectionStatus::default(),
+                thumbnail: None,
+                sequence_number: 0,
+                date_created: None,
+                date_modified: None,
+                keywords: Default::default(),
+            })
             .await?;
 
         let response::SendObjectInfo {
@@ -148,20 +134,16 @@ where
             reserved_handle,
         } = response.data;
 
-        self.send_object(session_id, data).await?;
+        self.send_object(data).await?;
 
-        let object_info = self
-            .get_object_info(session_id, reserved_handle)
-            .await?
-            .data
-            .data;
+        let object_info = self.get_object_info(reserved_handle).await?.data.data;
 
         let size_response = self
-            .get_object_prop_value::<ObjectSize>(session_id, reserved_handle)
+            .get_object_prop_value::<ObjectSize>(reserved_handle)
             .await?;
 
         Ok(File {
-            storage_id,
+            storage: storage_id,
             id: reserved_handle,
             parent: None, // TODO
             name: object_info.filename.to_string(),

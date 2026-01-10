@@ -1,9 +1,7 @@
 mod device_ext;
 
 pub use device_ext::*;
-use std::collections::HashMap;
 
-use crate::communication::SessionId;
 use crate::device::storage::id::StorageId;
 use crate::device::{Device, PtpIo};
 use crate::error::{Error, MtpError};
@@ -11,10 +9,14 @@ use crate::object::info::{ObjectInfo, ProtectionStatus};
 use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
 use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
-use mtp_spec::communication::response::errors::{InvalidObjectHandle, OperationError};
+use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
+
+use mtp_spec::communication::response::errors::{InvalidObjectHandle, OperationError};
+use mtp_spec::device::DeviceFlags;
+use mtp_spec::device::session::MtpSession;
 
 /// Representation of a file on an MTP-compatible device
 ///
@@ -23,7 +25,7 @@ use std::sync::{Arc, Weak};
 #[derive(Clone, Debug)]
 pub struct File {
     /// The device-specific ID of the storage where this file lives
-    pub storage_id: StorageId,
+    pub storage: StorageId,
     pub id: ObjectHandle,
     pub parent: Option<Weak<Folder>>,
     pub name: String,
@@ -35,6 +37,47 @@ pub struct File {
 }
 
 impl File {
+    pub(crate) async fn new<D>(
+        session: &mut MtpSession<D>,
+        id: ObjectHandle,
+        storage: StorageId,
+        name: String,
+        mut format: ObjectFormatCode,
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
+    where
+        D: Device,
+    {
+        let flags = session.flags();
+
+        // Some devices support OGG/FLAC, but don't report them properly
+        if format == ObjectFormatCode::Undefined {
+            if (flags.contains(DeviceFlags::OGG_IS_UNKNOWN)
+                || flags.contains(DeviceFlags::IRIVER_OGG_ALZHEIMER))
+                && name.ends_with(".ogg")
+            {
+                format = ObjectFormatCode::Ogg;
+            } else if flags.contains(DeviceFlags::FLAC_IS_UNKNOWN) {
+                format = ObjectFormatCode::Flac;
+            }
+        }
+
+        Ok(Self {
+            id,
+            storage,
+            parent: None,
+            name,
+            size: session
+                .get_object_prop_value::<ObjectSize>(id)
+                .await?
+                .data
+                .data,
+            format,
+            protection_status: ProtectionStatus::ReadOnly,
+            date_created: None,
+            date_modified: None,
+        })
+    }
+
     /// Open the file
     ///
     /// This will fetch the data from the device, and then write it to a temp file. The returned handle
@@ -53,7 +96,7 @@ impl File {
     /// ```rust,no_run
     /// use futures::stream::StreamExt;
     /// use mtp::high_level::fs::{FileSystem, FolderEntry};
-    /// use mtp::high_level::storages::DeviceStorageExt;
+    /// use mtp::high_level::storages::SessionStorageExt;
     /// use mtp::usb::device_list;
     /// use std::io::Read;
     ///
@@ -61,21 +104,21 @@ impl File {
     /// # async fn main() -> mtp::usb::error::Result<()> {
     /// // Get the first MTP-eligible device
     /// let device = device_list().await?.next().await.expect("No devices");
-    /// let (mut handle, session_id) = device?.open().await?;
+    /// let mut session = device?.open().await?;
     ///
     /// // Get whatever the first storage happens to be
-    /// let storages = handle.storages(session_id).await?;
+    /// let storages = session.storages().await?;
     /// let storage = storages.first().expect("no storages");
     ///
     /// // Load the storage and find the first file
-    /// let fs = FileSystem::load(&mut handle, session_id, storage.id).await?;
+    /// let fs = FileSystem::load(&mut session, storage.id).await?;
     /// for child in &fs.root.children {
     ///     let FolderEntry::File(file) = child else {
     ///         continue;
     ///     };
     ///
     ///     // Print out whatever the first file's contents happen to be
-    ///     let mut open_file = file.open(&mut handle, session_id).await?;
+    ///     let mut open_file = file.open(&mut session).await?;
     ///
     ///     println!("Contents of: {}", file.name);
     ///
@@ -90,13 +133,12 @@ impl File {
     /// ```
     pub async fn open<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
     ) -> Result<std::fs::File, crate::error::Error<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
-        let object = device.get_object(session_id, self.id).await?;
+        let object = session.get_object(self.id).await?;
         let file_data = object.data.data;
 
         let mut tmp = tempfile::tempfile()?;
@@ -116,8 +158,7 @@ impl File {
     /// * Any errors from the transport backend
     pub async fn rename<D, N>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         name: N,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -129,8 +170,8 @@ impl File {
             return Ok(self.clone());
         }
 
-        if !device
-            .object_property_can_be_modified::<ObjectFileName>(session_id, self.format)
+        if !session
+            .object_property_can_be_modified::<ObjectFileName>(self.format)
             .await?
         {
             return Err(MtpError::UnsupportedOperation.into());
@@ -141,13 +182,13 @@ impl File {
 
         let id = self.id;
         let parent = self.parent.clone();
-        let storage_id = self.storage_id;
-        let _ = device
-            .set_object_prop_value::<ObjectFileName>(session_id, self.id, name_ptp)
+        let storage_id = self.storage;
+        let _ = session
+            .set_object_prop_value::<ObjectFileName>(self.id, name_ptp)
             .await?;
 
         Ok(Self {
-            storage_id,
+            storage: storage_id,
             parent,
             id,
             name: name_str.to_string(),
@@ -171,17 +212,14 @@ impl File {
     /// * Any errors from the transport backend
     pub async fn copy<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
-        device
-            .copy_object(session_id, self.id, self.storage_id, parent)
-            .await?;
+        session.copy_object(self.id, self.storage, parent).await?;
 
         Ok(())
     }
@@ -198,15 +236,14 @@ impl File {
     /// * Any errors from the transport backend
     pub async fn move_<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         destination: Arc<Folder>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
-        device
-            .move_object(session_id, self.id, self.storage_id, Some(destination.id))
+        session
+            .move_object(self.id, self.storage, Some(destination.id))
             .await?;
         Ok(())
     }
@@ -217,7 +254,7 @@ impl File {
             todo!()
         };
         Ok(ObjectInfo {
-            storage_id: self.storage_id,
+            storage_id: self.storage,
             object_format: self.format,
             protection_status: self.protection_status,
             compressed_size: 0,
@@ -263,8 +300,7 @@ impl Folder {
     /// * Any errors from the transport backend
     pub async fn rename<D, N>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         name: N,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -273,8 +309,8 @@ impl Folder {
     {
         let name_str = name.as_ref();
         let name = PtpString::from_str(name_str)?;
-        let _ = device
-            .set_object_prop_value::<ObjectFileName>(session_id, self.id, name)
+        let _ = session
+            .set_object_prop_value::<ObjectFileName>(self.id, name)
             .await?;
 
         Ok(Self {
@@ -302,16 +338,15 @@ impl Folder {
     /// * Any errors from the transport backend
     pub async fn copy<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
-        device
-            .copy_object(session_id, self.id, self.storage_id, parent)
+        session
+            .copy_object(self.id, self.storage_id, parent)
             .await?;
 
         Ok(())
@@ -329,16 +364,15 @@ impl Folder {
     /// * Any errors from the transport backend
     pub async fn move_<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         parent: Option<Arc<Self>>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
-        device
-            .move_object(session_id, self.id, self.storage_id, parent.map(|p| p.id))
+        session
+            .move_object(self.id, self.storage_id, parent.map(|p| p.id))
             .await?;
 
         Ok(())
@@ -371,7 +405,7 @@ impl FolderEntry {
     /// Get the storage ID of this entry
     pub fn storage_id(&self) -> StorageId {
         match self {
-            FolderEntry::File(f) => f.storage_id,
+            FolderEntry::File(f) => f.storage,
             FolderEntry::Folder(f) => f.storage_id,
         }
     }
@@ -399,8 +433,7 @@ impl FolderEntry {
     /// See [`File::rename()`] and [`Folder::rename()`]
     pub async fn rename<D, N>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         name: N,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -408,11 +441,9 @@ impl FolderEntry {
         N: AsRef<str>,
     {
         match self {
-            FolderEntry::File(f) => Ok(FolderEntry::File(Arc::new(
-                f.rename(device, session_id, name).await?,
-            ))),
+            FolderEntry::File(f) => Ok(FolderEntry::File(Arc::new(f.rename(session, name).await?))),
             FolderEntry::Folder(f) => Ok(FolderEntry::Folder(Arc::new(
-                f.rename(device, session_id, name).await?,
+                f.rename(session, name).await?,
             ))),
         }
     }
@@ -424,8 +455,7 @@ impl FolderEntry {
     /// See [`File::copy()`] and [`Folder::copy()`]
     pub async fn copy<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
@@ -433,8 +463,8 @@ impl FolderEntry {
         <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
-            FolderEntry::File(f) => f.copy(device, session_id, parent).await,
-            FolderEntry::Folder(f) => f.copy(device, session_id, parent).await,
+            FolderEntry::File(f) => f.copy(session, parent).await,
+            FolderEntry::Folder(f) => f.copy(session, parent).await,
         }
     }
 
@@ -445,8 +475,7 @@ impl FolderEntry {
     /// See [`File::move_()`] and [`Folder::move_()`]
     pub async fn move_<D>(
         &self,
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         parent: Option<Arc<Folder>>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
@@ -461,15 +490,14 @@ impl FolderEntry {
                     )));
                 };
 
-                f.move_(device, session_id, parent).await
+                f.move_(session, parent).await
             },
-            FolderEntry::Folder(f) => f.move_(device, session_id, parent).await,
+            FolderEntry::Folder(f) => f.move_(session, parent).await,
         }
     }
 }
 
 pub struct FileSystem {
-    session_id: SessionId,
     storage_id: StorageId,
     pub root: Arc<Folder>,
 }
@@ -482,14 +510,13 @@ impl FileSystem {
     ///
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn load<D>(
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         storage_id: StorageId,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
-        Self::load_with_callback(device, session_id, storage_id, |_| {}).await
+        Self::load_with_callback(session, storage_id, |_| {}).await
     }
 
     /// Load a `FileSystem` from the given `storage_id`
@@ -502,8 +529,7 @@ impl FileSystem {
     ///
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn load_with_callback<D, F>(
-        device: &mut D,
-        session_id: SessionId,
+        session: &mut MtpSession<D>,
         storage_id: StorageId,
         mut callback: F,
     ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
@@ -511,9 +537,7 @@ impl FileSystem {
         D: Device,
         F: FnMut(ObjectHandle),
     {
-        let handles_res = device
-            .get_object_handles(session_id, storage_id, None, None)
-            .await?;
+        let handles_res = session.get_object_handles(storage_id, None, None).await?;
         let handles = handles_res.data.data;
 
         let mut raw_data: HashMap<ObjectHandle, (ObjectHandle, FolderEntry)> = HashMap::new();
@@ -521,18 +545,18 @@ impl FileSystem {
         for handle in handles {
             callback(handle);
 
-            let parent_id = device
-                .get_object_prop_value::<ParentObject>(session_id, handle)
+            let parent_id = session
+                .get_object_prop_value::<ParentObject>(handle)
                 .await?
                 .data
                 .data;
-            let name_ptp = device
-                .get_object_prop_value::<ObjectFileName>(session_id, handle)
+            let name_ptp = session
+                .get_object_prop_value::<ObjectFileName>(handle)
                 .await?
                 .data
                 .data;
-            let format = device
-                .get_object_prop_value::<ObjectFormat>(session_id, handle)
+            let format = session
+                .get_object_prop_value::<ObjectFormat>(handle)
                 .await?
                 .data
                 .data;
@@ -552,21 +576,7 @@ impl FileSystem {
                 };
                 raw_data.insert(handle, (parent_id, FolderEntry::Folder(Arc::new(folder))));
             } else {
-                let file = File {
-                    id: handle,
-                    storage_id,
-                    parent: None,
-                    name,
-                    size: device
-                        .get_object_prop_value::<ObjectSize>(session_id, handle)
-                        .await?
-                        .data
-                        .data,
-                    format,
-                    protection_status: ProtectionStatus::ReadOnly,
-                    date_created: None,
-                    date_modified: None,
-                };
+                let file = File::new(session, handle, storage_id, name, format).await?;
                 raw_data.insert(handle, (parent_id, FolderEntry::File(Arc::new(file))));
             }
         }
@@ -593,11 +603,7 @@ impl FileSystem {
             }
         });
 
-        Ok(Self {
-            session_id,
-            storage_id,
-            root,
-        })
+        Ok(Self { storage_id, root })
     }
 
     /// Internal recursive helper to build child nodes and link them to parents
@@ -656,12 +662,12 @@ impl FileSystem {
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn refresh<D>(
         &mut self,
-        device: &mut D,
+        session: &mut MtpSession<D>,
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
-        self.refresh_with_callback(device, |_| {}).await
+        self.refresh_with_callback(session, |_| {}).await
     }
 
     /// Refresh the `FileSystem` to match the new state of the device
@@ -675,7 +681,7 @@ impl FileSystem {
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
     pub async fn refresh_with_callback<D>(
         &mut self,
-        device: &mut D,
+        session: &mut MtpSession<D>,
         mut callback: impl FnMut(ObjectHandle),
     ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
     where

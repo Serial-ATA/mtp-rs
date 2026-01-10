@@ -410,7 +410,7 @@ define_operations! {
     ///
     /// ## Parameters
     ///
-    /// * `session_id` - An ID to assign to the session.
+    /// * `session_id` - A **non-zero** ID to assign to the session.
     ///
     /// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
     [[session_id(false)]]

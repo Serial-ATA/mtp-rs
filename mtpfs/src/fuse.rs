@@ -19,8 +19,9 @@ use mtp::communication::SessionId;
 use mtp::communication::response::SendObjectInfo;
 use mtp::device::Device;
 use mtp::device::extensions::android::AndroidDevice;
+use mtp::device::session::MtpSession;
 use mtp::error::MtpError;
-use mtp::high_level::fs::{DeviceFsExt, File, FileSystem, FolderEntry};
+use mtp::high_level::fs::{File, FileSystem, FolderEntry, SessionFsExt};
 use mtp::high_level::storages::Storage;
 use mtp::object::types::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
@@ -295,8 +296,7 @@ impl FsInner {
 }
 
 pub struct MtpFuse {
-    device: Arc<Mutex<DeviceHandle>>,
-    session_id: SessionId,
+    session: Arc<Mutex<MtpSession<DeviceHandle>>>,
     storage: Storage,
     is_android: bool,
     dirty: Dirty,
@@ -307,11 +307,10 @@ pub struct MtpFuse {
 
 impl MtpFuse {
     pub async fn new(
-        device: Arc<Mutex<DeviceHandle>>,
-        session_id: SessionId,
+        session: Arc<Mutex<MtpSession<DeviceHandle>>>,
         storage: Storage,
     ) -> mtp::usb::error::Result<Self> {
-        let is_android = device.lock().await.is_android(session_id).await?;
+        let is_android = session.lock().await.is_android().await?;
         if !is_android {
             log::warn!(
                 "The selected device doesn't support the Android MTP extensions. Writes will \
@@ -332,8 +331,7 @@ impl MtpFuse {
         let node_ids = vec![root_node_id.clone()];
 
         let mut ret = MtpFuse {
-            device,
-            session_id,
+            session,
             storage,
             is_android,
             dirty: Dirty::new(),
@@ -411,19 +409,14 @@ impl MtpFuse {
         let fs;
         let start = Instant::now();
         {
-            let mut device = self.device.lock().await;
+            let mut session = self.session.lock().await;
 
             let spinner = ProgressBar::new_spinner()
                 .with_message("Loading all directories")
                 .with_style(ProgressStyle::with_template("{spinner} {msg}").unwrap());
 
-            fs = FileSystem::load_with_callback(
-                &mut *device,
-                self.session_id,
-                self.storage.id,
-                |_| spinner.tick(),
-            )
-            .await?;
+            fs = FileSystem::load_with_callback(&mut *session, self.storage.id, |_| spinner.tick())
+                .await?;
             spinner.finish_and_clear();
         }
 
@@ -524,7 +517,7 @@ impl MtpFuse {
         new_parent: u64,
         new_name: &OsStr,
     ) -> Result<(), i32> {
-        let mut device = self.device.lock().await;
+        let mut session = self.session.lock().await;
 
         let inode = self.lookup_(parent, name)?;
 
@@ -550,31 +543,28 @@ impl MtpFuse {
 
         let ino = inode.attr.ino;
         let new_entry;
-        match entry.rename(&mut *device, self.session_id, name_str).await {
+        match entry.rename(&mut *session, name_str).await {
             Ok(entry) => new_entry = entry,
             // Fallback to copy + delete
             Err(MtpError::UnsupportedOperation) => {
                 let ret;
                 match entry {
                     FolderEntry::Folder(_entry) => {
-                        let folder = device
-                            .mkdir(self.session_id, Some(parent), name_str)
+                        let folder = session
+                            .mkdir(Some(parent), name_str)
                             .await
                             .map_err(|_| EIO)?;
                         ret = FolderEntry::Folder(Arc::new(folder));
                     },
                     FolderEntry::File(entry) => {
-                        let mut f = entry
-                            .open(&mut *device, self.session_id)
-                            .await
-                            .map_err(|_| EIO)?;
+                        let mut f = entry.open(&mut *session).await.map_err(|_| EIO)?;
 
                         let mut data = Vec::new();
                         f.read_to_end(&mut data)
                             .map_err(|e| e.raw_os_error().unwrap_or(EIO))?;
 
-                        let file = device
-                            .create(self.session_id, Some(parent), name_str, entry.format, data)
+                        let file = session
+                            .create(Some(parent), name_str, entry.format, data)
                             .await
                             .map_err(|_| EIO)?;
 
@@ -582,8 +572,8 @@ impl MtpFuse {
                     },
                 }
 
-                device
-                    .delete_object(self.session_id, entry.handle(), Some(entry.format()))
+                session
+                    .delete_object(entry.handle(), Some(entry.format()))
                     .await
                     .map_err(|_| EIO)?;
 
@@ -670,13 +660,9 @@ impl Filesystem for MtpFuse {
         }
 
         let result = futures::executor::block_on(async {
-            let mut device = self.device.lock().await;
-            device
-                .mkdir(
-                    self.session_id,
-                    parent_dir.map(Arc::as_ref),
-                    name.to_string(),
-                )
+            let mut session = self.session.lock().await;
+            session
+                .mkdir(parent_dir.map(Arc::as_ref), name.to_string())
                 .await
         });
 
@@ -794,8 +780,8 @@ impl Filesystem for MtpFuse {
         };
 
         futures::executor::block_on(async {
-            let mut device = self.device.lock().await;
-            match device.get_object_info(self.session_id, file.id).await {
+            let mut session = self.session.lock().await;
+            match session.get_object_info(file.id).await {
                 Ok(_fd) => reply.opened(0, flags as u32),
                 Err(e) => {
                     reply.error(e.to_errno());
@@ -824,9 +810,9 @@ impl Filesystem for MtpFuse {
         };
 
         futures::executor::block_on(async {
-            let mut device = self.device.lock().await;
-            match device
-                .get_partial_object(self.session_id, file.id, offset as u32, size)
+            let mut session = self.session.lock().await;
+            match session
+                .get_partial_object(file.id, offset as u32, size)
                 .await
             {
                 Ok(response) => reply.data(&response.data.data),
@@ -858,18 +844,12 @@ impl Filesystem for MtpFuse {
         };
 
         futures::executor::block_on(async {
-            let mut device = self.device.lock().await;
+            let mut session = self.session.lock().await;
 
             // Android has a fast path, where we can actually edit files in-place
             if self.is_android {
-                match device
-                    .send_partial_object(
-                        self.session_id,
-                        file.id,
-                        offset as u64,
-                        data.len() as u32,
-                        data,
-                    )
+                match session
+                    .send_partial_object(file.id, offset as u64, data.len() as u32, data)
                     .await
                 {
                     Ok(response) => {
@@ -888,7 +868,7 @@ impl Filesystem for MtpFuse {
             // - Delete the old object on the device
             // - Send a new copy of the object to the device
 
-            let mut temp = match file.open(&mut *device, self.session_id).await {
+            let mut temp = match file.open(&mut *session).await {
                 Ok(file) => file,
                 Err(e) => {
                     reply.error(e.to_errno());
@@ -917,7 +897,7 @@ impl Filesystem for MtpFuse {
                 return;
             };
 
-            if let Err(e) = device.delete_object(self.session_id, file.id, None).await {
+            if let Err(e) = session.delete_object(file.id, None).await {
                 reply.error(e.to_errno());
                 return;
             }
@@ -925,7 +905,7 @@ impl Filesystem for MtpFuse {
             let storage;
             let parent;
             let id;
-            match device.send_object_info(self.session_id, object_info).await {
+            match session.send_object_info(object_info).await {
                 Ok(response) => {
                     SendObjectInfo {
                         storage_id: storage,
@@ -939,7 +919,7 @@ impl Filesystem for MtpFuse {
                 },
             }
 
-            match device.send_object(self.session_id, object_data).await {
+            match session.send_object(object_data).await {
                 Ok(_) => {
                     reply.written(data.len() as u32);
                     return;

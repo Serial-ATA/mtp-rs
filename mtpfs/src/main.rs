@@ -23,7 +23,7 @@ async fn main() -> Result<(), Error> {
 
     let device = prompts::prompt_for_device().await?;
 
-    let (mut handle, session_id) = match device.open().await {
+    let mut session = match device.open().await {
         Ok(val) => val,
         Err(e) => {
             log::error!("Failed to open device");
@@ -31,11 +31,11 @@ async fn main() -> Result<(), Error> {
         },
     };
 
-    let storages = prompts::prompt_for_storages(&mut handle, session_id).await?;
+    let storages = prompts::prompt_for_storages(&mut session).await?;
 
-    let mut events = handle.event_stream();
+    let mut events = session.event_stream();
 
-    let device = Arc::new(Mutex::new(handle));
+    let session = Arc::new(Mutex::new(session));
 
     let mut storage_paths = Vec::with_capacity(storages.len());
     let mut sessions = FuturesUnordered::new();
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
             .description
             .as_ref()
             .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
-        let fs = MtpFuse::new(device.clone(), session_id, storage).await?;
+        let fs = MtpFuse::new(session.clone(), storage).await?;
 
         let target = mount_point.join(&name);
         if !target.exists() {
