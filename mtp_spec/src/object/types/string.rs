@@ -43,7 +43,7 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 #[deku(
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 pub struct PtpString(
     #[deku(

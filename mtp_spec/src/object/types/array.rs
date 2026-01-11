@@ -17,7 +17,7 @@ use deku::{DekuReader, DekuWriter, deku_derive};
 #[deku(
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
-    ctx_default = "deku::ctx::Endian::Little"
+    ctx_default = "deku::ctx::Endian::Big"
 )]
 pub struct Array<T: ArrayEncodable>(
     // Array Definition
@@ -219,9 +219,9 @@ mod tests {
 					};
 					assert_eq!(serialized, {
 						let mut bytes = Vec::new();
-						bytes.extend_from_slice(&3u32.to_le_bytes());
+						bytes.extend_from_slice(&3u32.to_be_bytes());
 						$(
-							let elem_bytes = $v.to_le_bytes();
+							let elem_bytes = $v.to_be_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());
 						)+
 						bytes
@@ -249,9 +249,9 @@ mod tests {
 				{
 					let serialized = {
 						let mut bytes = Vec::new();
-						bytes.extend_from_slice(&3u32.to_le_bytes());
+						bytes.extend_from_slice(&3u32.to_be_bytes());
 						$(
-							let elem_bytes = $v.to_le_bytes();
+							let elem_bytes = $v.to_be_bytes();
 							bytes.extend_from_slice(elem_bytes.as_ref());
 						)+
 						bytes

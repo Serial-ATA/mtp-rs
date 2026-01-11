@@ -87,9 +87,9 @@ macro_rules! accumulate_events {
 		#[repr(u16)]
 		#[deku(
 			id_type = "u16",
-			id_endian = "little",
-			ctx = "_endian: deku::ctx::Endian",
-			ctx_default = "deku::ctx::Endian::Little"
+			id_endian = "endian",
+			ctx = "endian: deku::ctx::Endian",
+			ctx_default = "deku::ctx::Endian::Big"
 		)]
 		pub(super) enum EventsParser {
 			$($parser_variants)*
@@ -230,7 +230,7 @@ macro_rules! accumulate_events {
 				reader: &mut deku::reader::Reader<R>,
 				_: (),
 			) -> Result<Self, DekuError> {
-				let code = u16::from_reader_with_ctx(reader, deku::ctx::Endian::Little)?;
+				let code = u16::from_reader_with_ctx(reader, deku::ctx::Endian::Big)?;
 				Ok(code.into())
 			}
 		}
@@ -238,9 +238,9 @@ macro_rules! accumulate_events {
 		impl deku::DekuReader<'_, deku::ctx::Endian> for EventCode {
 			fn from_reader_with_ctx<R: Read + Seek>(
 				reader: &mut deku::reader::Reader<R>,
-				_: deku::ctx::Endian,
+				endian: deku::ctx::Endian,
 			) -> Result<Self, DekuError> {
-				let code = u16::from_reader_with_ctx(reader, deku::ctx::Endian::Little)?;
+				let code = u16::from_reader_with_ctx(reader, endian)?;
 				Ok(code.into())
 			}
 		}
@@ -252,7 +252,7 @@ macro_rules! accumulate_events {
 				_: (),
 			) -> Result<(), DekuError> {
 				let code = u16::from(*self);
-				code.to_writer(writer, deku::ctx::Endian::Little)
+				code.to_writer(writer, deku::ctx::Endian::Big)
 			}
 		}
 

@@ -16,7 +16,10 @@ use std::time::Duration;
 use bitflags::{Flag, Flags};
 use deku::ctx::Endian;
 use deku::reader::Reader;
-use deku::{DekuContainerRead, DekuContainerWrite, DekuRead, DekuReader, DekuWrite};
+use deku::writer::Writer;
+use deku::{
+    DekuContainerRead, DekuContainerWrite, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter,
+};
 use futures::{Stream, StreamExt};
 use nusb::Endpoint;
 use nusb::transfer::{Buffer, Bulk, In, Interrupt, Out};
@@ -372,7 +375,8 @@ impl PtpIo for DeviceHandle {
                 op.transaction_id(),
                 op.encode_parameters(self.endian())?,
             );
-            command_buf = command_container.to_bytes()?;
+
+            command_buf = command_container.encode(self.endian())?;
         }
 
         send(
@@ -396,7 +400,7 @@ impl PtpIo for DeviceHandle {
                 );
 
                 send(
-                    data_container.to_bytes()?,
+                    data_container.encode(self.endian())?,
                     &mut self.out_queue,
                     self.endpoints.bulk_out_buffer_size,
                     self.timeout,
@@ -460,7 +464,12 @@ impl Device for DeviceHandle {
 
 #[derive(PartialEq, Debug, Copy, Clone, DekuRead, DekuWrite)]
 #[repr(u16)]
-#[deku(id_type = "u16", endian = "little")]
+#[deku(
+    id_type = "u16",
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 enum ContainerType {
     Undefined = 0x0000,
     Command = 0x0001,
@@ -474,11 +483,15 @@ const USB_CONTAINER_HEADER_SIZE: u32 =
 
 #[repr(C)]
 #[derive(DekuRead, DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
 struct UsbContainer {
-    #[deku(assert = "*length >= USB_CONTAINER_HEADER_SIZE", endian = "little")]
+    #[deku(assert = "*length >= USB_CONTAINER_HEADER_SIZE")]
     length: u32,
     type_: ContainerType,
-    #[deku(endian = "little")]
     code: u16,
     transaction_id: TransactionId,
     #[deku(read_all)]
@@ -494,6 +507,14 @@ impl UsbContainer {
             transaction_id,
             payload,
         }
+    }
+
+    fn encode(&self, endian: Endian) -> Result<Vec<u8>, DekuError> {
+        let mut cur = Cursor::new(Vec::new());
+        let mut writer = Writer::new(&mut cur);
+        self.to_writer(&mut writer, endian)?;
+
+        Ok(cur.into_inner())
     }
 }
 

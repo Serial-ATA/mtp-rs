@@ -61,9 +61,9 @@ macro_rules! parse_operations {
 		#[repr(u16)]
 		#[deku(
 			id_type = "u16",
-			id_endian = "little",
-			ctx = "_endian: deku::ctx::Endian",
-			ctx_default = "deku::ctx::Endian::Little"
+			id_endian = "endian",
+			ctx = "endian: deku::ctx::Endian",
+			ctx_default = "deku::ctx::Endian::Big"
 		)]
 		#[allow(missing_docs)]
 		pub enum $opcode_enum_name {
