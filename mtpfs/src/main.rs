@@ -1,17 +1,17 @@
 //! A FUSE filesystem for MTP-compatible devices
 
 mod fuse;
-mod prompts;
 
 use crate::fuse::MtpFuse;
 
 use std::path::Path;
 use std::sync::Arc;
 
-use fuser::MountOption;
+use fuser::{Config, MountOption, SessionACL};
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use mtp::device::PtpIo;
+use mtp::example_utils::{prompt_for_device, prompt_for_storages};
 use mtp::usb::error::Error;
 use tokio::sync::Mutex;
 
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Error> {
 
     let mount_point = Path::new("/home/alex/mountss");
 
-    let device = prompts::prompt_for_device().await?;
+    let device = prompt_for_device().await?;
 
     let mut session = match device.open().await {
         Ok(val) => val,
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Error> {
         },
     };
 
-    let storages = prompts::prompt_for_storages(&mut session).await?;
+    let storages = prompt_for_storages(&mut session).await?;
 
     let mut events = session.event_stream();
 
@@ -59,9 +59,12 @@ async fn main() -> Result<(), Error> {
 
         storage_paths.push(target.clone());
 
+        let mut config = Config::default();
+        config.mount_options = vec![MountOption::Sync];
+        config.acl = SessionACL::All;
+
         sessions.push(tokio::task::spawn(async move {
-            if let Err(e) = fuser::mount2(fs, target, &[MountOption::AllowOther, MountOption::Sync])
-            {
+            if let Err(e) = fuser::mount2(fs, target, &config) {
                 log::error!("Mount failed: {e}");
             }
         }));

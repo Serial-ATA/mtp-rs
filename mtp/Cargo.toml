@@ -26,8 +26,12 @@ nusb = { workspace = true, features = ["tokio"], optional = true }
 # FS
 tempfile = { workspace = true, optional = true }
 
+# Examples
+dialoguer = { workspace = true, optional = true }
+
 [dev-dependencies]
 test-log.workspace = true
+clap = { workspace = true, features = ["derive"] }
 
 [features]
 default = ["usb", "fs", "time"]
@@ -38,3 +42,10 @@ usb = ["dep:bitflags", "dep:nusb"]
 # High-level features
 fs = ["dep:tempfile"]
 time = ["mtp_spec/time"]
+
+examples = ["dep:dialoguer"]
+
+[[example]]
+name = "send"
+path = "../examples/send.rs"
+required-features = ["examples"]

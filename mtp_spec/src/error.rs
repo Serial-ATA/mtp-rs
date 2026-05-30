@@ -1,5 +1,7 @@
+//! MTP protocol error types
+
 use crate::communication::response::errors::OperationError;
-use crate::object::types::{DateTimeError, NulError};
+use crate::object::{DateTimeError, NulError};
 
 use core::fmt::{Display, Formatter};
 

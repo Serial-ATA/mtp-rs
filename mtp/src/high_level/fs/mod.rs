@@ -1,83 +1,101 @@
+//! Filesystem abstractions for MTP
+//!
+//! High-level utilities for interacting with MTP devices as if they were hierarchical filesystems
+
 mod device_ext;
 
 pub use device_ext::*;
 
-use crate::device::storage::id::StorageId;
+use crate::device::storage::StorageId;
 use crate::device::{Device, PtpIo};
 use crate::error::{Error, MtpError};
-use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectFileName, ObjectFormat, ObjectSize, ParentObject};
-use crate::object::types::{DateTime, ObjectFormatCode, ObjectHandle, PtpString};
+use crate::object::properties::ObjectFileName;
+use crate::object::{
+    DateTime, ObjectFormatCode, ObjectHandle, ObjectInfo, ProtectionStatus, PtpString,
+};
 
-use std::collections::HashMap;
-use std::io::Write;
-use std::str::FromStr;
-use std::sync::{Arc, Weak};
-
-use mtp_spec::communication::response::errors::{InvalidObjectHandle, OperationError};
-use mtp_spec::device::DeviceFlags;
+use mtp_spec::communication::operation::{BaseOperation, Operation};
 use mtp_spec::device::session::MtpSession;
+use mtp_spec::object::properties::ObjectPropertyCode;
+use std::collections::HashMap;
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::str::FromStr;
+use std::sync::{Arc, RwLock, Weak};
+use tokio::sync::OnceCell;
 
 /// Representation of a file on an MTP-compatible device
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `File`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct File {
+    fs: Weak<FileSystem>,
+    storage_id: StorageId,
+    id: ObjectHandle,
+    parent_id: ObjectHandle,
+    name: String,
+    size: u64,
+    format: ObjectFormatCode,
+    protection_status: ProtectionStatus,
+    date_modified: Option<DateTime>,
+    date_created: Option<DateTime>,
+
+    spool: OnceCell<std::fs::File>,
+}
+
+// Getters
+impl File {
     /// The device-specific ID of the storage where this file lives
-    pub storage: StorageId,
-    pub id: ObjectHandle,
-    pub parent: Option<Weak<Folder>>,
-    pub name: String,
-    pub size: u64,
-    pub format: ObjectFormatCode,
-    pub protection_status: ProtectionStatus,
-    pub date_created: Option<DateTime>,
-    pub date_modified: Option<DateTime>,
+    pub fn storage_id(&self) -> StorageId {
+        self.storage_id
+    }
+
+    /// The device-specific ID of this file
+    pub fn id(&self) -> ObjectHandle {
+        self.id
+    }
+
+    /// The device-specific ID of the parent folder
+    pub fn parent(&self) -> ObjectHandle {
+        self.parent_id
+    }
+
+    /// The name of the file as it appears on the device
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// The size of the file in bytes
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// The format of the file, if it can be determined
+    pub fn format(&self) -> ObjectFormatCode {
+        self.format
+    }
+
+    /// The write-protection status of the file
+    pub fn protection_status(&self) -> ProtectionStatus {
+        self.protection_status
+    }
+
+    /// The date and time the file was last modified, if available
+    ///
+    /// NOTE: This is oftentimes *not* available
+    pub fn date_modified(&self) -> Option<DateTime> {
+        self.date_modified
+    }
+
+    /// The date and time the file was created, if available
+    ///
+    /// NOTE: This is oftentimes *not* available
+    pub fn date_created(&self) -> Option<DateTime> {
+        self.date_created
+    }
 }
 
 impl File {
-    pub(crate) async fn new<D>(
-        session: &mut MtpSession<D>,
-        id: ObjectHandle,
-        storage: StorageId,
-        name: String,
-        mut format: ObjectFormatCode,
-    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
-    where
-        D: Device,
-    {
-        let flags = session.flags();
-
-        // Some devices support OGG/FLAC, but don't report them properly
-        if format == ObjectFormatCode::Undefined {
-            if (flags.contains(DeviceFlags::OGG_IS_UNKNOWN)
-                || flags.contains(DeviceFlags::IRIVER_OGG_ALZHEIMER))
-                && name.ends_with(".ogg")
-            {
-                format = ObjectFormatCode::Ogg;
-            } else if flags.contains(DeviceFlags::FLAC_IS_UNKNOWN) {
-                format = ObjectFormatCode::Flac;
-            }
-        }
-
-        Ok(Self {
-            id,
-            storage,
-            parent: None,
-            name,
-            size: session
-                .get_object_prop_value::<ObjectSize>(id)
-                .await?
-                .data
-                .data,
-            format,
-            protection_status: ProtectionStatus::ReadOnly,
-            date_created: None,
-            date_modified: None,
-        })
-    }
-
     /// Open the file
     ///
     /// This will fetch the data from the device, and then write it to a temp file. The returned handle
@@ -147,6 +165,51 @@ impl File {
         Ok(tmp)
     }
 
+    /// Read a portion of the file
+    ///
+    /// # Errors
+    ///
+    /// * The device lies about supporting [`GetPartialObject`]
+    /// * See also: [`File::open()`]
+    ///
+    /// [`GetPartialObject`]: crate::communication::operation::GetPartialObject
+    pub async fn read_at<D>(
+        &self,
+        session: &mut MtpSession<D>,
+        offset: u32,
+        len: u32,
+    ) -> Result<Vec<u8>, Error<<D as PtpIo>::TransportError>>
+    where
+        D: Device,
+    {
+        let fs = self.fs.upgrade().expect("FS dropped");
+        if fs.capabilities.supports_partial_read {
+            let response = session.get_partial_object(self.id, offset, len).await?;
+            return Ok(response.data.data);
+        }
+
+        let spool_file = self
+            .spool
+            .get_or_try_init(|| async {
+                let object = session.get_object(self.id).await?;
+
+                let mut tmp = tempfile::tempfile()?;
+
+                tmp.write_all(&object.data.data)?;
+                Ok::<std::fs::File, Error<<D as PtpIo>::TransportError>>(tmp)
+            })
+            .await?;
+
+        let mut file_lock = spool_file.try_clone()?;
+        file_lock.seek(SeekFrom::Start(offset as u64))?;
+
+        let mut buffer = vec![0u8; len as usize];
+        let bytes_read = file_lock.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
+
+        Ok(buffer)
+    }
+
     /// Attempt to rename this file on the device
     ///
     /// # Errors
@@ -160,14 +223,28 @@ impl File {
         &self,
         session: &mut MtpSession<D>,
         name: N,
-    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         N: AsRef<str>,
     {
         let name_str = name.as_ref();
+
+        // Return a fresh copy of the state if the name is unchanged
         if name_str == self.name {
-            return Ok(self.clone());
+            return Ok(Arc::new(Self {
+                fs: self.fs.clone(),
+                storage_id: self.storage_id,
+                id: self.id,
+                parent_id: self.parent_id,
+                name: self.name.clone(),
+                size: self.size,
+                format: self.format,
+                protection_status: self.protection_status,
+                date_modified: self.date_modified.clone(),
+                date_created: self.date_created.clone(),
+                spool: OnceCell::new(),
+            }));
         }
 
         if !session
@@ -180,24 +257,23 @@ impl File {
         let name_ptp = PtpString::from_str(name_str)
             .map_err(Into::<MtpError<<D as PtpIo>::TransportError>>::into)?;
 
-        let id = self.id;
-        let parent = self.parent.clone();
-        let storage_id = self.storage;
         let _ = session
             .set_object_prop_value::<ObjectFileName>(self.id, name_ptp)
             .await?;
 
-        Ok(Self {
-            storage: storage_id,
-            parent,
-            id,
+        Ok(Arc::new(Self {
+            fs: self.fs.clone(),
+            storage_id: self.storage_id,
+            id: self.id,
+            parent_id: self.parent_id,
             name: name_str.to_string(),
             size: self.size,
             format: self.format,
             protection_status: self.protection_status,
-            date_created: self.date_created,
-            date_modified: self.date_modified,
-        })
+            date_modified: self.date_modified.clone(),
+            date_created: self.date_created.clone(),
+            spool: OnceCell::new(),
+        }))
     }
 
     /// Attempt to copy this file to another directory
@@ -214,14 +290,17 @@ impl File {
         &self,
         session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<ObjectHandle, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
-        session.copy_object(self.id, self.storage, parent).await?;
+        let new_handle = session
+            .copy_object(self.id, self.storage_id, parent)
+            .await?
+            .data
+            .data;
 
-        Ok(())
+        Ok(new_handle)
     }
 
     /// Attempt to move this file
@@ -237,34 +316,67 @@ impl File {
     pub async fn move_<D>(
         &self,
         session: &mut MtpSession<D>,
-        destination: Arc<Folder>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+        new_parent: &Folder,
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
         session
-            .move_object(self.id, self.storage, Some(destination.id))
+            .move_object(self.id, self.storage_id, Some(new_parent.id))
             .await?;
-        Ok(())
+
+        let fs = self.fs.upgrade().expect("FS dropped");
+
+        let updated_file = Arc::new(Self {
+            fs: self.fs.clone(),
+            storage_id: self.storage_id,
+            id: self.id,
+            parent_id: new_parent.id,
+            name: self.name.clone(),
+            size: self.size,
+            format: self.format,
+            protection_status: self.protection_status,
+            date_modified: self.date_modified.clone(),
+            date_created: self.date_created.clone(),
+            spool: OnceCell::new(),
+        });
+
+        // Sync FUSE maps
+        let entry = FolderEntry::File(updated_file.clone());
+        let inode_lock = fs.inode_map.read().unwrap();
+
+        if let Some(FolderEntry::Folder(old_parent)) = inode_lock.get(&self.parent_id) {
+            old_parent.children.write().unwrap().remove(&self.name);
+        }
+        if let Some(FolderEntry::Folder(new_parent_obj)) = inode_lock.get(&new_parent.id) {
+            new_parent_obj
+                .children
+                .write()
+                .unwrap()
+                .insert(self.name.clone(), entry.clone());
+        }
+
+        drop(inode_lock);
+        fs.inode_map.write().unwrap().insert(self.id, entry);
+
+        Ok(updated_file)
     }
 
     pub fn object_info(&self) -> Result<ObjectInfo, <PtpString as FromStr>::Err> {
-        let filename = self.name.parse()?;
-        let Some(parent_object) = self.parent.as_ref().and_then(Weak::upgrade).map(|p| p.id) else {
-            todo!()
-        };
+        let filename = PtpString::from_str(&self.name)?;
+
         Ok(ObjectInfo {
-            storage_id: self.storage,
+            storage_id: self.storage_id,
             object_format: self.format,
             protection_status: self.protection_status,
-            compressed_size: 0,
+            compressed_size: self.size as u32,
             thumbnail: None,
-            parent_object: Some(parent_object),
+            parent_object: Some(self.parent_id),
             association: None,
             sequence_number: 0,
             filename,
-            date_created: self.date_created,
-            date_modified: self.date_modified,
+            date_created: self.date_modified.clone(), /* MTP handles often reuse modified for created */
+            date_modified: self.date_modified.clone(),
             keywords: Default::default(),
         })
     }
@@ -274,18 +386,77 @@ impl File {
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `Folder`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Folder {
+    fs: Weak<FileSystem>,
     /// The device-specific ID of the storage where this folder lives
-    pub id: ObjectHandle,
-    pub storage_id: StorageId,
-    pub parent: Option<Weak<Folder>>,
-    pub name: String,
-    pub format: ObjectFormatCode,
-    pub protection_status: ProtectionStatus,
-    pub date_created: Option<DateTime>,
-    pub date_modified: Option<DateTime>,
-    pub children: Vec<FolderEntry>,
+    storage_id: StorageId,
+    id: ObjectHandle,
+    parent_id: ObjectHandle,
+    name: String,
+    format: ObjectFormatCode,
+    protection_status: ProtectionStatus,
+    date_created: Option<DateTime>,
+    date_modified: Option<DateTime>,
+    children: RwLock<HashMap<String, FolderEntry>>,
+}
+
+// Getters
+impl Folder {
+    /// The device-specific ID of the storage where this folder lives
+    pub fn storage_id(&self) -> StorageId {
+        self.storage_id
+    }
+
+    /// The device-specific ID of this folder
+    pub fn id(&self) -> ObjectHandle {
+        self.id
+    }
+
+    /// The device-specific ID of the parent folder
+    pub fn parent(&self) -> ObjectHandle {
+        self.parent_id
+    }
+
+    /// The name of the folder as it appears on the device
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// The format of the folder, if it can be determined
+    ///
+    /// This should always be `Association`
+    pub fn format(&self) -> ObjectFormatCode {
+        self.format
+    }
+
+    /// The write-protection status of the folder
+    pub fn protection_status(&self) -> ProtectionStatus {
+        self.protection_status
+    }
+
+    /// The date and time the folder was last modified, if available
+    ///
+    /// NOTE: This is oftentimes *not* available
+    pub fn date_modified(&self) -> Option<DateTime> {
+        self.date_modified
+    }
+
+    /// The date and time the folder was created, if available
+    ///
+    /// NOTE: This is oftentimes *not* available
+    pub fn date_created(&self) -> Option<DateTime> {
+        self.date_created
+    }
+
+    /// Call the function `f` with immutable access to this folder's children
+    pub fn with_children<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&HashMap<String, FolderEntry>) -> T,
+    {
+        let children = self.children.read().unwrap();
+        f(&*children)
+    }
 }
 
 impl Folder {
@@ -302,28 +473,47 @@ impl Folder {
         &self,
         session: &mut MtpSession<D>,
         name: N,
-    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         N: AsRef<str>,
     {
         let name_str = name.as_ref();
-        let name = PtpString::from_str(name_str)?;
-        let _ = session
-            .set_object_prop_value::<ObjectFileName>(self.id, name)
+        let name_ptp = PtpString::from_str(name_str)?;
+
+        session
+            .set_object_prop_value::<ObjectFileName>(self.id, name_ptp)
             .await?;
 
-        Ok(Self {
+        let fs = self.fs.upgrade().expect("FS dropped");
+
+        // When reconstructing the folder, we carry over its existing children map
+        let updated_folder = Arc::new(Self {
+            fs: self.fs.clone(),
             storage_id: self.storage_id,
             id: self.id,
+            parent_id: self.parent_id,
             name: name_str.to_string(),
             format: self.format,
             protection_status: self.protection_status,
-            date_created: self.date_created,
-            date_modified: self.date_modified,
-            children: self.children.clone(),
-            parent: self.parent.clone(),
-        })
+            date_created: self.date_created.clone(),
+            date_modified: self.date_modified.clone(),
+
+            // FUSE nodes require inner mutability to persist state across Arc clones
+            children: RwLock::new(self.children.read().unwrap().clone()),
+        });
+
+        let entry = FolderEntry::Folder(updated_folder.clone());
+        fs.inode_map.write().unwrap().insert(self.id, entry.clone());
+
+        if let Some(FolderEntry::Folder(parent)) = fs.inode_map.read().unwrap().get(&self.parent_id)
+        {
+            let mut children = parent.children.write().unwrap();
+            children.remove(&self.name);
+            children.insert(name_str.to_string(), entry);
+        }
+
+        Ok(updated_folder)
     }
 
     /// Attempt to copy this file to another directory
@@ -340,16 +530,17 @@ impl Folder {
         &self,
         session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<ObjectHandle, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
-        session
+        let new_handle = session
             .copy_object(self.id, self.storage_id, parent)
-            .await?;
+            .await?
+            .data
+            .data;
 
-        Ok(())
+        Ok(new_handle)
     }
 
     /// Attempt to move this directory
@@ -365,23 +556,123 @@ impl Folder {
     pub async fn move_<D>(
         &self,
         session: &mut MtpSession<D>,
-        parent: Option<Arc<Self>>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+        new_parent: &Folder,
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         session
-            .move_object(self.id, self.storage_id, parent.map(|p| p.id))
+            .move_object(self.id, self.storage_id, Some(new_parent.id))
             .await?;
 
-        Ok(())
+        let fs = self.fs.upgrade().expect("FS dropped");
+
+        let updated_folder = Arc::new(Self {
+            fs: self.fs.clone(),
+            storage_id: self.storage_id,
+            id: self.id,
+            parent_id: new_parent.id,
+            name: self.name.clone(),
+            format: self.format,
+            protection_status: self.protection_status,
+            date_created: self.date_created.clone(),
+            date_modified: self.date_modified.clone(),
+            children: RwLock::new(self.children.read().unwrap().clone()),
+        });
+
+        let entry = FolderEntry::Folder(updated_folder.clone());
+        let inode_lock = fs.inode_map.read().unwrap();
+
+        if let Some(FolderEntry::Folder(old_parent)) = inode_lock.get(&self.parent_id) {
+            old_parent.children.write().unwrap().remove(&self.name);
+        }
+
+        if let Some(FolderEntry::Folder(new_parent)) = inode_lock.get(&new_parent.id) {
+            new_parent
+                .children
+                .write()
+                .unwrap()
+                .insert(self.name.clone(), entry.clone());
+        }
+
+        drop(inode_lock);
+        fs.inode_map.write().unwrap().insert(self.id, entry);
+
+        Ok(updated_folder)
+    }
+
+    /// Create a new file within this `Folder`
+    pub async fn create_file<D, N>(
+        &self,
+        session: &mut MtpSession<D>,
+        name: N,
+        format: ObjectFormatCode,
+        data: Vec<u8>,
+    ) -> Result<Arc<File>, MtpError<<D as PtpIo>::TransportError>>
+    where
+        D: Device,
+        N: AsRef<str> + Send,
+    {
+        let file = session
+            .create(Some(self), name.as_ref(), format, data)
+            .await?;
+        let file = Arc::new(file);
+        self.children
+            .write()
+            .unwrap()
+            .insert(name.as_ref().to_string(), FolderEntry::File(file.clone()));
+
+        Ok(file)
+    }
+
+    /// Remove a child entry from this folder by name
+    ///
+    /// This will remove the child both from the [`FileSystem`] and the device.
+    ///
+    /// # Errors
+    ///
+    /// * No child exists with the given name
+    /// * The [`DeleteObject`] operation failed
+    ///   * Note that in this case, it is assumed the entry still exists on the device
+    ///
+    /// [`DeleteObject`]: crate::operations::object::DeleteObject
+    pub async fn remove_child<D>(
+        &self,
+        session: &mut MtpSession<D>,
+        name: &str,
+    ) -> Result<(), FileSystemError<D>>
+    where
+        D: Device,
+    {
+        let mut children = self.children.write().unwrap();
+        let Some(entry) = children.remove(name) else {
+            return Err(FileSystemError::Io(std::io::Error::from(
+                ErrorKind::NotFound,
+            )));
+        };
+
+        match session.delete_object(entry.handle(), None).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Assume the entry is still on the device?
+                children.insert(name.to_string(), entry);
+                Err(FileSystemError::Mtp(e))
+            },
+        }
+    }
+
+    /// Find an entry within this folder by name
+    pub fn find(&self, name: &str) -> Option<FolderEntry> {
+        self.children.read().unwrap().get(name).cloned()
     }
 }
 
+/// An entry in a [`Folder`]
 #[derive(Clone, Debug)]
 pub enum FolderEntry {
+    /// A [`File`] entry
     File(Arc<File>),
+    /// A [`Folder`] entry
     Folder(Arc<Folder>),
 }
 
@@ -405,7 +696,7 @@ impl FolderEntry {
     /// Get the storage ID of this entry
     pub fn storage_id(&self) -> StorageId {
         match self {
-            FolderEntry::File(f) => f.storage,
+            FolderEntry::File(f) => f.storage_id,
             FolderEntry::Folder(f) => f.storage_id,
         }
     }
@@ -441,10 +732,8 @@ impl FolderEntry {
         N: AsRef<str>,
     {
         match self {
-            FolderEntry::File(f) => Ok(FolderEntry::File(Arc::new(f.rename(session, name).await?))),
-            FolderEntry::Folder(f) => Ok(FolderEntry::Folder(Arc::new(
-                f.rename(session, name).await?,
-            ))),
+            FolderEntry::File(f) => Ok(FolderEntry::File(f.rename(session, name).await?)),
+            FolderEntry::Folder(f) => Ok(FolderEntry::Folder(f.rename(session, name).await?)),
         }
     }
 
@@ -457,10 +746,9 @@ impl FolderEntry {
         &self,
         session: &mut MtpSession<D>,
         parent: Option<ObjectHandle>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<ObjectHandle, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
             FolderEntry::File(f) => f.copy(session, parent).await,
@@ -476,33 +764,147 @@ impl FolderEntry {
     pub async fn move_<D>(
         &self,
         session: &mut MtpSession<D>,
-        parent: Option<Arc<Folder>>,
-    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+        new_parent: &Folder,
+    ) -> Result<FolderEntry, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
-        <D as PtpIo>::Error: From<Error<<D as PtpIo>::Error>>,
     {
         match self {
-            FolderEntry::File(f) => {
-                let Some(parent) = parent else {
-                    return Err(MtpError::Protocol(OperationError::InvalidObjectHandle(
-                        InvalidObjectHandle {},
-                    )));
-                };
-
-                f.move_(session, parent).await
-            },
-            FolderEntry::Folder(f) => f.move_(session, parent).await,
+            FolderEntry::File(f) => Ok(FolderEntry::File(f.move_(session, new_parent).await?)),
+            FolderEntry::Folder(f) => Ok(FolderEntry::Folder(f.move_(session, new_parent).await?)),
         }
     }
 }
 
+/// The advanced capabilities of a device
+#[derive(Clone, Debug)]
+struct DeviceCapabilities {
+    /// Whether the device supports the [`GetPartialObject`] operation
+    ///
+    /// [`GetPartialObject`]: crate::communication::operation::GetPartialObject
+    pub supports_partial_read: bool,
+    /// Whether the device supports the [`GetObjectPropList`] operation
+    ///
+    /// [`GetObjectPropList`]: crate::communication::operation::GetObjectPropList
+    pub supports_bulk_props: bool,
+}
+
+impl DeviceCapabilities {
+    async fn query<D: Device>(
+        session: &mut MtpSession<D>,
+    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>> {
+        let info = session.get_device_info().await?;
+        let ops = info.data.data.operations_supported.as_slice();
+
+        Ok(Self {
+            supports_partial_read: ops.contains(&Operation::Base(BaseOperation::GetPartialObject)),
+            supports_bulk_props: ops.contains(&Operation::Base(BaseOperation::GetObjectPropList)),
+        })
+    }
+}
+
+/// A filesystem abstraction for MTP devices
 pub struct FileSystem {
+    capabilities: DeviceCapabilities,
     storage_id: StorageId,
-    pub root: Arc<Folder>,
+    root: RwLock<Option<Arc<Folder>>>,
+    inode_map: RwLock<HashMap<ObjectHandle, FolderEntry>>,
+}
+
+/// Errors that can occur while interating with a [`FileSystem`]
+pub enum FileSystemError<D>
+where
+    D: Device,
+{
+    /// An error occurred within the MTP protocol
+    Mtp(MtpError<<D as PtpIo>::TransportError>),
+    /// An I/O error occurred within the filesystem
+    Io(std::io::Error),
+}
+
+impl<D> From<std::io::Error> for FileSystemError<D>
+where
+    D: Device,
+{
+    fn from(err: std::io::Error) -> Self {
+        FileSystemError::Io(err)
+    }
 }
 
 impl FileSystem {
+    /// Create a new [`File`] at the specified path
+    ///
+    /// # Errors
+    ///
+    /// * Not all parent folders exist
+    /// * Not all parent path segments are [`Folder`]s
+    /// * See [`Folder::create_file()`]
+    pub async fn create<D>(
+        &self,
+        session: &mut MtpSession<D>,
+        path: impl AsRef<str>,
+        format: ObjectFormatCode,
+        data: Vec<u8>,
+    ) -> Result<Arc<File>, FileSystemError<D>>
+    where
+        D: Device,
+    {
+        let path = path.as_ref();
+        let (parent_path, file_name) = path
+            .rsplit_once('/')
+            .ok_or(std::io::Error::from(ErrorKind::InvalidInput))?;
+
+        let lookup_path = if parent_path.is_empty() {
+            "/"
+        } else {
+            parent_path
+        };
+        let parent_entry = self
+            .find(lookup_path)
+            .ok_or(std::io::Error::from(ErrorKind::NotFound))?;
+
+        let FolderEntry::Folder(parent) = parent_entry else {
+            return Err(std::io::Error::from(ErrorKind::NotADirectory).into());
+        };
+
+        parent
+            .create_file(session, file_name, format, data)
+            .await
+            .map_err(FileSystemError::Mtp)
+    }
+
+    /// Find an entry by its path
+    pub fn find(&self, path: impl AsRef<str>) -> Option<FolderEntry> {
+        let path = path.as_ref();
+
+        // Nothing to do with non-absolute paths
+        if !path.starts_with('/') {
+            return None;
+        }
+
+        let root = self.root.read().unwrap().clone()?;
+        let mut current = FolderEntry::Folder(root);
+
+        for component in path.split('/').filter(|c| !c.is_empty()) {
+            if let FolderEntry::Folder(folder) = current {
+                current = folder.find(component)?;
+            } else {
+                return None;
+            }
+        }
+
+        Some(current)
+    }
+
+    /// Call the function `f` with immutable access to the [`FileSystem`] root
+    pub fn with_root<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(Arc<Folder>) -> T,
+    {
+        let guard = self.root.read().unwrap();
+        f((&*guard).as_ref().cloned().expect("root should exist"))
+    }
+
     /// Load a `FileSystem` from the given `storage_id`
     ///
     /// Note that the speed of this depends entirely on the device and the numbers of files on the storage.
@@ -512,7 +914,7 @@ impl FileSystem {
     pub async fn load<D>(
         session: &mut MtpSession<D>,
         storage_id: StorageId,
-    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
     {
@@ -532,126 +934,256 @@ impl FileSystem {
         session: &mut MtpSession<D>,
         storage_id: StorageId,
         mut callback: F,
-    ) -> Result<Self, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<Arc<Self>, MtpError<<D as PtpIo>::TransportError>>
     where
         D: Device,
         F: FnMut(ObjectHandle),
     {
-        let handles_res = session.get_object_handles(storage_id, None, None).await?;
-        let handles = handles_res.data.data;
+        let capabilities = DeviceCapabilities::query(session).await?;
 
-        let mut raw_data: HashMap<ObjectHandle, (ObjectHandle, FolderEntry)> = HashMap::new();
-
-        for handle in handles {
-            callback(handle);
-
-            let parent_id = session
-                .get_object_prop_value::<ParentObject>(handle)
-                .await?
-                .data
-                .data;
-            let name_ptp = session
-                .get_object_prop_value::<ObjectFileName>(handle)
-                .await?
-                .data
-                .data;
-            let format = session
-                .get_object_prop_value::<ObjectFormat>(handle)
-                .await?
-                .data
-                .data;
-
-            let name = name_ptp.to_string();
-            if format == ObjectFormatCode::Association {
-                let folder = Folder {
-                    id: handle,
-                    storage_id,
-                    parent: None,
-                    name,
-                    format,
-                    protection_status: ProtectionStatus::ReadOnly,
-                    date_created: None,
-                    date_modified: None,
-                    children: Vec::new(),
-                };
-                raw_data.insert(handle, (parent_id, FolderEntry::Folder(Arc::new(folder))));
-            } else {
-                let file = File::new(session, handle, storage_id, name, format).await?;
-                raw_data.insert(handle, (parent_id, FolderEntry::File(Arc::new(file))));
-            }
-        }
-
-        let root = Arc::new_cyclic(|weak_root| {
-            let mut children = Vec::new();
-            Self::assemble_recursive(
-                ObjectHandle::NONE,
-                weak_root.clone(),
-                &mut raw_data,
-                &mut children,
-            );
-
-            Folder {
-                id: ObjectHandle::NONE,
-                storage_id,
-                parent: None,
-                name: "/".to_string(),
-                format: ObjectFormatCode::Association,
-                protection_status: ProtectionStatus::ReadOnly,
-                date_created: None,
-                date_modified: None,
-                children,
-            }
+        let fs = Arc::new(Self {
+            capabilities,
+            storage_id,
+            root: RwLock::new(None),
+            inode_map: RwLock::new(HashMap::new()),
         });
 
-        Ok(Self { storage_id, root })
-    }
+        let fs_weak = Arc::downgrade(&fs);
 
-    /// Internal recursive helper to build child nodes and link them to parents
-    fn assemble_recursive(
-        parent_id: ObjectHandle,
-        parent_weak: Weak<Folder>,
-        raw_data: &mut HashMap<ObjectHandle, (ObjectHandle, FolderEntry)>,
-        out_children: &mut Vec<FolderEntry>,
-    ) {
-        let child_handles: Vec<ObjectHandle> = raw_data
-            .iter()
-            .filter(|(_, (p, _))| *p == parent_id)
-            .map(|(h, _)| *h)
-            .collect();
+        let handles_res = session.get_object_handles(storage_id, None, None).await?;
+        let handles = handles_res.data.data.as_slice();
 
-        for h in child_handles {
-            let (_, entry) = raw_data.remove(&h).expect("Exists");
+        let mut flat_map: HashMap<ObjectHandle, FolderEntry> =
+            HashMap::with_capacity(handles.len());
 
-            match entry {
-                FolderEntry::File(mut file) => {
-                    {
-                        let file = Arc::get_mut(&mut file).expect("should be valid");
-                        file.parent = Some(parent_weak.clone());
-                    }
+        if fs.capabilities.supports_bulk_props {
+            Self::load_bulk_fast_path(session, fs_weak.clone(), handles, storage_id, &mut flat_map)
+                .await?;
+        } else {
+            Self::load_iterative_slow_path(
+                session,
+                fs_weak.clone(),
+                handles,
+                storage_id,
+                &mut flat_map,
+            )
+            .await?;
+        }
 
-                    out_children.push(FolderEntry::File(file));
-                },
-                FolderEntry::Folder(folder_arc) => {
-                    let assembled_folder = Arc::new_cyclic(|me_weak| {
-                        let mut children = Vec::new();
-                        Self::assemble_recursive(h, me_weak.clone(), raw_data, &mut children);
+        let root = Arc::new(Folder {
+            fs: fs_weak,
+            storage_id,
+            id: ObjectHandle::NONE,
+            parent_id: ObjectHandle::NONE,
+            name: "/".to_string(),
+            format: ObjectFormatCode::Association,
+            protection_status: ProtectionStatus::ReadOnly,
+            date_created: None,
+            date_modified: None,
+            children: RwLock::new(HashMap::new()),
+        });
 
-                        Folder {
-                            id: folder_arc.id,
-                            storage_id: folder_arc.storage_id,
-                            parent: Some(parent_weak.clone()),
-                            name: folder_arc.name.clone(),
-                            format: folder_arc.format,
-                            protection_status: folder_arc.protection_status,
-                            date_created: folder_arc.date_created.clone(),
-                            date_modified: folder_arc.date_modified.clone(),
-                            children,
-                        }
-                    });
-                    out_children.push(FolderEntry::Folder(assembled_folder));
-                },
+        flat_map.insert(ObjectHandle::NONE, FolderEntry::Folder(root.clone()));
+
+        let entries: Vec<FolderEntry> = flat_map.values().cloned().collect();
+        for entry in entries {
+            let parent_id = match &entry {
+                FolderEntry::File(f) => f.parent_id,
+                FolderEntry::Folder(f) => f.parent_id,
+            };
+
+            if entry.handle() == ObjectHandle::NONE {
+                continue;
+            }
+
+            if let Some(FolderEntry::Folder(parent)) = flat_map.get(&parent_id) {
+                parent
+                    .children
+                    .write()
+                    .unwrap()
+                    .insert(entry.name().to_string(), entry);
+            } else {
+                root.children
+                    .write()
+                    .unwrap()
+                    .insert(entry.name().to_string(), entry);
             }
         }
+
+        *fs.inode_map.write().unwrap() = flat_map;
+        *fs.root.write().unwrap() = Some(root);
+
+        Ok(fs)
+    }
+
+    async fn load_bulk_fast_path<D>(
+        session: &mut MtpSession<D>,
+        fs: Weak<FileSystem>,
+        handles: &[ObjectHandle],
+        storage_id: StorageId,
+        flat_map: &mut HashMap<ObjectHandle, FolderEntry>,
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+    where
+        D: Device,
+    {
+        let prop_list = session
+            .get_object_prop_list(
+                ObjectHandle::ALL,
+                None,
+                Some(ObjectPropertyCode::All),
+                None,
+                Some(u32::MAX),
+            )
+            .await?;
+
+        // Since `ObjectHandle::ALL` returns data for EVERY storage volume on the device,
+        // we must intersect the results with the handles we know belong to this `storage_id`.
+        let storage_handles: std::collections::HashSet<ObjectHandle> =
+            handles.iter().copied().collect();
+
+        #[derive(Default)]
+        struct PartialInfo {
+            parent_id: Option<ObjectHandle>,
+            name: Option<String>,
+            size: Option<u64>,
+            format: Option<ObjectFormatCode>,
+            protection: Option<ProtectionStatus>,
+            modified: Option<DateTime>,
+            created: Option<DateTime>,
+        }
+
+        let mut parsed_data: HashMap<ObjectHandle, PartialInfo> =
+            HashMap::with_capacity(handles.len());
+
+        for prop in prop_list.data.data {
+            if !storage_handles.contains(&prop.object()) {
+                continue;
+            }
+
+            let entry = parsed_data.entry(prop.object()).or_default();
+            let value = prop.value();
+            match ObjectPropertyCode::from(prop.code()) {
+                ObjectPropertyCode::ParentObject => {
+                    entry.parent_id = value.as_u32().map(ObjectHandle::from)
+                },
+                ObjectPropertyCode::ObjectFormat => {
+                    entry.format = value.as_u16().map(ObjectFormatCode::from)
+                },
+                ObjectPropertyCode::ObjectFileName => {
+                    entry.name = value.as_string().map(|s| s.to_string())
+                },
+                ObjectPropertyCode::ObjectSize => entry.size = value.as_u64(),
+                ObjectPropertyCode::ProtectionStatus => {
+                    entry.protection = value.as_u16().map(ProtectionStatus::from)
+                },
+                ObjectPropertyCode::DateModified => {
+                    entry.modified = value.as_string().and_then(|s| DateTime::try_from(s).ok())
+                },
+                ObjectPropertyCode::DateCreated => {
+                    entry.created = value.as_string().and_then(|s| DateTime::try_from(s).ok())
+                },
+                _ => {},
+            }
+        }
+
+        for (handle, info) in parsed_data {
+            let name = info
+                .name
+                .unwrap_or_else(|| format!("UNKNOWN_{}", Into::<u32>::into(handle)));
+            let format = info.format.unwrap_or(ObjectFormatCode::Undefined);
+            let parent_id = info.parent_id.unwrap_or(ObjectHandle::NONE);
+            let protection_status = info.protection.unwrap_or(ProtectionStatus::ReadOnly);
+
+            if format == ObjectFormatCode::Association {
+                flat_map.insert(
+                    handle,
+                    FolderEntry::Folder(Arc::new(Folder {
+                        fs: fs.clone(),
+                        id: handle,
+                        storage_id,
+                        parent_id,
+                        name,
+                        format,
+                        protection_status,
+                        date_created: None,
+                        date_modified: info.modified,
+                        children: RwLock::new(HashMap::new()),
+                    })),
+                );
+            } else {
+                flat_map.insert(
+                    handle,
+                    FolderEntry::File(Arc::new(File {
+                        fs: fs.clone(),
+                        id: handle,
+                        storage_id,
+                        parent_id,
+                        name,
+                        size: info.size.unwrap_or(0),
+                        format,
+                        protection_status,
+                        date_modified: info.modified,
+                        date_created: info.created,
+                        spool: OnceCell::new(),
+                    })),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_iterative_slow_path<D>(
+        session: &mut MtpSession<D>,
+        fs: Weak<FileSystem>,
+        handles: &[ObjectHandle],
+        storage_id: StorageId,
+        flat_map: &mut HashMap<ObjectHandle, FolderEntry>,
+    ) -> Result<(), MtpError<<D as PtpIo>::TransportError>>
+    where
+        D: Device,
+    {
+        for &handle in handles {
+            let info = session.get_object_info(handle).await?.data.data;
+            let name = info.filename.to_string();
+            let parent_id = info.parent_object.unwrap_or(ObjectHandle::NONE);
+
+            if info.object_format == ObjectFormatCode::Association {
+                flat_map.insert(
+                    handle,
+                    FolderEntry::Folder(Arc::new(Folder {
+                        fs: fs.clone(),
+                        id: handle,
+                        storage_id,
+                        parent_id,
+                        name,
+                        format: info.object_format,
+                        protection_status: info.protection_status,
+                        date_created: None,
+                        date_modified: info.date_modified,
+                        children: RwLock::new(HashMap::new()),
+                    })),
+                );
+            } else {
+                flat_map.insert(
+                    handle,
+                    FolderEntry::File(Arc::new(File {
+                        fs: fs.clone(),
+                        id: handle,
+                        storage_id,
+                        parent_id,
+                        name,
+                        size: info.compressed_size as u64,
+                        format: info.object_format,
+                        protection_status: info.protection_status,
+                        date_modified: info.date_modified,
+                        date_created: info.date_created,
+                        spool: OnceCell::new(),
+                    })),
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Refresh the `FileSystem` to match the new state of the device

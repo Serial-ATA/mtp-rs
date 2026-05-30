@@ -13,12 +13,13 @@ workspace = true
 [dependencies]
 bitflags.workspace = true
 paste.workspace = true
-deku = { workspace = true, default-features = false, features = ["alloc", "logging"] }
+deku = { workspace = true, default-features = false, features = ["alloc", "logging", "descriptive-errors"] }
 log.workspace = true
 futures-core.workspace = true
 libc = { workspace = true, optional = true }
 
 [dev-dependencies]
+mtp.workspace = true
 test-log.workspace = true
 
 [features]

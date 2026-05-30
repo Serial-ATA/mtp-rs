@@ -1,6 +1,6 @@
 use crate::communication::Parameter;
 use crate::device::properties::{EnumerationForm, Form, FormType, GetSet, RangeForm};
-use crate::object::types::{Array, ArrayEncodable, ObjectHandle, PropertyDataType, PtpString};
+use crate::object::{Array, ArrayEncodable, ObjectHandle, PropertyDataType, PtpString};
 use crate::property::Property;
 
 use alloc::borrow::Cow;
@@ -544,7 +544,7 @@ define_device_properties! {
             valid_forms: [None]
         },
         code: 0x5011,
-        form: crate::object::types::DateTime
+        form: crate::object::DateTime
     }
 
     /// The millisecond delay between triggering image capture and the actual data capture
@@ -937,7 +937,7 @@ pub enum PerceivedDeviceTypeValue {
     #[deku(id = "0x0000_0006")]
     AudioRecorder = 0x0000_0006,
     #[deku(id_pat = "o if o & (1 << 15) > 0")]
-    VendorSpecific(u8),
+    VendorSpecific(u32),
     #[deku(id_pat = "o if o & (1 << 15) == 0")]
     Reserved,
 }

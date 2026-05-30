@@ -11,6 +11,31 @@ use deku::reader::Reader;
 use deku::writer::Writer;
 use deku::{DekuError, DekuReader, DekuWriter};
 
+/// The timezone of a [`DateTime`]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Timezone {
+    /// UTC
+    Utc,
+    /// A positive or negative offset from UTC
+    Offset {
+        /// The hour offset from UTC
+        hour: i8,
+        /// The minute offset from UTC
+        minute: i8,
+    },
+}
+
+impl Timezone {
+    fn validate(self) -> bool {
+        match self {
+            Timezone::Utc => true,
+            Timezone::Offset { hour, minute } => {
+                hour.unsigned_abs() <= 14 && minute.unsigned_abs() <= 59
+            },
+        }
+    }
+}
+
 /// An MTP date and time string
 ///
 /// The format is `YYYYMMDDThhmmss.s`, where:
@@ -72,6 +97,7 @@ pub struct DateTime {
     pub minute: Option<u8>,
     pub second: Option<u8>,
     pub decisecond: Option<u8>,
+    pub timezone: Option<Timezone>,
 }
 
 #[cfg(feature = "time")]
@@ -124,6 +150,8 @@ impl DateTime {
                 minute: Some((*tm).tm_min as _),
                 second: Some((*tm).tm_sec as _),
                 decisecond: None,
+                // TODO: Could actually set from `tm_gmtoff`, but not needed so far
+                timezone: None,
             }
         }
     }
@@ -158,6 +186,14 @@ impl TryFrom<PtpString> for DateTime {
     type Error = DateTimeError;
 
     fn try_from(value: PtpString) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&PtpString> for DateTime {
+    type Error = DateTimeError;
+
+    fn try_from(value: &PtpString) -> Result<Self, Self::Error> {
         Self::from_str(value.to_string().as_str())
     }
 }
@@ -186,6 +222,8 @@ pub enum DateTimeError {
     MissingDecisecondMarker,
     /// The string has a decisecond marker, but no digit
     MissingDecisecond,
+    /// The string has a timezone indicator, but no information
+    MissingTimezone,
     /// One or more fields are malformed (i.e. `month > 12`, `hour > 23`, etc.)
     FailedValidation,
 }
@@ -210,6 +248,7 @@ impl Display for DateTimeError {
                 f.write_str("Expected a period marking the start of the decisecond segment")
             },
             DateTimeError::MissingDecisecond => f.write_str("Expected a decisecond digit"),
+            DateTimeError::MissingTimezone => f.write_str("Expected a timezone offset"),
             DateTimeError::FailedValidation => {
                 f.write_str("DateTime string contains invalid segments")
             },
@@ -259,6 +298,7 @@ impl FromStr for DateTime {
             minute: None,
             second: None,
             decisecond: None,
+            timezone: None,
         };
 
         'segments: {
@@ -311,6 +351,32 @@ impl FromStr for DateTime {
                 return Err(DateTimeError::MissingDecisecond);
             };
             datetime.decisecond = deciseconds.to_digit(10).map(|d| d as u8);
+
+            match remaining_chars.next() {
+                Some('Z') => datetime.timezone = Some(Timezone::Utc),
+                Some('-') => {
+                    let mut timezone = remaining_chars.as_str();
+                    datetime.timezone = Some(Timezone::Offset {
+                        hour: parse_int(&mut timezone)?
+                            .ok_or(DateTimeError::BadSegmentLength)?
+                            .cast_signed(),
+                        minute: parse_int(&mut timezone)?
+                            .ok_or(DateTimeError::BadSegmentLength)?
+                            .cast_signed(),
+                    })
+                },
+                Some('+') => {
+                    let mut timezone = remaining_chars.as_str();
+                    datetime.timezone = Some(Timezone::Offset {
+                        hour: parse_int(&mut timezone)?.ok_or(DateTimeError::BadSegmentLength)?
+                            as i8,
+                        minute: parse_int(&mut timezone)?.ok_or(DateTimeError::BadSegmentLength)?
+                            as i8,
+                    })
+                },
+                Some(_) => return Err(DateTimeError::MissingTimezone),
+                None => {},
+            }
         }
 
         // TODO: This string can optionally be appended with a constant character “Z” to indicate UTC, or
@@ -417,6 +483,9 @@ impl DateTime {
             || !verify_field(self.minute, 59, self.hour)
             || !verify_field(self.second, 59, self.minute)
             || !verify_field(self.decisecond, 9, self.second)
+            || !self
+                .timezone
+                .is_some_and(|tz| self.decisecond.is_some() && tz.validate())
         {
             return false;
         }

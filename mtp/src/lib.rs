@@ -26,7 +26,7 @@
 //!
 //! ### Object Fetching
 //!
-//! MTP doesn't make many assumptions about the structure of the device's filesystem, and instead operates
+//! MTP makes few assumptions about the structure of the device's filesystem and instead operates
 //! on [`ObjectHandle`]s, which can have varying levels of [`ObjectInfo`]. Unfortunately, the design makes it
 //! *very* slow to build a file tree, because:
 //!
@@ -68,3 +68,6 @@ pub mod usb;
 
 pub use mtp_spec::*;
 pub mod high_level;
+
+#[cfg(feature = "examples")]
+pub mod example_utils;

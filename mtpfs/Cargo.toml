@@ -11,12 +11,10 @@ readme.workspace = true
 workspace = true
 
 [dependencies]
-mtp = { workspace = true, features = ["usb"] }
+mtp = { workspace = true, features = ["usb", "examples"] }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync"] }
 fuser.workspace = true
-id_tree.workspace = true
-libc.workspace = true
 futures.workspace = true
 
 # User interaction

@@ -38,19 +38,6 @@ impl Parameter {
     }
 }
 
-/// Private parameter constructor, to disallow raw `u32` values
-struct ParameterPriv(Parameter);
-
-impl ParameterPriv {
-    fn new<T: Into<Parameter>>(value: T) -> Self {
-        Self(value.into())
-    }
-
-    fn new_raw(value: u32) -> Self {
-        Self(Parameter::new(value))
-    }
-}
-
 /// A session identifier in which an operation exists.
 ///
 /// Operations can exist outside of an active session, in which case

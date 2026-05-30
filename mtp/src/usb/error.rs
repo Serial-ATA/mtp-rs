@@ -26,6 +26,8 @@ pub enum UsbError {
     Native(nusb::Error),
     /// An error occurred during a USB transfer
     Transfer(nusb::transfer::TransferError),
+    /// The responder didn't provide any data
+    NoData,
     /// A USB operation timed out
     Timeout,
     /// The device replied with too much data (more than it claimed to have)
@@ -38,6 +40,7 @@ impl Display for UsbError {
             Self::NoApplicableInterface => write!(f, "No applicable interface found"),
             Self::Native(error) => write!(f, "{error}"),
             Self::Transfer(error) => write!(f, "{error}"),
+            Self::NoData => write!(f, "The responder didn't provide any data"),
             Self::Timeout => write!(f, "Operation timed out"),
             Self::TooMuchData => write!(f, "Device replied with more data than claimed"),
         }

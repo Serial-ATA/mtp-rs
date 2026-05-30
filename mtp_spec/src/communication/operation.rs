@@ -3,7 +3,7 @@
 use crate::communication::response::errors::OperationError;
 use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::SerializationError;
-use crate::object::types::ArrayEncodable;
+use crate::object::ArrayEncodable;
 
 use alloc::vec::Vec;
 use core::fmt::Debug;

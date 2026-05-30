@@ -5,6 +5,7 @@ macro_rules! format_codes {
 	(
 		$(
 			$(#[$meta:meta])*
+			$([extensions($($extension:literal),+ $(,)?)])?
 			$name:ident = $value:expr,
 		)*
 	) => {
@@ -42,7 +43,7 @@ macro_rules! format_codes {
 			)*
 			// Some other vendor-specific or otherwise unknown format code
 			#[deku(id_pat = "_", default)]
-			Unknown(#[deku(endian = "endian")] u16),
+			Unknown(u16),
 		}
 
 		impl From<ObjectFormatCode> for u16 {
@@ -66,6 +67,18 @@ macro_rules! format_codes {
 				}
 			}
 		}
+
+		impl ObjectFormatCode {
+			/// Attempt to get an [`ObjectFormatCode`] for a given file extension
+			pub fn from_extension(ext: impl AsRef<str>) -> Self {
+				match ext.as_ref() {
+					$(
+					$($($extension)|* => ObjectFormatCode::$name,)?
+					)+
+					_ => ObjectFormatCode::Undefined,
+				}
+			}
+		}
 	};
 }
 
@@ -80,18 +93,24 @@ format_codes!(
     /// Device model-specific executable
     Executable = 0x3003,
     /// Text file
+    [extensions("txt")]
     Text = 0x3004,
     /// Hypertext Markup Language file (text)
+    [extensions("html")]
     Html = 0x3005,
     /// Digital Print Order Format file (text)
     Dpof = 0x3006,
     /// AIFF audio clip
+    [extensions("aiff", "aif", "aifc", "afc")]
     Aiff = 0x3007,
     /// WAVE audio clip
+    [extensions("wav", "wave")]
     Wav = 0x3008,
     /// MPEG-1 Layer III audio (ISO/IEC 13818-3)
+    [extensions("mp3")]
     Mp3 = 0x3009,
     /// AVI video clip
+    [extensions("avi")]
     Avi = 0x300A,
     /// MPEG video clip
     Mpeg = 0x300B,
@@ -106,12 +125,14 @@ format_codes!(
     /// Structured Storage Image Format
     FlashPix = 0x3803,
     /// Microsoft Windows Bitmap file
+    [extensions("bmp")]
     Bmp = 0x3804,
     /// Canon Camera Image File Format
     Ciff = 0x3805,
     /// Reserved
     UndefinedImage2 = 0x3806,
     /// Graphics Interchange Format
+    [extensions("gif")]
     Gif = 0x3807,
     /// JPEG File Interchange Format
     Jfif = 0x3808,
@@ -120,6 +141,7 @@ format_codes!(
     /// Quickdraw Image Format
     Pict = 0x380A,
     /// Portable Network Graphics
+    [extensions("png")]
     Png = 0x380B,
     /// Reserved
     UndefinedImage3 = 0x380C,
@@ -136,34 +158,45 @@ format_codes!(
     /// Wireless Application Protocol Bitmap Format (.wbmp) (MIME: image/vnd.wap.wbmp)
     ///
     /// <http://www.wapforum.org/what/technical/SPEC-WAESpec-19990524.pdf>
+    [extensions("wbmp")]
     Wbmp = 0xB803,
     /// JPEG XR, also known as HD Photo (.hdp, jxr, .wpd) (MIME: image/vnd.ms-photo)
     ///
     /// ISO/IEC 29199-2:2009: <http://www.iso.org/iso/iso_catalogue/catalogue_tc/catalogue_detail.htm?csnumber=51609>
+    [extensions("hdp", "jxr", "wpd")]
     JpegXr = 0xB804,
     /// Undefined audio object
     UndefinedAudio = 0xB900,
     /// Windows Media Audio
+    [extensions("wma")]
     Wma = 0xB901,
+    [extensions("ogg")]
     Ogg = 0xB902,
     /// Advanced Audio Coding (.aac) (MIME: audio/aac)
     ///
     /// MPEG-4 AAC.
+    [extensions("aac")]
     Aac = 0xB903,
     Audible = 0xB904,
     /// Free Lossless Audio Codec
+    [extensions("flac")]
     Flac = 0xB906,
     /// Qualcomm Code Excited Linear Prediction (.qcp) (MIME: audio/qcelp)
+    [extensions("qcp")]
     Qcelp = 0xB907,
     /// Adaptive Multi-Rate audio codec (.amr) (MIME: audio/amr)
+    [extensions("amr")]
     Amr = 0xB908,
     /// Undefined video object
     UndefinedVideo = 0xB980,
     /// Windows Media Video
+    [extensions("wmv")]
     Wmv = 0xB981,
     /// ISO 14496-1
+    [extensions("mp4")]
     Mp4Container = 0xB982,
     /// MPEG-1 Layer II audio (ISO/IEC 13818-3)
+    [extensions("mp2")]
     Mp2 = 0xB983,
     /// 3GPP file format.
     ///
@@ -197,16 +230,21 @@ format_codes!(
     /// For use with mediacasts; references multimedia enclosures of RSS feeds or episodic content
     AbstractMediacast = 0xBA0B,
     WplPlaylist = 0xBA10,
+    [extensions("m3u")]
     M3uPlaylist = 0xBA11,
     MplPlaylist = 0xBA12,
     AsxPlaylist = 0xBA13,
     PlsPlaylist = 0xBA14,
     UndefinedDocument = 0xBA80,
     AbstractDocument = 0xBA81,
+    [extensions("xml")]
     XmlDocument = 0xBA82,
+    [extensions("doc", "docx")]
     MicrosoftWordDocument = 0xBA83,
     MhtCompiledHtmlDocument = 0xBA84,
+    [extensions("xls", "xlsx")]
     MicrosoftExcelSpreadsheet = 0xBA85,
+    [extensions("ppt", "pptx")]
     MicrosoftPowerPointPresentation = 0xBA86,
     UndefinedMessage = 0xBB00,
     AbstractMessage = 0xBB01,

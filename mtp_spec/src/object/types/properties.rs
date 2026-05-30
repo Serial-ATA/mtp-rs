@@ -45,7 +45,7 @@ use alloc::format;
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
 use deku::prelude::{Reader, Writer};
-use deku::{DekuError, DekuReader, DekuWriter};
+use deku::{DekuError, DekuReader, DekuWriter, deku_derive};
 
 /// An [`ObjectProperty`] list
 ///
@@ -60,6 +60,15 @@ pub struct ObjectPropList(pub Vec<SerializedProperty>);
 impl FromIterator<SerializedProperty> for ObjectPropList {
     fn from_iter<T: IntoIterator<Item = SerializedProperty>>(iter: T) -> Self {
         Self(Vec::from_iter(iter))
+    }
+}
+
+impl IntoIterator for ObjectPropList {
+    type Item = SerializedProperty;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -96,6 +105,44 @@ impl DekuReader<'_, Endian> for ObjectPropList {
 
         Ok(Self(props))
     }
+}
+
+/// Get an array of [`ObjectPropertyDesc`] arrays, each describing an allowed collection of ranges
+///
+/// This is used in the [`GetInterdependentPropDesc`] operation.
+///
+/// [`GetInterdependentPropDesc`]: crate::communication::operation::GetInterdependentPropDesc
+#[deku_derive(DekuRead)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct InterdependentPropDesc {
+    #[deku(temp)]
+    number_of_interdependencies: u32,
+    /// A list of interdependent object properties
+    #[deku(count = "number_of_interdependencies")]
+    pub interdependencies: Vec<InterdependentProperties>,
+}
+
+/// A list of interdependent object properties
+///
+/// This is part of [`InterdependentPropDesc`].
+#[deku_derive(DekuRead)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct InterdependentProperties {
+    #[deku(temp)]
+    number_of_prop_descs: u16,
+    /// A list of interdependent object properties
+    #[deku(count = "number_of_prop_descs")]
+    pub properties: Vec<SerializedProperty>,
 }
 
 /// Marker trait for object properties
@@ -204,6 +251,16 @@ macro_rules! define_object_property_descriptions {
 		impl Default for ObjectPropertyCode {
 			fn default() -> Self {
 				ObjectPropertyCode::SomethingElse
+			}
+		}
+
+		impl From<u16> for ObjectPropertyCode {
+			fn from(code: u16) -> Self {
+				match code {
+					$( $code => Self::$name, )*
+					0xFFFF => Self::All,
+					_ => Self::SomethingElse,
+				}
 			}
 		}
 
@@ -1138,6 +1195,7 @@ pub enum SystemObjectStatus {
     ctx_default = "deku::ctx::Endian::Big"
 )]
 #[allow(missing_docs)]
+#[repr(u8)]
 pub enum ConsumableStatus {
     Consumable = 0x00,
     ForStorage = 0x01,
@@ -1152,6 +1210,7 @@ pub enum ConsumableStatus {
     ctx_default = "deku::ctx::Endian::Big"
 )]
 #[allow(missing_docs)]
+#[repr(u16)]
 pub enum MetaGenreForm {
     #[deku(id = "0x0000")]
     NotUsed,

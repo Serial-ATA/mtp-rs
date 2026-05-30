@@ -7,7 +7,7 @@ use crate::communication::response::Response;
 use crate::device::session::MtpSession;
 use crate::device::{Device, PtpIo};
 use crate::error::MtpError;
-use crate::object::types::ObjectHandle;
+use crate::object::ObjectHandle;
 
 /// Android-specific device operations
 pub trait AndroidDevice<D>

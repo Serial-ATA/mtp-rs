@@ -1,3 +1,5 @@
+//! MTP session wrapper
+
 use crate::communication::operation::{
     CloseSession, CopyObject, DeleteObject, FormatStore, GetDevicePropDesc, GetDevicePropValue,
     GetInterdependentPropDesc, GetNumObjects, GetObject, GetObjectHandles, GetObjectInfo,
@@ -12,13 +14,13 @@ use crate::communication::response::Response;
 use crate::communication::response::errors::OperationError;
 use crate::communication::{SessionId, TransactionId};
 use crate::device::properties::{DeviceProperty, GetSet};
-use crate::device::storage::id::StorageId;
-use crate::device::storage::info::FilesystemType;
+use crate::device::storage::{FilesystemType, StorageId};
 use crate::device::{Device, PtpIo, properties};
 use crate::error::MtpError;
-use crate::object::info::{ObjectInfo, ProtectionStatus};
-use crate::object::types::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
-use crate::object::types::{Array, ObjectFormatCode, ObjectHandle, PtpString};
+use crate::object::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
+use crate::object::{
+    Array, ObjectFormatCode, ObjectHandle, ObjectInfo, ProtectionStatus, PtpString,
+};
 
 use std::ops::{Deref, DerefMut};
 
@@ -26,7 +28,6 @@ use deku::DekuWriter;
 use deku::no_std_io::Cursor;
 use deku::prelude::Writer;
 
-// TODO: Could use an example
 /// An active MTP session
 ///
 /// NOTE: Operations that don't require an open session are available on [`Device`] directly.
@@ -35,7 +36,6 @@ pub struct MtpSession<D> {
     device: D,
 }
 
-// TODO: Could use an example
 impl<D> MtpSession<D> {
     /// This session's ID
     pub fn id(&self) -> SessionId {
@@ -44,7 +44,6 @@ impl<D> MtpSession<D> {
 }
 
 impl<D: Device> MtpSession<D> {
-    // TODO: Could use an example
     /// Open a new MTP session on the given `device`
     ///
     /// NOTES:
@@ -53,6 +52,10 @@ impl<D: Device> MtpSession<D> {
     /// * If the operation fails with [`SessionAlreadyOpen`], the error will be ignored and the existing session ID will be used.
     ///
     /// [`SessionAlreadyOpen`]: crate::communication::response::errors::SessionAlreadyOpen
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::open_session()`].
     pub async fn open(mut device: D) -> Result<Self, MtpError<<D as PtpIo>::TransportError>> {
         match device.open_session().await {
             Ok((_res, session_id)) => Ok(Self {
@@ -83,6 +86,10 @@ where
     /// values can be verified by checking [`Device::get_device_prop_desc()`] with [`BatteryLevel`].
     ///
     /// [`BatteryLevel`]: properties::BatteryLevel
+    ///
+    /// # Errors
+    ///
+    /// See [`MtpSession::get_device_prop_value()`]
     pub async fn battery_level(&mut self) -> Result<u8, MtpError<<D as PtpIo>::TransportError>> {
         let prop = self
             .get_device_prop_value::<properties::BatteryLevel>()
@@ -91,6 +98,10 @@ where
     }
 
     /// A human-readable description of the device
+    ///
+    /// # Errors
+    ///
+    /// See [`MtpSession::get_device_prop_value()`]
     pub async fn friendly_name(
         &mut self,
     ) -> Result<PtpString, MtpError<<D as PtpIo>::TransportError>> {
@@ -101,6 +112,10 @@ where
     }
 
     /// Whether the [`ObjectProperty`] `T` is writeable for the given `format`
+    ///
+    /// # Errors
+    ///
+    /// See [`MtpSession::get_object_prop_desc()`]
     pub async fn object_property_can_be_modified<T>(
         &mut self,
         format: ObjectFormatCode,
@@ -116,6 +131,10 @@ where
     }
 
     /// Whether the [`DeviceProperty`] `T` is writeable for the current device
+    ///
+    /// # Errors
+    ///
+    /// See [`MtpSession::get_object_prop_desc()`]
     pub async fn device_property_can_be_modified<T>(
         &mut self,
     ) -> Result<bool, MtpError<<D as PtpIo>::TransportError>>
@@ -129,6 +148,10 @@ where
     // === Operation wrappers ===
 
     /// Send a [`CloseSession`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn close_session(
         &mut self,
     ) -> Response<CloseSession, MtpError<<D as PtpIo>::TransportError>> {
@@ -139,6 +162,10 @@ where
     }
 
     /// Send a [`GetStorageIDs`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_storage_ids(
         &mut self,
     ) -> Response<GetStorageIDs, MtpError<<D as PtpIo>::TransportError>> {
@@ -149,6 +176,10 @@ where
     }
 
     /// Send a [`GetStorageInfo`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_storage_info(
         &mut self,
         storage: StorageId,
@@ -163,6 +194,10 @@ where
     }
 
     /// Send a [`GetNumObjects`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_num_objects(
         &mut self,
         storage: StorageId,
@@ -179,6 +214,10 @@ where
     }
 
     /// Send a [`GetObjectHandles`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_handles(
         &mut self,
         storage: StorageId,
@@ -195,6 +234,10 @@ where
     }
 
     /// Send a [`GetObjectInfo`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_info(
         &mut self,
         object: ObjectHandle,
@@ -206,6 +249,10 @@ where
     }
 
     /// Send a [`GetObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object(
         &mut self,
         object: ObjectHandle,
@@ -217,6 +264,10 @@ where
     }
 
     /// Send a [`GetThumb`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_thumb(
         &mut self,
         object: ObjectHandle,
@@ -228,6 +279,10 @@ where
     }
 
     /// Send a [`DeleteObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn delete_object(
         &mut self,
         object: ObjectHandle,
@@ -243,6 +298,10 @@ where
     }
 
     /// Send a [`SendObjectInfo`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object_info(
         &mut self,
         object_info: ObjectInfo,
@@ -270,6 +329,10 @@ where
     }
 
     /// Send a [`SendObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object<T>(
         &mut self,
         object_data: T,
@@ -287,6 +350,10 @@ where
     }
 
     /// Send a [`InitiateCapture`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn initiate_capture(
         &mut self,
         storage: Option<StorageId>,
@@ -302,6 +369,10 @@ where
     }
 
     /// Send a [`FormatStore`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn format_store(
         &mut self,
         storage: StorageId,
@@ -317,6 +388,10 @@ where
     }
 
     /// Send a [`ResetDevice`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn reset_device(
         &mut self,
     ) -> Response<ResetDevice, MtpError<<D as PtpIo>::TransportError>> {
@@ -327,6 +402,10 @@ where
     }
 
     /// Send a [`SelfTest`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn self_test(
         &mut self,
         test_type: SelfTestType,
@@ -338,6 +417,10 @@ where
     }
 
     /// Send a [`SetObjectProtection`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_protection(
         &mut self,
         object: ObjectHandle,
@@ -353,6 +436,10 @@ where
     }
 
     /// Send a [`PowerDown`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn power_down(
         &mut self,
     ) -> Response<PowerDown, MtpError<<D as PtpIo>::TransportError>> {
@@ -363,6 +450,10 @@ where
     }
 
     /// Send a [`GetDevicePropDesc`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_device_prop_desc<T>(
         &mut self,
     ) -> Response<GetDevicePropDesc<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -379,6 +470,10 @@ where
     }
 
     /// Send a [`GetDevicePropValue`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_device_prop_value<T>(
         &mut self,
     ) -> Response<GetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -395,6 +490,10 @@ where
     }
 
     /// Send a [`SetDevicePropValue`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_device_prop_value<T>(
         &mut self,
         value: Vec<u8>,
@@ -412,6 +511,10 @@ where
     }
 
     /// Send a [`ResetDevicePropValue`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn reset_device_prop_value<T>(
         &mut self,
     ) -> Response<ResetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -428,6 +531,10 @@ where
     }
 
     /// Send a [`TerminateOpenCapture`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn terminate_open_capture(
         &mut self,
         transaction_id: TransactionId,
@@ -442,6 +549,10 @@ where
     }
 
     /// Send a [`MoveObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn move_object(
         &mut self,
         object: ObjectHandle,
@@ -458,6 +569,10 @@ where
     }
 
     /// Send a [`CopyObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn copy_object(
         &mut self,
         object: ObjectHandle,
@@ -474,6 +589,10 @@ where
     }
 
     /// Send a [`GetPartialObject`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_partial_object(
         &mut self,
         object: ObjectHandle,
@@ -490,6 +609,10 @@ where
     }
 
     /// Send an [`InitiateOpenCapture`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn initiate_open_capture(
         &mut self,
         storage: Option<StorageId>,
@@ -505,6 +628,10 @@ where
     }
 
     /// Send a [`GetObjectPropsSupported`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_props_supported(
         &mut self,
         format: ObjectFormatCode,
@@ -519,6 +646,10 @@ where
     }
 
     /// Send a [`GetObjectPropDesc`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_desc<T>(
         &mut self,
         format: ObjectFormatCode,
@@ -536,6 +667,10 @@ where
     }
 
     /// Send a [`GetObjectPropValue`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_value<T>(
         &mut self,
         object: ObjectHandle,
@@ -553,6 +688,10 @@ where
     }
 
     /// Send a [`SetObjectPropValue`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_prop_value<T>(
         &mut self,
         object: ObjectHandle,
@@ -577,6 +716,10 @@ where
     }
 
     /// Send a [`GetObjectReferences`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_references(
         &mut self,
         object: ObjectHandle,
@@ -591,6 +734,10 @@ where
     }
 
     /// Send a [`SetObjectReferences`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_references(
         &mut self,
         object: ObjectHandle,
@@ -612,6 +759,10 @@ where
     }
 
     /// Send a [`Skip`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn skip(
         &mut self,
         skip: u32,
@@ -627,6 +778,10 @@ where
     // Defined in Appendix E
 
     /// Send a [`GetObjectPropList`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_list(
         &mut self,
         object: ObjectHandle,
@@ -653,6 +808,10 @@ where
     }
 
     /// Send a [`SetObjectPropList`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_prop_list(
         &mut self,
         props: ObjectPropList,
@@ -671,6 +830,10 @@ where
     }
 
     /// Send a [`GetInterdependentPropDesc`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_interdependent_prop_desc(
         &mut self,
         format: ObjectFormatCode,
@@ -685,6 +848,10 @@ where
     }
 
     /// Send a [`SendObjectPropList`] operation
+    ///
+    /// # Errors
+    ///
+    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object_prop_list(
         &mut self,
         destination: Option<StorageId>,

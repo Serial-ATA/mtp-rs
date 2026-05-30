@@ -1,5 +1,5 @@
 use crate::communication::Parameter;
-use crate::device::storage::id::StorageId;
+use crate::device::storage::StorageId;
 use crate::object::types::{Association, DateTime, ObjectFormatCode, ObjectHandle, PtpString};
 
 use alloc::vec::Vec;

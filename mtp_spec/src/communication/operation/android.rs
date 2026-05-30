@@ -3,7 +3,7 @@
 use crate::communication::operation::DataDirection;
 use crate::communication::operation::impls::define_operations;
 use crate::communication::response;
-use crate::object::types::ObjectHandle;
+use crate::object::ObjectHandle;
 
 define_operations! {
     OPCODE_ENUM: AndroidOperation;

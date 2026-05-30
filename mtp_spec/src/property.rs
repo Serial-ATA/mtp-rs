@@ -1,5 +1,7 @@
+//! Generic types for device/object properties
+
 use crate::device::properties::GetSet;
-use crate::object::types::{ObjectHandle, PropertyDataType, PropertyValue};
+use crate::object::{ObjectHandle, PropertyDataType, PropertyValue};
 
 use deku::ctx::Endian;
 use deku::{DekuReader, DekuWriter};
@@ -46,6 +48,23 @@ pub struct SerializedProperty {
     // Passing in a dummy data type, doesn't actually matter for writing
     #[deku(ctx = "0")]
     value: PropertyValue,
+}
+
+impl SerializedProperty {
+    /// Get the associated [`ObjectHandle`]
+    pub fn object(&self) -> ObjectHandle {
+        self.object
+    }
+
+    /// Get the property code
+    pub fn code(&self) -> u16 {
+        self.code
+    }
+
+    /// Get the value of the property
+    pub fn value(&self) -> &PropertyValue {
+        &self.value
+    }
 }
 
 /// A [`Property`] that can be serialized for transport

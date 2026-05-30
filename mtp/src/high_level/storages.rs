@@ -1,6 +1,7 @@
+//! Simplified storage implementations
+
 use crate::device::session::MtpSession;
-use crate::device::storage::id::StorageId;
-use crate::device::storage::info::{AccessCapability, FilesystemType, StorageType};
+use crate::device::storage::{AccessCapability, FilesystemType, StorageId, StorageType};
 use crate::device::{Device, PtpIo};
 use crate::error::MtpError;
 

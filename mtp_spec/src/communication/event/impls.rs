@@ -1,8 +1,8 @@
 use crate::communication::TransactionId;
 use crate::device::properties::DevicePropertyCode;
-use crate::device::storage::id::StorageId;
-use crate::object::types::properties::ObjectPropertyCode;
-use crate::object::types::{ObjectFormatCode, ObjectHandle};
+use crate::device::storage::StorageId;
+use crate::object::properties::ObjectPropertyCode;
+use crate::object::{ObjectFormatCode, ObjectHandle};
 
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};

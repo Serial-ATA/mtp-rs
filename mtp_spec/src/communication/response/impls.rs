@@ -1,10 +1,10 @@
-use crate::device::info::DeviceInfo;
+use crate::device::DeviceInfo;
 use crate::device::properties::{DevicePropDesc, DeviceProperty};
-use crate::device::storage::id::StorageId;
-use crate::device::storage::info::StorageInfo;
-use crate::object::info::{ObjectInfo, Thumbnail};
-use crate::object::types::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
-use crate::object::types::{Array, ObjectHandle};
+use crate::device::storage::{StorageId, StorageInfo};
+use crate::object::properties::{
+    InterdependentPropDesc, ObjectPropList, ObjectProperty, ObjectPropertyCode,
+};
+use crate::object::{Array, ObjectHandle, ObjectInfo, Thumbnail};
 
 use alloc::vec::Vec;
 
@@ -57,7 +57,8 @@ macro_rules! define_response {
 	}
 }
 
-pub(super) use {define_response, replace_expr};
+pub(super) use define_response;
+pub(super) use replace_expr;
 
 define_response! {
     /// Empty response, responder has nothing to provide
@@ -156,6 +157,13 @@ define_response! {
 }
 
 define_response! {
+    /// Response to the [`CopyObject`] operation.
+    pub struct CopyObject[][] {
+        data: ObjectHandle,
+    }
+}
+
+define_response! {
     /// Response to the [`GetPartialObject`] operation.
     pub struct GetPartialObject[][] {
         #[deku(read_all)]
@@ -205,9 +213,7 @@ define_response! {
 define_response! {
     /// Response to the [`GetInterdependentPropDesc`] operation.
     pub struct GetInterdependentPropDesc[][] {
-        // TODO: Determine what this even is
-        #[deku(read_all)]
-        data: Vec<u8>,
+        data: InterdependentPropDesc,
     }
 }
 

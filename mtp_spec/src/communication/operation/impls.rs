@@ -1,10 +1,8 @@
 use crate::communication::{Parameter, SessionId, TransactionId, response};
 use crate::device::properties::DeviceProperty;
-use crate::device::storage::id::StorageId;
-use crate::device::storage::info::FilesystemType;
-use crate::object::info::ProtectionStatus;
-use crate::object::types::properties::{ObjectProperty, ObjectPropertyCode};
-use crate::object::types::{ObjectFormatCode, ObjectHandle};
+use crate::device::storage::{FilesystemType, StorageId};
+use crate::object::properties::{ObjectProperty, ObjectPropertyCode};
+use crate::object::{ObjectFormatCode, ObjectHandle, ProtectionStatus};
 
 use deku::{DekuRead, DekuWrite};
 
@@ -350,7 +348,7 @@ macro_rules! parse_operations {
 		#[doc = "` operation"]
 		pub fn new(transaction_id: $crate::communication::TransactionId, session_id: SessionId, $($param: $ty),*) -> Self {
 			Self {
-				parameters: [$($crate::communication::ParameterPriv::new($operation_param_expr).0),*],
+				parameters: [$($crate::communication::Parameter::from($operation_param_expr)),*],
 				session_id: Some(session_id),
 				transaction_id,
 				_phantom: core::marker::PhantomData
@@ -363,7 +361,7 @@ macro_rules! parse_operations {
 		@DEFAULT($default:expr)
 		$param:ident: $_ty:ty
 	) => {
-		$crate::communication::ParameterPriv::new($param.unwrap_or($default)).0
+		$crate::communication::Parameter::from($param.unwrap_or($default))
 	};
 
 	(
@@ -371,18 +369,20 @@ macro_rules! parse_operations {
 		@RAW($_bool:literal)
 		$param:ident: $_ty:ty
 	) => {
-		$crate::communication::ParameterPriv::new_raw($param).0
+		$crate::communication::Parameter::new($param)
 	};
 
 	(
 		@PARAM_CONVERT
 		$param:ident: $_ty:ty
 	) => {
-		$crate::communication::ParameterPriv::new($param).0
+		$crate::communication::Parameter::from($param)
 	};
 }
 
-pub(super) use {define_operations, parse_operations, replace_expr};
+pub(super) use define_operations;
+pub(super) use parse_operations;
+pub(super) use replace_expr;
 
 define_operations! {
     OPCODE_ENUM: BaseOperation;
@@ -997,7 +997,7 @@ define_operations! {
             parent: Option<ObjectHandle>
         ),
         data_direction: None,
-        response: response::Empty,
+        response: response::CopyObject,
         valid_error_codes: [
             OperationNotSupported,
             SessionNotOpen,
@@ -1271,7 +1271,7 @@ define_operations! {
     /// 	* This is only used if `prop` is omitted.
     /// * `depth` - Restrict the query to a certain depth in the folder hierarchy, down from the root `object`.
     /// 	* A value of `0` will query only the objects at the top (root) level, including the root `object`.
-    /// 	* A value of [`u16::MAX`] will query all objects in the hierarchy, rooted at `object`.
+    /// 	* A value of [`u32::MAX`] will query all objects in the hierarchy, rooted at `object`.
     pub struct GetObjectPropList {
         code: 0x9805,
         visible_parameters: (
@@ -1327,6 +1327,11 @@ define_operations! {
         ]
     }
 
+    /// Query for interdependent object properties
+    ///
+    /// ## Parameters
+    ///
+    /// * `format` - The object format for which independent property codes are desired
     pub struct GetInterdependentPropDesc {
         code: 0x9807,
         visible_parameters: (format: ObjectFormatCode),

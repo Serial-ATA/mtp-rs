@@ -1,4 +1,6 @@
 //! Abstractions over MTP objects
 
-pub mod info;
-pub mod types;
+mod info;
+pub use info::*;
+mod types;
+pub use types::*;

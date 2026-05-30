@@ -1,6 +1,6 @@
 use crate::communication::event::EventCode;
 use crate::communication::operation::Operation;
-use crate::object::types::{Array, ObjectFormatCode, PtpString};
+use crate::object::{Array, ObjectFormatCode, PtpString};
 
 use crate::device::properties::DevicePropertyCode;
 use deku::{DekuRead, DekuWrite};

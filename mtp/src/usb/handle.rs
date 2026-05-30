@@ -17,9 +17,7 @@ use bitflags::{Flag, Flags};
 use deku::ctx::Endian;
 use deku::reader::Reader;
 use deku::writer::Writer;
-use deku::{
-    DekuContainerRead, DekuContainerWrite, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter,
-};
+use deku::{DekuContainerRead, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 use futures::{Stream, StreamExt};
 use nusb::Endpoint;
 use nusb::transfer::{Buffer, Bulk, In, Interrupt, Out};
@@ -200,7 +198,7 @@ impl DeviceHandle {
             .endpoint::<Interrupt, In>(endpoints.interrupt)
             .map_err(|e| Arc::new(e.into()))?;
 
-        let (event_tx, event_rx) = tokio::sync::broadcast::channel(100);
+        let (event_tx, _event_rx) = tokio::sync::broadcast::channel(100);
         let event_tx_clone = event_tx.clone();
 
         // TODO: Actually determine the endianness of the device.
@@ -528,7 +526,7 @@ async fn get_data_from_responder(
 
     if data_phase.type_ == ContainerType::Response {
         if data_phase.code == CODE_OK {
-            todo!("Error, responder didn't provide data")
+            return Err(MtpError::Transport(Arc::new(UsbError::NoData)));
         }
 
         return Ok(data_phase);

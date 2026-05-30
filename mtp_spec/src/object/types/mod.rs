@@ -23,6 +23,66 @@ use alloc::vec::Vec;
 
 use deku::{DekuRead, DekuWrite};
 
+macro_rules! define_property_value_methods {
+    ($([$($tt:tt)*]),* $(,)?) => {
+        impl PropertyValue {
+            $(
+                define_property_value_methods!(@AS_METHOD $($tt)*);
+                define_property_value_methods!(@INTO_METHOD $($tt)*);
+            )*
+
+			/// Get a reference to the value if it matches the variant
+			pub fn as_string(&self) -> Option<&PtpString> {
+				match self {
+					Self::String(v) => Some(v),
+					_ => None,
+				}
+			}
+
+			/// Consume the value and return it if it matches the variant
+			pub fn into_string(self) -> Option<PtpString> {
+				match self {
+					Self::String(v) => Some(v),
+					_ => None,
+				}
+			}
+        }
+    };
+    (@AS_METHOD @REF_COPY $variant:ident, $_ref_ty:ty, $ty:ty) => {
+        paste::paste! {
+			/// Get a reference to the value if it matches the variant
+            pub fn [<as_ $variant>](&self) -> Option<$ty> {
+                match self {
+                    Self::[<$variant:camel>](v) => Some(*v),
+                    _ => None,
+                }
+            }
+        }
+    };
+    (@AS_METHOD $variant:ident, $ref_ty:ty, $ty:ty) => {
+        paste::paste! {
+			/// Get a reference to the value if it matches the variant
+            pub fn [<as_ $variant>](&self) -> Option<$ref_ty> {
+                match self {
+                    Self::[<$variant:camel>](v) => Some(v.as_slice()),
+                    _ => None,
+                }
+            }
+        }
+    };
+    (@INTO_METHOD $(@REF_COPY)? $variant:ident, $_ref_ty:ty, $ty:ty) => {
+        paste::paste! {
+			/// Consume the value and return it if it matches the variant
+            pub fn [<into_ $variant>](self) -> Option<$ty> {
+                match self {
+                    Self::[<$variant:camel>](v) => Some(v),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
 /// Possible values for [`ObjectProperty`]s
 ///
 /// [`ObjectProperty`]: properties::ObjectProperty
@@ -82,6 +142,31 @@ pub enum PropertyValue {
     /// Some other reserved or device-specific value
     #[deku(id_pat = "_")]
     Reserved(#[deku(read_all)] Vec<u8>),
+}
+
+define_property_value_methods! {
+    [undefined, &[u8], Vec<u8>],
+    [@REF_COPY i8, i8, i8],
+    [@REF_COPY u8, u8, u8],
+    [@REF_COPY i16, i16, i16],
+    [@REF_COPY u16, u16, u16],
+    [@REF_COPY i32, i32, i32],
+    [@REF_COPY u32, u32, u32],
+    [@REF_COPY i64, i64, i64],
+    [@REF_COPY u64, u64, u64],
+    [@REF_COPY i128, i128, i128],
+    [@REF_COPY u128, u128, u128],
+    [i8_array, &[i8], Array<i8>],
+    [u8_array, &[u8], Array<u8>],
+    [i16_array, &[i16], Array<i16>],
+    [u16_array, &[u16], Array<u16>],
+    [i32_array, &[i32], Array<i32>],
+    [u32_array, &[u32], Array<u32>],
+    [i64_array, &[i64], Array<i64>],
+    [u64_array, &[u64], Array<u64>],
+    [i128_array, &[i128], Array<i128>],
+    [u128_array, &[u128], Array<u128>],
+    [reserved, &[u8], Vec<u8>],
 }
 
 impl From<Vec<u8>> for PropertyValue {

@@ -1,10 +1,10 @@
 use super::{EnumerationForm, Form, GetSet, RangeForm};
-use crate::object::types::PropertyValue;
+use crate::object::PropertyValue;
 
 use alloc::format;
 use alloc::vec::Vec;
 
-use deku::ctx::Endian;
+use deku::ctx::{Endian, Order};
 use deku::no_std_io::{Cursor, Read, Seek, Write};
 use deku::prelude::Writer;
 use deku::{DekuEnumExt, DekuError, DekuReader, DekuWriter, deku_derive};
@@ -20,6 +20,7 @@ use deku::{DekuEnumExt, DekuError, DekuReader, DekuWriter, deku_derive};
 pub struct PropertyValueWrapper {
     #[deku(temp)]
     data_type: u16,
+    /// The wrapped value
     #[deku(ctx = "*data_type")]
     pub value: PropertyValue,
 }
@@ -56,7 +57,7 @@ impl deku::DekuContainerRead<'_> for DevicePropDesc {
     ) -> Result<(usize, Self), DekuError> {
         let reader = &mut deku::reader::Reader::new(reader);
         if bits_read != 0 {
-            reader.skip_bits(bits_read)?;
+            reader.skip_bits(bits_read, Order::Msb0)?;
         }
         let value = Self::from_reader_with_ctx(reader, ())?;
         Ok((reader.bits_read, value))
@@ -68,7 +69,7 @@ impl deku::DekuContainerRead<'_> for DevicePropDesc {
         let mut cursor = Cursor::new(bytes);
         let reader = &mut deku::reader::Reader::new(&mut cursor);
         if bits_read != 0 {
-            reader.skip_bits(bits_read)?;
+            reader.skip_bits(bits_read, Order::Msb0)?;
         }
         let value = Self::from_reader_with_ctx(reader, ())?;
         let read_whole_byte = (reader.bits_read % 8) == 0;

@@ -4,7 +4,7 @@ mod impls;
 pub use impls::*;
 
 use crate::error::SerializationError;
-use crate::object::types::ArrayEncodable;
+use crate::object::ArrayEncodable;
 
 use alloc::vec::Vec;
 

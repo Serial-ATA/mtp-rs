@@ -58,6 +58,12 @@ impl From<u32> for ObjectHandle {
     }
 }
 
+impl From<ObjectHandle> for u32 {
+    fn from(value: ObjectHandle) -> Self {
+        value.0
+    }
+}
+
 impl From<ObjectHandle> for Parameter {
     fn from(value: ObjectHandle) -> Self {
         Parameter::new(value.0)

@@ -1,5 +1,5 @@
 use crate::communication::Parameter;
-use crate::object::types::ArrayEncodable;
+use crate::object::ArrayEncodable;
 
 /// A storage identifier
 #[repr(transparent)]

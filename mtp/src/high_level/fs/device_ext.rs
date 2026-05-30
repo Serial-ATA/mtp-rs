@@ -1,14 +1,18 @@
 use super::{File, Folder};
+use std::collections::HashMap;
 
-use std::future::Future;
-
-use mtp_spec::communication::{SessionId, response};
+use mtp_spec::communication::response;
 use mtp_spec::device::session::MtpSession;
 use mtp_spec::device::{Device, PtpIo};
 use mtp_spec::error::MtpError;
-use mtp_spec::object::info::{ObjectInfo, ProtectionStatus};
-use mtp_spec::object::types::properties::ObjectSize;
-use mtp_spec::object::types::{Association, FolderType, ObjectFormatCode, PtpString};
+use mtp_spec::object::properties::ObjectSize;
+use mtp_spec::object::{
+    Association, FolderType, ObjectFormatCode, ObjectHandle, ObjectInfo, ProtectionStatus,
+    PtpString,
+};
+use std::future::Future;
+use std::sync::{RwLock, Weak};
+use tokio::sync::OnceCell;
 
 /// Filesystem extension trait for [`Device`]s
 ///
@@ -53,6 +57,7 @@ where
     {
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
+        let fs_context = parent.map(|p| p.fs.clone()).unwrap_or_else(Weak::new);
 
         // TODO: Getting invalid parameter when trying to create within a directory and InvalidObjectHandle when trying to create at root.
         //       Maybe samsung issue?
@@ -82,19 +87,19 @@ where
         let object_info = self.get_object_info(reserved_handle).await?.data.data;
 
         Ok(Folder {
-            id: reserved_handle,
+            fs: fs_context,
             storage_id,
-            parent: None,
+            id: reserved_handle,
+            parent_id: parent.map(|p| p.id).unwrap_or(ObjectHandle::NONE),
             name: object_info.filename.to_string(),
             format: ObjectFormatCode::Association,
             protection_status: ProtectionStatus::NoProtection,
             date_created: object_info.date_created,
             date_modified: object_info.date_modified,
-            children: vec![],
+            children: RwLock::new(HashMap::new()),
         })
     }
 
-    // TODO: Error if format is association
     async fn create<N>(
         &mut self,
         parent: Option<&Folder>,
@@ -105,8 +110,15 @@ where
     where
         N: AsRef<str> + Send,
     {
+        if format == ObjectFormatCode::Association {
+            return Err(MtpError::UnsupportedOperation);
+        }
+
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
+
+        // Grab the filesystem context from the parent, or create a detached one if root
+        let fs_context = parent.map(|p| p.fs.clone()).unwrap_or_else(Weak::new);
 
         let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
@@ -130,7 +142,7 @@ where
 
         let response::SendObjectInfo {
             storage_id,
-            parent,
+            parent: _,
             reserved_handle,
         } = response.data;
 
@@ -143,15 +155,17 @@ where
             .await?;
 
         Ok(File {
-            storage: storage_id,
+            fs: fs_context,
+            storage_id,
             id: reserved_handle,
-            parent: None, // TODO
+            parent_id: parent.map(|p| p.id).unwrap_or(ObjectHandle::NONE),
             name: object_info.filename.to_string(),
             size: size_response.data.data,
             format: object_info.object_format,
             protection_status: object_info.protection_status,
-            date_created: object_info.date_created,
             date_modified: object_info.date_modified,
+            date_created: object_info.date_created,
+            spool: OnceCell::new(),
         })
     }
 }

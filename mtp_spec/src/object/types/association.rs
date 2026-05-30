@@ -61,7 +61,7 @@ pub enum AssociationType {
 /// Note that all association types have an associated descriptor, which will be unused in most cases.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
-    id_type = "u16",
+    id_type = "u32",
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"

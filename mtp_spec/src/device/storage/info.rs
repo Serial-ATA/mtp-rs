@@ -1,5 +1,5 @@
 use crate::communication::Parameter;
-use crate::object::types::PtpString;
+use crate::object::PtpString;
 
 use deku::DekuRead;
 
