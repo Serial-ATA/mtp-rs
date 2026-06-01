@@ -1,13 +1,12 @@
+#![allow(missing_docs)]
+
 use clap::Parser;
-use dialoguer::Select;
-use dialoguer::theme::ColorfulTheme;
-use futures::executor::block_on_stream;
 use mtp::example_utils::{prompt_for_device, prompt_for_storage};
 use mtp::high_level::fs::FileSystem;
-use mtp_spec::device::Device;
-use mtp_spec::object::types::ObjectFormatCode;
+use mtp_spec::object::ObjectFormatCode;
 use std::ffi::OsStr;
 use std::path::PathBuf;
+use tracing::{error, info, warn};
 
 #[derive(clap::Parser, Debug)]
 struct Args {
@@ -19,10 +18,14 @@ struct Args {
 
 #[tokio::main]
 pub async fn main() -> mtp::usb::error::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let args = Args::parse();
 
     if !args.src.is_file() {
-        eprintln!("[ERROR] Input '{}' is not a file", args.src.display());
+        error!("Input '{}' is not a file", args.src.display());
         std::process::exit(1);
     }
 
@@ -30,12 +33,12 @@ pub async fn main() -> mtp::usb::error::Result<()> {
         .src
         .extension()
         .and_then(OsStr::to_str)
-        .and_then(ObjectFormatCode::from_extension)
+        .map(ObjectFormatCode::from_extension)
         .unwrap_or(ObjectFormatCode::Undefined);
     if format == ObjectFormatCode::Undefined {
-        eprintln!(
-            "[WARN] Unable to determine the file type by the path, the device may reject unknown \
-             file types"
+        warn!(
+            "Unable to determine the file type by the path, the device may reject unknown file \
+             types"
         );
     }
 
@@ -43,7 +46,7 @@ pub async fn main() -> mtp::usb::error::Result<()> {
     match std::fs::read(&args.src) {
         Ok(c) => file_contents = c,
         Err(e) => {
-            eprintln!("[ERROR] Failed to read '{}': {e}", args.src.display());
+            error!("Failed to read '{}': {e}", args.src.display());
             std::process::exit(1);
         },
     }
@@ -52,7 +55,7 @@ pub async fn main() -> mtp::usb::error::Result<()> {
     match prompt_for_device().await {
         Ok(d) => device = d,
         Err(e) => {
-            eprintln!("[ERROR] Failed to select device: {e}");
+            error!("Failed to select device: {e}");
             return Err(e);
         },
     }
@@ -60,29 +63,27 @@ pub async fn main() -> mtp::usb::error::Result<()> {
     let mut session = match device.open().await {
         Ok(val) => val,
         Err(e) => {
-            eprintln!("[ERROR] Failed to open device");
+            error!("Failed to open device");
             return Err(e);
         },
     };
 
     let storage = prompt_for_storage(&mut session).await?;
-    let mut fs = FileSystem::load(&mut session, storage.id).await?;
+    info!("Loading filesystem...");
+    let (fs, _fs_events) = FileSystem::load(session, storage.id).await?;
 
     let file;
-    match fs
-        .create(&mut session, args.dest, format, file_contents)
-        .await
-    {
+    match fs.create(args.dest, format, file_contents).await {
         Ok(f) => file = f,
         Err(e) => {
-            eprintln!("[ERROR] Failed to create object on device: {e}");
+            error!("Failed to create object on device: {e}");
             std::process::exit(1);
         },
     }
 
-    eprintln!(
-        "[INFO] File successfully created on device (handle: {})",
-        Into::<u32>::into(file.id)
+    info!(
+        "File successfully created on device (handle: {:#X})",
+        Into::<u32>::into(file.id())
     );
     Ok(())
 }

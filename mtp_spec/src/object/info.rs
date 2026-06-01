@@ -79,8 +79,6 @@ pub struct Thumbnail {
     pub width: u32,
     /// The height in pixels
     pub height: u32,
-    /// The bit depth of the image
-    pub bit_depth: u32,
 }
 
 impl Thumbnail {
@@ -89,7 +87,6 @@ impl Thumbnail {
         compressed_size: 0,
         width: 0,
         height: 0,
-        bit_depth: 0,
     };
 
     #[allow(clippy::unnecessary_wraps)] // Used in parsing code, results are expected
@@ -98,11 +95,43 @@ impl Thumbnail {
             && thumbnail.compressed_size == 0
             && thumbnail.width == 0
             && thumbnail.height == 0
-            && thumbnail.bit_depth == 0
         {
             Ok(None)
         } else {
             Ok(Some(thumbnail))
+        }
+    }
+}
+
+/// PTP-compatible details for image objects
+#[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
+#[deku(
+    endian = "endian",
+    ctx = "endian: deku::ctx::Endian",
+    ctx_default = "deku::ctx::Endian::Big"
+)]
+pub struct ImageDetails {
+    /// The width in pixels
+    pub width: u32,
+    /// The height in pixels
+    pub height: u32,
+    /// The bit depth of the image
+    pub bit_depth: u32,
+}
+
+impl ImageDetails {
+    const EMPTY: Self = Self {
+        width: 0,
+        height: 0,
+        bit_depth: 0,
+    };
+
+    #[allow(clippy::unnecessary_wraps)] // Used in parsing code, results are expected
+    fn parse_optional(details: ImageDetails) -> Result<Option<ImageDetails>, DekuError> {
+        if details.width == 0 && details.height == 0 && details.bit_depth == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(details))
         }
     }
 }
@@ -125,6 +154,10 @@ pub struct ObjectInfo {
     ///
     /// This field will most likely be unused by responders.
     pub thumbnail: Option<Thumbnail>,
+    /// PTP-compatible information for image objects
+    ///
+    /// This field will most likely be unused by responders.
+    pub image_details: Option<ImageDetails>,
     /// The parent of this object, if it exists in a hierarchy
     pub parent_object: Option<ObjectHandle>,
     /// The association type, if this is an association
@@ -166,6 +199,7 @@ impl DekuReader<'_, Endian> for ObjectInfo {
             + size_of::<ProtectionStatus>()
             + size_of::<u32>()
             + size_of::<Thumbnail>()
+            + size_of::<ImageDetails>()
             + size_of::<ObjectHandle>()
             + size_of::<Association>()
             + size_of::<u32>();
@@ -197,7 +231,7 @@ impl DekuReader<'_, Endian> for ObjectInfo {
 
         let mut reader = Reader::new(Cursor::new(rest));
         if is_64_bit_compressed_size {
-            log::warn!("Received a 64 bit compressed size, discarding the next 4 bytes");
+            tracing::warn!("Received a 64 bit compressed size, discarding the next 4 bytes");
             reader
                 .seek(SeekFrom::Current(4))
                 .map_err(|e| DekuError::Io(e.kind()))?;
@@ -205,6 +239,8 @@ impl DekuReader<'_, Endian> for ObjectInfo {
 
         let thumbnail =
             Thumbnail::parse_optional(Thumbnail::from_reader_with_ctx(&mut reader, ctx)?)?;
+        let image_details =
+            ImageDetails::parse_optional(ImageDetails::from_reader_with_ctx(&mut reader, ctx)?)?;
         let parent_object =
             ObjectHandle::parse_optional(ObjectHandle::from_reader_with_ctx(&mut reader, ctx)?)?;
 
@@ -227,6 +263,7 @@ impl DekuReader<'_, Endian> for ObjectInfo {
             protection_status,
             compressed_size,
             thumbnail,
+            image_details,
             parent_object,
             association,
             sequence_number,
@@ -261,6 +298,10 @@ impl DekuWriter<Endian> for ObjectInfo {
         match &self.thumbnail {
             Some(thumbnail) => thumbnail.to_writer(writer, ctx)?,
             None => Thumbnail::EMPTY.to_writer(writer, ctx)?,
+        }
+        match &self.image_details {
+            Some(details) => details.to_writer(writer, ctx)?,
+            None => ImageDetails::EMPTY.to_writer(writer, ctx)?,
         }
 
         self.parent_object

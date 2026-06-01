@@ -61,7 +61,7 @@ pub enum AssociationType {
 /// Note that all association types have an associated descriptor, which will be unused in most cases.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuRead, DekuWrite)]
 #[deku(
-    id_type = "u32",
+    id_type = "u16",
     endian = "endian",
     ctx = "endian: deku::ctx::Endian",
     ctx_default = "deku::ctx::Endian::Big"
@@ -86,11 +86,11 @@ pub enum Association {
     AncillaryData { unused: u32 },
     /// All other values with bit 15 set to 0
     #[deku(id_pat = "t if t & 0x8000 == 0")]
-    Reserved { unused: u32 },
+    Reserved { id: u16, unused: u32 },
     /// All other values with bit 15 set to 1 and bit 14 set to 0
     #[deku(id_pat = "t if t & 0xC000 == 0x8000")]
-    VendorDefined { undefined: u32 },
+    VendorDefined { id: u16, undefined: u32 },
     /// All other values with bit 15 set to 1 and bit 14 set to 1
     #[deku(id_pat = "_")]
-    Mtp { undefined: u32 },
+    Mtp { id: u16, undefined: u32 },
 }

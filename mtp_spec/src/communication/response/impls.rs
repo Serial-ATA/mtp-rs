@@ -135,14 +135,6 @@ define_response! {
 }
 
 define_response! {
-    /// Response to the [`SendObject`] operation.
-    pub struct SendObject[][] {
-        #[deku(read_all)]
-        data: Vec<u8>,
-    }
-}
-
-define_response! {
     /// Response to the [`GetDevicePropDesc`] operation.
     pub struct GetDevicePropDesc[][] {
         data: DevicePropDesc,

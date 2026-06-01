@@ -15,8 +15,9 @@ mtp_spec.workspace = true
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-deku = { workspace = true, features = ["std", "alloc", "logging"] }
 log.workspace = true
+deku = { workspace = true, features = ["std", "alloc", "logging"] }
+tracing.workspace = true
 futures.workspace = true
 
 # USB
@@ -28,6 +29,7 @@ tempfile = { workspace = true, optional = true }
 
 # Examples
 dialoguer = { workspace = true, optional = true }
+tracing-subscriber = "0.3.23"
 
 [dev-dependencies]
 test-log.workspace = true

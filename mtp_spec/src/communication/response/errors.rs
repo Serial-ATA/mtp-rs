@@ -122,7 +122,7 @@ macro_rules! define_error_responses {
 					$(
 					Self::$name => write!(
 						f,
-						"Error (code = {}): {}",
+						"Error (code = {:#X}): {}",
 						$code, $error_msg
 					),
 					)*

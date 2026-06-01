@@ -8,37 +8,31 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{Config, MountOption, SessionACL};
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
-use mtp::device::PtpIo;
 use mtp::example_utils::{prompt_for_device, prompt_for_storages};
 use mtp::usb::error::Error;
-use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
-    let mount_point = Path::new("/home/alex/mountss");
+    let mount_point = Path::new("/home/alex/mountsss");
 
     let device = prompt_for_device().await?;
 
     let mut session = match device.open().await {
         Ok(val) => val,
         Err(e) => {
-            log::error!("Failed to open device");
+            tracing::error!("Failed to open device");
             return Err(e);
         },
     };
 
     let storages = prompt_for_storages(&mut session).await?;
 
-    let mut events = session.event_stream();
-
-    let session = Arc::new(Mutex::new(session));
-
     let mut storage_paths = Vec::with_capacity(storages.len());
-    let mut sessions = FuturesUnordered::new();
+    let mut sessions = Vec::new();
     for storage in storages {
         let name = storage
             .description
@@ -49,7 +43,7 @@ async fn main() -> Result<(), Error> {
         let target = mount_point.join(&name);
         if !target.exists() {
             if let Err(e) = std::fs::create_dir_all(&target) {
-                log::error!(
+                tracing::error!(
                     "Failed to create mountpoint for storage `{name}` at {}: {e}",
                     target.display()
                 );
@@ -60,56 +54,31 @@ async fn main() -> Result<(), Error> {
         storage_paths.push(target.clone());
 
         let mut config = Config::default();
-        config.mount_options = vec![MountOption::Sync];
+        config.mount_options = vec![MountOption::Sync, MountOption::DefaultPermissions];
         config.acl = SessionACL::All;
 
-        sessions.push(tokio::task::spawn(async move {
-            if let Err(e) = fuser::mount2(fs, target, &config) {
-                log::error!("Mount failed: {e}");
-            }
-        }));
+        match fuser::spawn_mount2(fs, target, &config) {
+            Ok(bg_session) => sessions.push(bg_session),
+            Err(e) => {
+                tracing::error!("Mount failed: {e}");
+                return Err(Error::Io(Arc::new(e)));
+            },
+        }
     }
 
     loop {
         tokio::select! {
-            _ = sessions.next() => {
-                sessions.clear();
-
-                for path in &storage_paths {
-                    if let Err(e) = std::fs::remove_dir_all(path) {
-                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
-                    }
-                }
-
-                std::process::exit(1);
-            },
             _ = tokio::signal::ctrl_c() => {
-                log::info!("Shutting down");
+                tracing::info!("Shutting down");
                 sessions.clear();
 
                 for path in &storage_paths {
-                    if let Err(e) = std::fs::remove_dir_all(path) {
-                        log::error!("Failed to remove mountpoint `{}`: {e}", path.display());
+                    if let Err(e) = std::fs::remove_dir(path) {
+                        tracing::error!("Failed to remove mountpoint `{}`: {e}", path.display());
                     }
                 }
-            },
-            event = events.next() => {
-                match event {
-                    Some(ev) => {
-                        match ev {
-                            Ok(ev) => {
-                                log::info!("Event received: {:?}", ev);
-                            },
-                            Err(e) => {
-                                log::error!("Failed to receive event: {e}");
-                            }
-                        }
-                    },
-                    None => {
-                        log::error!("Event stream died, exiting...");
-                        break;
-                    },
-                }
+
+                break;
             }
         }
     }

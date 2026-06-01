@@ -5,7 +5,7 @@ use crate::communication::operation::android::{
 };
 use crate::communication::response::Response;
 use crate::device::session::MtpSession;
-use crate::device::{Device, PtpIo};
+use crate::device::{Device, OperationBundle, PtpIo};
 use crate::error::MtpError;
 use crate::object::ObjectHandle;
 
@@ -16,7 +16,7 @@ where
 {
     /// Send a [`GetPartialObject64`] operation
     fn get_partial_object_64(
-        &mut self,
+        &self,
         object: ObjectHandle,
         offset: u64,
         size: u32,
@@ -24,7 +24,7 @@ where
 
     /// Send a [`SendPartialObject`] operation
     fn send_partial_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         offset: u64,
         size: u32,
@@ -33,20 +33,20 @@ where
 
     /// Send a [`TruncateObject`] operation
     fn truncate_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         size: u64,
     ) -> impl Future<Output = Response<TruncateObject, MtpError<<D as PtpIo>::TransportError>>> + Send;
 
     /// Send a [`BeginEditObject`] operation
     fn begin_edit_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> impl Future<Output = Response<BeginEditObject, MtpError<<D as PtpIo>::TransportError>>> + Send;
 
     /// Send an [`EndEditObject`] operation
     fn end_edit_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> impl Future<Output = Response<EndEditObject, MtpError<<D as PtpIo>::TransportError>>> + Send;
 }
@@ -57,7 +57,7 @@ where
 {
     /// Send a [`GetPartialObject64`] operation
     async fn get_partial_object_64(
-        &mut self,
+        &self,
         object: ObjectHandle,
         offset: u64,
         size: u32,
@@ -66,16 +66,16 @@ where
         let low = (offset >> 32) as u32;
         let transaction_id = self.next_transaction_id();
         let session_id = self.id();
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetPartialObject64::new(transaction_id, session_id, object, high, low, size),
             None,
-        )
+        )?)
         .await
     }
 
     /// Send a [`SendPartialObject`] operation
     async fn send_partial_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         offset: u64,
         size: u32,
@@ -86,7 +86,7 @@ where
         let data = data.into();
         let transaction_id = self.next_transaction_id();
         let session_id = self.id();
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SendPartialObject::new(
                 transaction_id,
                 session_id,
@@ -96,13 +96,13 @@ where
                 size,
             ),
             Some(data),
-        )
+        )?)
         .await
     }
 
     /// Send a [`TruncateObject`] operation
     async fn truncate_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         size: u64,
     ) -> Response<TruncateObject, MtpError<<D as PtpIo>::TransportError>> {
@@ -110,34 +110,37 @@ where
         let low = (size >> 32) as u32;
         let transaction_id = self.next_transaction_id();
         let session_id = self.id();
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             TruncateObject::new(transaction_id, session_id, object, high, low),
             None,
-        )
+        )?)
         .await
     }
 
     /// Send a [`BeginEditObject`] operation
     async fn begin_edit_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<BeginEditObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id();
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             BeginEditObject::new(transaction_id, session_id, object),
             None,
-        )
+        )?)
         .await
     }
 
     async fn end_edit_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<EndEditObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id();
-        self.send_operation(EndEditObject::new(transaction_id, session_id, object), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            EndEditObject::new(transaction_id, session_id, object),
+            None,
+        )?)
+        .await
     }
 }

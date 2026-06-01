@@ -28,7 +28,7 @@ pub mod storage;
 /// [`operations`] directly.
 ///
 /// [`operations`]: crate::communication::operation
-pub trait Device: PtpIo {
+pub trait Device: PtpIo + Sync {
     // === Property checking ===
 
     /// Get the [`DeviceFlags`] for this device
@@ -42,7 +42,7 @@ pub trait Device: PtpIo {
     ///
     /// [`AndroidDevice`]: extensions::android::AndroidDevice
     fn is_android(
-        &mut self,
+        &self,
     ) -> impl Future<Output = Result<bool, MtpError<<Self as PtpIo>::TransportError>>> {
         async move {
             let response = self.get_device_info().await?;
@@ -58,14 +58,14 @@ pub trait Device: PtpIo {
 
     /// Send a [`GetDeviceInfo`] operation
     fn get_device_info(
-        &mut self,
+        &self,
     ) -> impl Future<Output = Response<GetDeviceInfo, MtpError<<Self as PtpIo>::TransportError>>> + Send
     {
         async move {
-            self.send_operation(
+            self.send_operation(OperationBundle::new(
                 GetDeviceInfo::new(TransactionId::NONE, SessionId::NONE),
                 None,
-            )
+            )?)
             .await
         }
     }
@@ -76,7 +76,7 @@ pub trait Device: PtpIo {
     ///
     /// [`MtpSession::open()`]: session::MtpSession
     fn open_session(
-        &mut self,
+        &self,
     ) -> impl Future<
         Output = Result<
             (crate::communication::response::Empty, SessionId),
@@ -86,9 +86,12 @@ pub trait Device: PtpIo {
         async move {
             let transaction_id = self.next_transaction_id();
             let session_id = self.next_session_id();
-            self.send_operation(OpenSession::new(transaction_id, session_id), None)
-                .await
-                .map(|res| (res.data, session_id))
+            self.send_operation(OperationBundle::new(
+                OpenSession::new(transaction_id, session_id),
+                None,
+            )?)
+            .await
+            .map(|res| (res.data, session_id))
         }
     }
 }

@@ -15,10 +15,8 @@ mtp = { workspace = true, features = ["usb", "examples"] }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync"] }
 fuser.workspace = true
-futures.workspace = true
 
 # User interaction
-env_logger.workspace = true
-log.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 indicatif.workspace = true
-dialoguer.workspace = true

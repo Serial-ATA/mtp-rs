@@ -15,14 +15,15 @@ use crate::communication::response::errors::OperationError;
 use crate::communication::{SessionId, TransactionId};
 use crate::device::properties::{DeviceProperty, GetSet};
 use crate::device::storage::{FilesystemType, StorageId};
-use crate::device::{Device, PtpIo, properties};
+use crate::device::{Device, OperationBundle, PtpIo, properties};
 use crate::error::MtpError;
 use crate::object::properties::{ObjectPropList, ObjectProperty, ObjectPropertyCode};
 use crate::object::{
     Array, ObjectFormatCode, ObjectHandle, ObjectInfo, ProtectionStatus, PtpString,
 };
 
-use std::ops::{Deref, DerefMut};
+use alloc::sync::Arc;
+use core::ops::Deref;
 
 use deku::DekuWriter;
 use deku::no_std_io::Cursor;
@@ -31,9 +32,20 @@ use deku::prelude::Writer;
 /// An active MTP session
 ///
 /// NOTE: Operations that don't require an open session are available on [`Device`] directly.
+///
+/// This type is cheaply cloneable.
 pub struct MtpSession<D> {
     id: SessionId,
-    device: D,
+    device: Arc<D>,
+}
+
+impl<D> Clone for MtpSession<D> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            device: Arc::clone(&self.device),
+        }
+    }
 }
 
 impl<D> MtpSession<D> {
@@ -56,17 +68,17 @@ impl<D: Device> MtpSession<D> {
     /// # Errors
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::open_session()`].
-    pub async fn open(mut device: D) -> Result<Self, MtpError<<D as PtpIo>::TransportError>> {
+    pub async fn open(device: D) -> Result<Self, MtpError<<D as PtpIo>::TransportError>> {
         match device.open_session().await {
             Ok((_res, session_id)) => Ok(Self {
                 id: session_id,
-                device,
+                device: Arc::new(device),
             }),
             Err(MtpError::Protocol(OperationError::SessionAlreadyOpen(e))) => {
-                log::warn!("Session {} already open", e.session_id);
+                tracing::warn!("Session {} already open", e.session_id);
                 Ok(Self {
                     id: e.session_id,
-                    device,
+                    device: Arc::new(device),
                 })
             },
             Err(e) => Err(e),
@@ -90,7 +102,7 @@ where
     /// # Errors
     ///
     /// See [`MtpSession::get_device_prop_value()`]
-    pub async fn battery_level(&mut self) -> Result<u8, MtpError<<D as PtpIo>::TransportError>> {
+    pub async fn battery_level(&self) -> Result<u8, MtpError<<D as PtpIo>::TransportError>> {
         let prop = self
             .get_device_prop_value::<properties::BatteryLevel>()
             .await?;
@@ -102,9 +114,7 @@ where
     /// # Errors
     ///
     /// See [`MtpSession::get_device_prop_value()`]
-    pub async fn friendly_name(
-        &mut self,
-    ) -> Result<PtpString, MtpError<<D as PtpIo>::TransportError>> {
+    pub async fn friendly_name(&self) -> Result<PtpString, MtpError<<D as PtpIo>::TransportError>> {
         let prop = self
             .get_device_prop_value::<properties::DeviceFriendlyName>()
             .await?;
@@ -117,7 +127,7 @@ where
     ///
     /// See [`MtpSession::get_object_prop_desc()`]
     pub async fn object_property_can_be_modified<T>(
-        &mut self,
+        &self,
         format: ObjectFormatCode,
     ) -> Result<bool, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -136,7 +146,7 @@ where
     ///
     /// See [`MtpSession::get_object_prop_desc()`]
     pub async fn device_property_can_be_modified<T>(
-        &mut self,
+        &self,
     ) -> Result<bool, MtpError<<D as PtpIo>::TransportError>>
     where
         T: DeviceProperty,
@@ -153,12 +163,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn close_session(
-        &mut self,
+        &self,
     ) -> Response<CloseSession, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(CloseSession::new(transaction_id, session_id), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            CloseSession::new(transaction_id, session_id),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`GetStorageIDs`] operation
@@ -167,12 +180,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_storage_ids(
-        &mut self,
+        &self,
     ) -> Response<GetStorageIDs, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(GetStorageIDs::new(transaction_id, session_id), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            GetStorageIDs::new(transaction_id, session_id),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`GetStorageInfo`] operation
@@ -181,15 +197,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_storage_info(
-        &mut self,
+        &self,
         storage: StorageId,
     ) -> Response<GetStorageInfo, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetStorageInfo::new(transaction_id, session_id, storage),
             None,
-        )
+        )?)
         .await
     }
 
@@ -199,17 +215,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_num_objects(
-        &mut self,
+        &self,
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
     ) -> Response<GetNumObjects, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetNumObjects::new(transaction_id, session_id, storage, format, parent),
             None,
-        )
+        )?)
         .await
     }
 
@@ -219,17 +235,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_handles(
-        &mut self,
+        &self,
         storage: StorageId,
         format: Option<ObjectFormatCode>,
         parent: Option<ObjectHandle>,
     ) -> Response<GetObjectHandles, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectHandles::new(transaction_id, session_id, storage, format, parent),
             None,
-        )
+        )?)
         .await
     }
 
@@ -239,13 +255,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_info(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<GetObjectInfo, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(GetObjectInfo::new(transaction_id, session_id, object), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            GetObjectInfo::new(transaction_id, session_id, object),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`GetObject`] operation
@@ -254,13 +273,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<GetObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(GetObject::new(transaction_id, session_id, object), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            GetObject::new(transaction_id, session_id, object),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`GetThumb`] operation
@@ -269,13 +291,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_thumb(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<GetThumb, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(GetThumb::new(transaction_id, session_id, object), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            GetThumb::new(transaction_id, session_id, object),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`DeleteObject`] operation
@@ -284,16 +309,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn delete_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         format: Option<ObjectFormatCode>,
     ) -> Response<DeleteObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             DeleteObject::new(transaction_id, session_id, object, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -303,7 +328,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object_info(
-        &mut self,
+        &self,
         object_info: ObjectInfo,
     ) -> Response<SendObjectInfo, MtpError<<D as PtpIo>::TransportError>> {
         let storage = if object_info.storage_id == StorageId::DEFAULT_STORE {
@@ -321,10 +346,10 @@ where
 
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SendObjectInfo::new(transaction_id, session_id, storage, parent),
             Some(encoded_object_info.into_inner()),
-        )
+        )?)
         .await
     }
 
@@ -334,7 +359,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object<T>(
-        &mut self,
+        &self,
         object_data: T,
     ) -> Response<SendObject, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -342,10 +367,10 @@ where
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SendObject::new(transaction_id, session_id),
             Some(object_data.into()),
-        )
+        )?)
         .await
     }
 
@@ -355,16 +380,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn initiate_capture(
-        &mut self,
+        &self,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
     ) -> Response<InitiateCapture, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             InitiateCapture::new(transaction_id, session_id, storage, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -374,16 +399,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn format_store(
-        &mut self,
+        &self,
         storage: StorageId,
         fs: Option<FilesystemType>,
     ) -> Response<FormatStore, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             FormatStore::new(transaction_id, session_id, storage, fs),
             None,
-        )
+        )?)
         .await
     }
 
@@ -393,12 +418,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn reset_device(
-        &mut self,
+        &self,
     ) -> Response<ResetDevice, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(ResetDevice::new(transaction_id, session_id), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            ResetDevice::new(transaction_id, session_id),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`SelfTest`] operation
@@ -407,13 +435,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn self_test(
-        &mut self,
+        &self,
         test_type: SelfTestType,
     ) -> Response<SelfTest, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(SelfTest::new(transaction_id, session_id, test_type), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            SelfTest::new(transaction_id, session_id, test_type),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`SetObjectProtection`] operation
@@ -422,16 +453,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_protection(
-        &mut self,
+        &self,
         object: ObjectHandle,
         status: ProtectionStatus,
     ) -> Response<SetObjectProtection, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SetObjectProtection::new(transaction_id, session_id, object, status),
             None,
-        )
+        )?)
         .await
     }
 
@@ -440,13 +471,14 @@ where
     /// # Errors
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
-    pub async fn power_down(
-        &mut self,
-    ) -> Response<PowerDown, MtpError<<D as PtpIo>::TransportError>> {
+    pub async fn power_down(&self) -> Response<PowerDown, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(PowerDown::new(transaction_id, session_id), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            PowerDown::new(transaction_id, session_id),
+            None,
+        )?)
+        .await
     }
 
     /// Send a [`GetDevicePropDesc`] operation
@@ -455,17 +487,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_device_prop_desc<T>(
-        &mut self,
+        &self,
     ) -> Response<GetDevicePropDesc<T>, MtpError<<D as PtpIo>::TransportError>>
     where
         T: DeviceProperty,
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetDevicePropDesc::<T>::new(transaction_id, session_id),
             None,
-        )
+        )?)
         .await
     }
 
@@ -475,17 +507,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_device_prop_value<T>(
-        &mut self,
+        &self,
     ) -> Response<GetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
     where
         T: DeviceProperty,
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetDevicePropValue::<T>::new(transaction_id, session_id),
             None,
-        )
+        )?)
         .await
     }
 
@@ -495,7 +527,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_device_prop_value<T>(
-        &mut self,
+        &self,
         value: Vec<u8>,
     ) -> Response<SetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -503,10 +535,10 @@ where
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SetDevicePropValue::<T>::new(transaction_id, session_id),
             Some(value),
-        )
+        )?)
         .await
     }
 
@@ -516,17 +548,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn reset_device_prop_value<T>(
-        &mut self,
+        &self,
     ) -> Response<ResetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
     where
         T: DeviceProperty,
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             ResetDevicePropValue::<T>::new(transaction_id, session_id),
             None,
-        )
+        )?)
         .await
     }
 
@@ -536,15 +568,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn terminate_open_capture(
-        &mut self,
+        &self,
         transaction_id: TransactionId,
     ) -> Response<TerminateOpenCapture, MtpError<<D as PtpIo>::TransportError>> {
         let next_transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             TerminateOpenCapture::new(next_transaction_id, session_id, transaction_id),
             None,
-        )
+        )?)
         .await
     }
 
@@ -554,17 +586,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn move_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
     ) -> Response<MoveObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             MoveObject::new(transaction_id, session_id, object, storage, parent),
             None,
-        )
+        )?)
         .await
     }
 
@@ -574,17 +606,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn copy_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         storage: StorageId,
         parent: Option<ObjectHandle>,
     ) -> Response<CopyObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             CopyObject::new(transaction_id, session_id, object, storage, parent),
             None,
-        )
+        )?)
         .await
     }
 
@@ -594,17 +626,17 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_partial_object(
-        &mut self,
+        &self,
         object: ObjectHandle,
         offset: u32,
         len: u32,
     ) -> Response<GetPartialObject, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetPartialObject::new(transaction_id, session_id, object, offset, len),
             None,
-        )
+        )?)
         .await
     }
 
@@ -614,16 +646,16 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn initiate_open_capture(
-        &mut self,
+        &self,
         storage: Option<StorageId>,
         format: Option<ObjectFormatCode>,
     ) -> Response<InitiateOpenCapture, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             InitiateOpenCapture::new(transaction_id, session_id, storage, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -633,15 +665,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_props_supported(
-        &mut self,
+        &self,
         format: ObjectFormatCode,
     ) -> Response<GetObjectPropsSupported, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectPropsSupported::new(transaction_id, session_id, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -651,7 +683,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_desc<T>(
-        &mut self,
+        &self,
         format: ObjectFormatCode,
     ) -> Response<GetObjectPropDesc<T>, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -659,10 +691,10 @@ where
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectPropDesc::<T>::new(transaction_id, session_id, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -672,7 +704,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_value<T>(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<GetObjectPropValue<T>, MtpError<<D as PtpIo>::TransportError>>
     where
@@ -680,10 +712,10 @@ where
     {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectPropValue::<T>::new(transaction_id, session_id, object),
             None,
-        )
+        )?)
         .await
     }
 
@@ -693,7 +725,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_prop_value<T>(
-        &mut self,
+        &self,
         object: ObjectHandle,
         value: T::DataType,
     ) -> Response<SetObjectPropValue<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -708,10 +740,10 @@ where
 
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SetObjectPropValue::<T>::new(transaction_id, session_id, object),
             Some(encoded_value.into_inner()),
-        )
+        )?)
         .await
     }
 
@@ -721,15 +753,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_references(
-        &mut self,
+        &self,
         object: ObjectHandle,
     ) -> Response<GetObjectReferences, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectReferences::new(transaction_id, session_id, object),
             None,
-        )
+        )?)
         .await
     }
 
@@ -739,7 +771,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_references(
-        &mut self,
+        &self,
         object: ObjectHandle,
         references: Array<ObjectHandle>,
     ) -> Response<SetObjectReferences, MtpError<<D as PtpIo>::TransportError>> {
@@ -751,10 +783,10 @@ where
 
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SetObjectReferences::new(transaction_id, session_id, object),
             Some(encoded_references.into_inner()),
-        )
+        )?)
         .await
     }
 
@@ -763,14 +795,14 @@ where
     /// # Errors
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
-    pub async fn skip(
-        &mut self,
-        skip: u32,
-    ) -> Response<Skip, MtpError<<D as PtpIo>::TransportError>> {
+    pub async fn skip(&self, skip: u32) -> Response<Skip, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(Skip::new(transaction_id, session_id, skip), None)
-            .await
+        self.send_operation(OperationBundle::new(
+            Skip::new(transaction_id, session_id, skip),
+            None,
+        )?)
+        .await
     }
 
     // == Enhanced Operations ==
@@ -783,7 +815,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_object_prop_list(
-        &mut self,
+        &self,
         object: ObjectHandle,
         format: Option<ObjectFormatCode>,
         property: Option<ObjectPropertyCode>,
@@ -792,7 +824,7 @@ where
     ) -> Response<GetObjectPropList, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetObjectPropList::new(
                 transaction_id,
                 session_id,
@@ -803,7 +835,7 @@ where
                 depth.unwrap_or(0),
             ),
             None,
-        )
+        )?)
         .await
     }
 
@@ -813,7 +845,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn set_object_prop_list(
-        &mut self,
+        &self,
         props: ObjectPropList,
     ) -> Response<SetObjectPropList, MtpError<<D as PtpIo>::TransportError>> {
         let mut object_prop_list = Cursor::new(Vec::new());
@@ -822,10 +854,10 @@ where
 
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SetObjectPropList::new(transaction_id, session_id),
             Some(object_prop_list.into_inner()),
-        )
+        )?)
         .await
     }
 
@@ -835,15 +867,15 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn get_interdependent_prop_desc(
-        &mut self,
+        &self,
         format: ObjectFormatCode,
     ) -> Response<GetInterdependentPropDesc, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             GetInterdependentPropDesc::new(transaction_id, session_id, format),
             None,
-        )
+        )?)
         .await
     }
 
@@ -853,7 +885,7 @@ where
     ///
     /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
     pub async fn send_object_prop_list(
-        &mut self,
+        &self,
         destination: Option<StorageId>,
         parent: Option<ObjectHandle>,
         format: ObjectFormatCode,
@@ -869,7 +901,7 @@ where
 
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
-        self.send_operation(
+        self.send_operation(OperationBundle::new(
             SendObjectPropList::new(
                 transaction_id,
                 session_id,
@@ -880,7 +912,7 @@ where
                 low,
             ),
             Some(object_prop_list.into_inner()),
-        )
+        )?)
         .await
     }
 }
@@ -890,11 +922,5 @@ impl<D> Deref for MtpSession<D> {
 
     fn deref(&self) -> &Self::Target {
         &self.device
-    }
-}
-
-impl<D> DerefMut for MtpSession<D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.device
     }
 }

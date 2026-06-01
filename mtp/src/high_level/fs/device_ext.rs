@@ -11,8 +11,8 @@ use mtp_spec::object::{
     PtpString,
 };
 use std::future::Future;
-use std::sync::{RwLock, Weak};
-use tokio::sync::OnceCell;
+use std::sync::Weak;
+use tokio::sync::{OnceCell, RwLock};
 
 /// Filesystem extension trait for [`Device`]s
 ///
@@ -24,21 +24,21 @@ where
 {
     /// Create a new directory on the target device
     fn mkdir<N>(
-        &mut self,
-        parent: Option<&Folder>,
+        &self,
+        parent: Option<&Folder<D>>,
         name: N,
-    ) -> impl Future<Output = Result<Folder, MtpError<<D as PtpIo>::TransportError>>> + Send
+    ) -> impl Future<Output = Result<Folder<D>, MtpError<<D as PtpIo>::TransportError>>> + Send
     where
         N: AsRef<str> + Send;
 
     /// Create a new file with the given `data` on the target device
     fn create<N>(
-        &mut self,
-        parent: Option<&Folder>,
+        &self,
+        parent: Option<&Folder<D>>,
         name: N,
         format: ObjectFormatCode,
         data: Vec<u8>,
-    ) -> impl Future<Output = Result<File, MtpError<<D as PtpIo>::TransportError>>> + Send
+    ) -> impl Future<Output = Result<File<D>, MtpError<<D as PtpIo>::TransportError>>> + Send
     where
         N: AsRef<str> + Send;
 }
@@ -48,10 +48,10 @@ where
     D: Device,
 {
     async fn mkdir<N>(
-        &mut self,
-        parent: Option<&Folder>,
+        &self,
+        parent: Option<&Folder<D>>,
         name: N,
-    ) -> Result<Folder, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<Folder<D>, MtpError<<D as PtpIo>::TransportError>>
     where
         N: AsRef<str> + Send,
     {
@@ -101,12 +101,12 @@ where
     }
 
     async fn create<N>(
-        &mut self,
-        parent: Option<&Folder>,
+        &self,
+        parent: Option<&Folder<D>>,
         name: N,
         format: ObjectFormatCode,
         data: Vec<u8>,
-    ) -> Result<File, MtpError<<D as PtpIo>::TransportError>>
+    ) -> Result<File<D>, MtpError<<D as PtpIo>::TransportError>>
     where
         N: AsRef<str> + Send,
     {
@@ -133,6 +133,7 @@ where
                 // Not required for SendObjectInfo
                 protection_status: ProtectionStatus::default(),
                 thumbnail: None,
+                image_details: None,
                 sequence_number: 0,
                 date_created: None,
                 date_modified: None,

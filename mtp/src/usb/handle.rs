@@ -10,6 +10,7 @@ use std::io::Cursor;
 use std::ops::BitOr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -17,8 +18,10 @@ use bitflags::{Flag, Flags};
 use deku::ctx::Endian;
 use deku::reader::Reader;
 use deku::writer::Writer;
-use deku::{DekuContainerRead, DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
+use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 use futures::{Stream, StreamExt};
+use mtp_spec::communication::operation::Operation;
+use mtp_spec::device::OperationBundle;
 use nusb::Endpoint;
 use nusb::transfer::{Buffer, Bulk, In, Interrupt, Out};
 use tokio::sync::Mutex;
@@ -45,6 +48,7 @@ bitflags::bitflags! {
         const UNLOAD_DRIVER = 1 << (BASE_DEVICE_FLAGS_BITS + 1);
         /// The device requires an explicit USB reset after each connection
         const FORCE_RESET_ON_CLOSE = 3 << (BASE_DEVICE_FLAGS_BITS + 2);
+        /// The device needs to *always* have its "OS descriptor" probed
         const ALWAYS_PROBE_DESCRIPTOR = 4 << (BASE_DEVICE_FLAGS_BITS + 3);
         const NO_ZERO_READS = 5 << (BASE_DEVICE_FLAGS_BITS + 4);
         /// The device provides garbage opcodes and [`TransactionId`]s in its packet headers
@@ -166,10 +170,11 @@ pub struct DeviceHandle {
     flags: UsbDeviceFlagSet,
     interface: nusb::Interface,
     endpoints: Endpoints,
-    out_queue: Endpoint<Bulk, Out>,
-    in_queue: Endpoint<Bulk, In>,
+    out_queue: Mutex<Endpoint<Bulk, Out>>,
+    in_queue: Mutex<Endpoint<Bulk, In>>,
     timeout: Duration,
-    transaction_id: TransactionId,
+    transaction_id: AtomicU32,
+    session_id: AtomicU32,
 
     event_tx: Sender<Result<Event, Error>>,
     _events_task: tokio::task::JoinHandle<()>,
@@ -231,17 +236,20 @@ impl DeviceHandle {
 
                     match interrupt_queue.poll_next_complete(cx) {
                         Poll::Ready(completion) => {
-                            match UsbContainer::from_bytes((&completion.buffer, 0)) {
-                                Ok((_, container)) => {
+                            match UsbContainer::from_reader_with_ctx(
+                                &mut Reader::new(Cursor::new(&*completion.buffer)),
+                                self.endian,
+                            ) {
+                                Ok(container) => {
                                     let mut reader = Reader::new(Cursor::new(container.payload));
+                                    let ret = Event::from_reader_with_ctx(
+										&mut reader,
+										(self.endian, container.code),
+									)
+										.inspect(|event| tracing::debug!(target: "usb", "Received event: {event:?}"))
+										.map_err(Into::into);
 
-                                    Poll::Ready(Some(
-                                        Event::from_reader_with_ctx(
-                                            &mut reader,
-                                            (self.endian, container.code),
-                                        )
-                                        .map_err(Into::into),
-                                    ))
+                                    Poll::Ready(Some(ret))
                                 },
                                 Err(e) => Poll::Ready(Some(Err(e.into()))),
                             }
@@ -273,10 +281,11 @@ impl DeviceHandle {
             flags,
             interface,
             endpoints,
-            out_queue,
-            in_queue,
+            out_queue: Mutex::new(out_queue),
+            in_queue: Mutex::new(in_queue),
             timeout,
-            transaction_id: TransactionId::new(1),
+            transaction_id: AtomicU32::new(1),
+            session_id: AtomicU32::new(1),
 
             event_tx,
             _events_task: events_task,
@@ -284,6 +293,9 @@ impl DeviceHandle {
     }
 }
 
+/// The MTP event stream
+///
+/// This is created by calling [`DeviceHandle::event_stream()`].
 pub struct EventStream {
     recv: BroadcastStream<Result<Event, Error>>,
 }
@@ -306,14 +318,14 @@ impl PtpIo for DeviceHandle {
     type Error = Error;
     type EventStream = EventStream;
 
-    fn next_transaction_id(&mut self) -> TransactionId {
-        let next = self.transaction_id;
-        self.transaction_id = self.transaction_id.next();
-        next
+    fn next_transaction_id(&self) -> TransactionId {
+        let next = self.transaction_id.fetch_add(1, Ordering::Relaxed);
+        TransactionId::new(next)
     }
 
-    fn next_session_id(&mut self) -> SessionId {
-        SessionId::new(1)
+    fn next_session_id(&self) -> SessionId {
+        let next = self.session_id.fetch_add(1, Ordering::Relaxed);
+        SessionId::new(next)
     }
 
     #[inline]
@@ -327,10 +339,9 @@ impl PtpIo for DeviceHandle {
         }
     }
 
-    async fn __send_operation<O>(
-        &mut self,
-        operation: O,
-        data: Option<Vec<u8>>,
+    async fn send_operation<O>(
+        &self,
+        operation: OperationBundle<O>,
     ) -> Response<O, MtpError<Self::TransportError>>
     where
         O: DynOperation,
@@ -361,11 +372,17 @@ impl PtpIo for DeviceHandle {
             Ok(())
         }
 
+        let mut out_queue = self.out_queue.lock().await;
+
         // Phase 1: Command
         let command_buf;
-        let op = operation.encode();
+        let op = operation.operation.encode();
         {
-            log::debug!("Sending operation of type: {:#X}", op.code());
+            if let Ok(opcode) = Operation::try_from(op.code()) {
+                tracing::debug!(target: "usb", "Sending operation of type: {opcode:?}");
+            } else {
+                tracing::debug!(target: "usb", "Sending operation of type: {:#X}", op.code());
+            }
 
             let command_container = UsbContainer::new(
                 ContainerType::Command,
@@ -379,7 +396,7 @@ impl PtpIo for DeviceHandle {
 
         send(
             command_buf,
-            &mut self.out_queue,
+            &mut out_queue,
             self.endpoints.bulk_out_buffer_size,
             self.timeout,
         )
@@ -394,12 +411,12 @@ impl PtpIo for DeviceHandle {
                     ContainerType::Data,
                     op.code(),
                     op.transaction_id(),
-                    data.expect("data should exist"),
+                    operation.data.expect("data should exist"),
                 );
 
                 send(
                     data_container.encode(self.endian())?,
-                    &mut self.out_queue,
+                    &mut out_queue,
                     self.endpoints.bulk_out_buffer_size,
                     self.timeout,
                 )
@@ -422,11 +439,14 @@ impl PtpIo for DeviceHandle {
         }
 
         // Phase 3: Response
-        log::debug!("Attempting to get response");
+        tracing::trace!(target: "usb", "Attempting to get response");
 
         let response_raw = next_packet(self).await.map_err(MtpError::Transport)?;
 
-        let (_, response) = UsbContainer::from_bytes((&response_raw, 0))?;
+        let response = UsbContainer::from_reader_with_ctx(
+            &mut Reader::new(Cursor::new(response_raw)),
+            self.endian(),
+        )?;
 
         if response.code != CODE_OK {
             let err = O::decode_err(&response.payload, self.endian(), response.code)?;
@@ -517,12 +537,15 @@ impl UsbContainer {
 }
 
 async fn get_data_from_responder(
-    handle: &mut DeviceHandle,
+    handle: &DeviceHandle,
 ) -> Result<UsbContainer, MtpError<Arc<UsbError>>> {
-    log::trace!("Attempting to get data from responder");
+    tracing::trace!(target: "usb", "Attempting to get data from responder");
 
     let data_phase_raw = next_packet(handle).await.map_err(MtpError::Transport)?;
-    let (_, mut data_phase) = UsbContainer::from_bytes((&data_phase_raw, 0))?;
+    let mut data_phase = UsbContainer::from_reader_with_ctx(
+        &mut Reader::new(Cursor::new(data_phase_raw)),
+        handle.endian(),
+    )?;
 
     if data_phase.type_ == ContainerType::Response {
         if data_phase.code == CODE_OK {
@@ -546,10 +569,10 @@ async fn get_data_from_responder(
     if len_without_header > data_phase.payload.len() as u32 {
         let mut remaining = len_without_header - data_phase.payload.len() as u32;
 
-        log::trace!(
-            "Device is buffering the data, received {}/{} bytes",
+        tracing::trace!(
+            target: "usb",
+            "Device is buffering the data, received {}/{len_without_header} bytes",
             data_phase.payload.len(),
-            len_without_header
         );
 
         while remaining > 0 {
@@ -567,16 +590,16 @@ async fn get_data_from_responder(
     Ok(data_phase)
 }
 
-async fn next_packet(handle: &mut DeviceHandle) -> Result<Vec<u8>, Arc<UsbError>> {
-    let pending = handle.in_queue.pending();
+async fn next_packet(handle: &DeviceHandle) -> Result<Vec<u8>, Arc<UsbError>> {
+    let mut in_queue = handle.in_queue.lock().await;
+
+    let pending = in_queue.pending();
     for _ in 0..(2usize.saturating_sub(pending)) {
-        handle
-            .in_queue
-            .submit(Buffer::new(handle.endpoints.bulk_in_buffer_size));
+        in_queue.submit(Buffer::new(handle.endpoints.bulk_in_buffer_size));
     }
 
-    log::trace!("Waiting for next packet");
-    let completion = tokio::time::timeout(handle.timeout, handle.in_queue.next_complete())
+    tracing::trace!(target: "usb", "Waiting for next packet");
+    let completion = tokio::time::timeout(handle.timeout, in_queue.next_complete())
         .await
         .map_err(|_| Arc::new(UsbError::Timeout))?;
     completion.status.map_err(|e| Arc::new(UsbError::from(e)))?;

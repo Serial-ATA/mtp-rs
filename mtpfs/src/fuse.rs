@@ -3,27 +3,30 @@ use std::ffi::OsStr;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::iter;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use fuser::{
     Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation, INodeNo,
     KernelConfig, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyData, ReplyDirectory,
-    ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request, WriteFlags,
+    ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, WriteFlags,
 };
 use indicatif::{ProgressBar, ProgressStyle};
-use log::info;
 use mtp::communication::response::SendObjectInfo;
 use mtp::device::Device;
 use mtp::device::extensions::android::AndroidDevice;
 use mtp::device::session::MtpSession;
 use mtp::error::MtpError;
-use mtp::high_level::fs::{File, FileSystem, FileSystemError, Folder, FolderEntry, SessionFsExt};
+use mtp::high_level::fs::{
+    File, FileSystem, FileSystemError, Folder, FolderEntry, FsEvent, SessionFsExt,
+};
 use mtp::high_level::storages::Storage;
 use mtp::object::{DateTime, ObjectHandle};
 use mtp::usb::DeviceHandle;
 use mtp::usb::error::{Error, UsbError};
-use tokio::sync::Mutex;
+use tokio::runtime::Handle;
+use tokio::sync::RwLock;
+use tracing::info;
 
 const TTL: Duration = Duration::from_secs(u64::MAX);
 const BLOCK_SIZE: u32 = 1024;
@@ -84,39 +87,38 @@ const LOST_AND_FOUND_ATTR: FileAttr = FileAttr {
     flags: 0,
 };
 
-struct InjectedEntry {
-    ino: INodeNo,
-    name: Arc<str>,
-}
-
 #[derive(Clone)]
 enum Entry {
+    /// An entry on the device
     Real {
+        /// A virtual inode number derived from the host [`ObjectHandle`].
+        ///
+        /// See [`FsState::handle_to_ino()`]
         ino: INodeNo,
-        entry: FolderEntry,
+        entry: FolderEntry<DeviceHandle>,
     },
-    Injected(Arc<InjectedEntry>),
-    /// This is a temporary state. It is not valid for an entry to remain in this state by the end of an operation.
-    Empty,
+    /// A virtual entry that doesn't actually exist on the device
+    Virtual { ino: INodeNo, name: Arc<str> },
 }
 
 impl Entry {
+    /// Get the file name for this entry
     fn name(&self) -> &str {
         match self {
             Self::Real { entry, .. } => entry.name(),
-            Self::Injected(entry) => &entry.name,
-            Self::Empty => unreachable!(),
+            Self::Virtual { name, .. } => &name,
         }
     }
 
+    /// Get the virtual inode number for this entry
     fn ino(&self) -> INodeNo {
         match self {
             Self::Real { ino, .. } => *ino,
-            Self::Injected(entry) => entry.ino,
-            Self::Empty => unreachable!(),
+            Self::Virtual { ino, .. } => *ino,
         }
     }
 
+    /// Create the [`FileAttr`] for this entry
     fn attr(&self) -> FileAttr {
         match self {
             Entry::Real { entry, ino } => match entry {
@@ -167,182 +169,31 @@ impl Entry {
                     flags: 0,
                 },
             },
-            Entry::Injected(entry) => match entry.ino {
+            Entry::Virtual { ino, .. } => match *ino {
                 PLAYLISTS_NODE_ID => PLAYLISTS_ATTR,
                 LOST_AND_FOUND_NODE_ID => LOST_AND_FOUND_ATTR,
                 _ => ROOT_ATTR,
             },
-            Entry::Empty => unreachable!(),
-        }
-    }
-}
-
-struct Dirty {
-    playlists: bool,
-    lost_and_found: bool,
-    fs: bool,
-}
-
-impl Dirty {
-    fn new() -> Self {
-        // Everything needs an initial refresh
-        Self {
-            playlists: true,
-            lost_and_found: true,
-            fs: true,
         }
     }
 }
 
 #[derive(Default)]
-struct FsInner {
+struct FsState {
     nodes: RwLock<HashMap<INodeNo, Entry>>,
 }
 
 /// The offset at which non-virtual inodes start
 const MTP_INODE_OFFSET: u64 = 10;
 
-impl FsInner {
+impl FsState {
     /// Get an [`Entry`] by its inode number
-    fn get(&self, inode: INodeNo) -> Option<Entry> {
-        self.nodes.read().unwrap().get(&inode).cloned()
+    async fn get(&self, inode: INodeNo) -> Option<Entry> {
+        self.nodes.read().await.get(&inode).cloned()
     }
 
-    /// Insert a new [`FolderEntry`]
-    fn insert(&self, entry: FolderEntry) -> INodeNo {
-        let handle = entry.handle();
-        let ino = self.handle_to_ino(handle);
-        self.nodes
-            .write()
-            .unwrap()
-            .insert(ino, Entry::Real { entry, ino });
-        ino
-    }
-
-    /// Remove a node from the map
-    fn remove(&self, inode: INodeNo) {
-        self.nodes.write().unwrap().remove(&inode);
-    }
-
-    /// Refresh from the current state of the [`FileSystem`]
-    fn refresh(&mut self, fs: &FileSystem) {
-        fn walk_and_insert(fs: &mut FsInner, entry: FolderEntry) {
-            fs.insert(entry.clone());
-            if let FolderEntry::Folder(folder) = entry {
-                folder.with_children(|children| {
-                    for child in children.values() {
-                        walk_and_insert(fs, child.clone());
-                    }
-                });
-            }
-        }
-
-        self.nodes
-            .write()
-            .unwrap()
-            .retain(|&ino, _| ino.0 < MTP_INODE_OFFSET); // Keep virtual nodes
-        fs.with_root(|root| {
-            walk_and_insert(self, FolderEntry::Folder(root.clone()));
-        });
-    }
-
-    /// Convert an MTP ObjectHandle to a FUSE inode
-    fn handle_to_ino(&self, handle: ObjectHandle) -> INodeNo {
-        if handle == ObjectHandle::NONE {
-            ROOT_ATTR.ino
-        } else {
-            INodeNo(u64::from(Into::<u32>::into(handle)) + MTP_INODE_OFFSET)
-        }
-    }
-
-    /// Convert a FUSE inode back to an MTP ObjectHandle
-    fn ino_to_handle(&self, ino: INodeNo) -> Option<ObjectHandle> {
-        if ino == ROOT_ATTR.ino {
-            return Some(ObjectHandle::NONE);
-        }
-        if ino.0 < MTP_INODE_OFFSET {
-            // Virtual inodes don't actually map to anything on the device
-            return None;
-        }
-        Some(ObjectHandle::from((ino.0 - MTP_INODE_OFFSET) as u32))
-    }
-}
-
-pub struct MtpFuse {
-    session: Arc<Mutex<MtpSession<DeviceHandle>>>,
-    storage: Storage,
-    is_android: bool,
-    dirty: Dirty,
-
-    fs: Option<Arc<FileSystem>>,
-    inner: FsInner,
-}
-
-impl MtpFuse {
-    pub async fn new(
-        session: Arc<Mutex<MtpSession<DeviceHandle>>>,
-        storage: Storage,
-    ) -> mtp::usb::error::Result<Self> {
-        let is_android = session.lock().await.is_android().await?;
-        if !is_android {
-            log::warn!(
-                "The selected device doesn't support the Android MTP extensions. Writes will \
-                 likely have bad performance."
-            )
-        }
-
-        let mut nodes = HashMap::new();
-        for virtual_dir in [
-            Entry::Injected(Arc::new(InjectedEntry {
-                ino: ROOT_ATTR.ino,
-                name: "/".into(),
-            })),
-            Entry::Injected(Arc::new(InjectedEntry {
-                ino: PLAYLISTS_NODE_ID,
-                name: "Playlists".into(),
-            })),
-            Entry::Injected(Arc::new(InjectedEntry {
-                ino: LOST_AND_FOUND_NODE_ID,
-                name: "lost+found".into(),
-            })),
-        ] {
-            nodes.insert(virtual_dir.ino(), virtual_dir);
-        }
-
-        Ok(MtpFuse {
-            session,
-            storage,
-            is_android,
-            dirty: Dirty::new(),
-            fs: None,
-            inner: FsInner {
-                nodes: RwLock::new(nodes),
-            },
-        })
-    }
-
-    fn stat(&self, inode: INodeNo, _file_handle: Option<FileHandle>) -> Option<FileAttr> {
-        if inode == INodeNo(0) {
-            return None;
-        }
-
-        if inode == ROOT_ATTR.ino {
-            return Some(ROOT_ATTR);
-        }
-
-        if inode == PLAYLISTS_NODE_ID {
-            return Some(PLAYLISTS_ATTR);
-        }
-
-        if inode == LOST_AND_FOUND_NODE_ID {
-            return Some(LOST_AND_FOUND_ATTR);
-        }
-
-        self.inner.get(inode).as_ref().map(Entry::attr)
-    }
-
-    fn file(&self, ino: INodeNo) -> Result<Arc<File>, Errno> {
-        match self.inner.get(ino) {
+    async fn file(&self, ino: INodeNo) -> Result<Arc<File<DeviceHandle>>, Errno> {
+        match self.get(ino).await {
             Some(Entry::Real {
                 entry: FolderEntry::File(file),
                 ..
@@ -356,8 +207,8 @@ impl MtpFuse {
         }
     }
 
-    fn dir(&self, ino: INodeNo) -> Result<Arc<Folder>, Errno> {
-        match self.inner.get(ino) {
+    async fn dir(&self, ino: INodeNo) -> Result<Arc<Folder<DeviceHandle>>, Errno> {
+        match self.get(ino).await {
             Some(Entry::Real {
                 entry: FolderEntry::Folder(folder),
                 ..
@@ -365,6 +216,127 @@ impl MtpFuse {
             Some(_) => Err(Errno::ENOTDIR),
             None => Err(Errno::ENOENT),
         }
+    }
+
+    /// Insert a new [`FolderEntry`]
+    async fn insert(&self, entry: FolderEntry<DeviceHandle>) -> INodeNo {
+        let handle = entry.handle();
+        let ino = self.handle_to_ino(handle);
+        self.nodes
+            .write()
+            .await
+            .insert(ino, Entry::Real { entry, ino });
+        ino
+    }
+
+    async fn update(&self, entry: FolderEntry<DeviceHandle>) {
+        let handle = entry.handle();
+        let ino = self.handle_to_ino(handle);
+        self.nodes
+            .write()
+            .await
+            .entry(ino)
+            .insert_entry(Entry::Real { entry, ino });
+    }
+
+    /// Remove a node from the map
+    async fn remove(&self, inode: INodeNo) {
+        self.nodes.write().await.remove(&inode);
+    }
+
+    /// Refresh from the current state of the [`FileSystem`]
+    async fn refresh(state: Arc<Self>, fs: &FileSystem<DeviceHandle>) {
+        async fn walk_and_insert(fs: Arc<FsState>, root: FolderEntry<DeviceHandle>) {
+            let mut stack = vec![root];
+
+            while let Some(entry) = stack.pop() {
+                fs.insert(entry.clone()).await;
+
+                if let FolderEntry::Folder(folder) = entry {
+                    let children = folder
+                        .with_children(|children| {
+                            let children = children.values().cloned().collect::<Vec<_>>();
+                            async move { children }
+                        })
+                        .await;
+
+                    stack.extend(children);
+                }
+            }
+        }
+
+        state
+            .nodes
+            .write()
+            .await
+            .retain(|&ino, _| ino.0 < MTP_INODE_OFFSET); // Keep virtual nodes
+        fs.with_root(|root| walk_and_insert(state, FolderEntry::Folder(root.clone())))
+            .await;
+    }
+
+    /// Convert an MTP [`ObjectHandle`] to a FUSE inode
+    fn handle_to_ino(&self, handle: ObjectHandle) -> INodeNo {
+        if handle == ObjectHandle::NONE {
+            ROOT_ATTR.ino
+        } else {
+            INodeNo(u64::from(Into::<u32>::into(handle)) + MTP_INODE_OFFSET)
+        }
+    }
+}
+
+pub struct MtpFuse {
+    session: MtpSession<DeviceHandle>,
+    storage: Storage,
+    is_android: bool,
+
+    fs: Option<Arc<FileSystem<DeviceHandle>>>,
+    state: Arc<FsState>,
+    runtime: Handle,
+}
+
+impl MtpFuse {
+    pub async fn new(
+        session: MtpSession<DeviceHandle>,
+        storage: Storage,
+    ) -> mtp::usb::error::Result<Self> {
+        let is_android = session.is_android().await?;
+        if !is_android {
+            tracing::warn!(
+                "The selected device doesn't support the Android MTP extensions. Writes will \
+                 likely have bad performance."
+            )
+        }
+
+        let mut nodes = HashMap::new();
+        for virtual_dir in [
+            Entry::Virtual {
+                ino: ROOT_ATTR.ino,
+                name: "/".into(),
+            },
+            Entry::Virtual {
+                ino: PLAYLISTS_NODE_ID,
+                name: "Playlists".into(),
+            },
+            Entry::Virtual {
+                ino: LOST_AND_FOUND_NODE_ID,
+                name: "lost+found".into(),
+            },
+        ] {
+            nodes.insert(virtual_dir.ino(), virtual_dir);
+        }
+
+        let state = Arc::new(FsState {
+            nodes: RwLock::new(nodes),
+        });
+
+        Ok(MtpFuse {
+            session,
+            storage,
+            is_android,
+            fs: None,
+            state,
+            runtime: Handle::current(),
+        })
     }
 
     // TODO
@@ -382,97 +354,112 @@ impl Filesystem for MtpFuse {
     fn init(&mut self, _req: &Request, _config: &mut KernelConfig) -> std::io::Result<()> {
         let start = Instant::now();
 
-        let fs_result = futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
+        let session = self.session.clone();
+        let state = self.state.clone();
+        let storage_id = self.storage.id;
+        let runtime = self.runtime.clone();
+        tokio::task::block_in_place(move || {
+            runtime.block_on(async {
+                let spinner = ProgressBar::new_spinner()
+                    .with_message("Loading all MTP directories into memory")
+                    .with_style(ProgressStyle::with_template("{spinner} {msg}").unwrap());
+                let fs = FileSystem::load_with_callback(session, storage_id, |_| {
+                    spinner.tick();
+                })
+                .await;
+                spinner.finish_and_clear();
 
-            let spinner = ProgressBar::new_spinner()
-                .with_message("Loading all MTP directories into memory")
-                .with_style(ProgressStyle::with_template("{spinner} {msg}").unwrap());
-            let fs = FileSystem::load_with_callback(&mut *session, self.storage.id, |_| {
-                spinner.tick();
+                match fs {
+                    Ok((fs, mut events)) => {
+                        FsState::refresh(state.clone(), &fs).await;
+
+                        tokio::task::spawn(async move {
+                            while let Some(event) = events.recv().await {
+                                match event {
+                                    FsEvent::Added(entry) => {
+                                        state.insert(entry).await;
+                                    },
+                                    FsEvent::Removed(entry) => {
+                                        state.remove(state.handle_to_ino(entry.handle())).await;
+                                    },
+                                    FsEvent::Refreshed(entry) => {
+                                        state.update(entry).await;
+                                    },
+                                }
+                            }
+                        });
+
+                        let storage_name = self
+                            .storage
+                            .description
+                            .as_deref()
+                            .unwrap_or(self.storage.volume_identifier.as_str());
+
+                        let load_time = start.elapsed();
+                        let load_time_seconds = load_time.as_secs() % 60;
+
+                        info!(
+                            "Finished loading filesystem for storage `{storage_name}` in \
+                             {:02}:{:02}",
+                            (load_time.as_secs() - load_time_seconds) / 60,
+                            load_time_seconds
+                        );
+
+                        self.fs = Some(fs);
+
+                        Ok(())
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to initialize MTP FUSE mount: {e}");
+                        Err(std::io::Error::from_raw_os_error(e.to_errno().code()))
+                    },
+                }
             })
-            .await;
-
-            spinner.finish_and_clear();
-            fs
-        });
-
-        match fs_result {
-            Ok(fs) => {
-                self.inner.refresh(&fs);
-
-                let storage_name = self
-                    .storage
-                    .description
-                    .as_deref()
-                    .unwrap_or(self.storage.volume_identifier.as_str());
-
-                let load_time = start.elapsed();
-                let load_time_seconds = load_time.as_secs() % 60;
-
-                info!(
-                    "Finished loading filesystem for storage `{storage_name}` in {:02}:{:02}",
-                    (load_time.as_secs() - load_time_seconds) / 60,
-                    load_time_seconds
-                );
-
-                self.fs = Some(fs);
-                self.dirty.fs = false;
-
-                Ok(())
-            },
-            Err(e) => {
-                log::error!("Failed to initialize MTP FUSE mount: {e}");
-                Err(std::io::Error::from_raw_os_error(e.to_errno().code()))
-            },
-        }
+        })
     }
 
     fn destroy(&mut self) {
-        log::info!("Closing filesystem");
-        self.inner = FsInner::default();
+        tracing::info!("Closing filesystem");
+        self.state = Arc::default();
         let _ = self.fs.take();
     }
 
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
-        let Some(name_str) = name.to_str() else {
+        let Some(name_str) = name.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
 
-        let Some(parent_entry) = self.inner.get(parent) else {
-            return reply.error(Errno::ENOENT);
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let parent = match state.dir(parent).await {
+                Ok(parent_entry) => parent_entry,
+                Err(e) => {
+                    return reply.error(e);
+                },
+            };
 
-        let Entry::Real {
-            entry: FolderEntry::Folder(folder),
-            ..
-        } = parent_entry
-        else {
-            return reply.error(Errno::ENOTDIR);
-        };
+            let Some(child) = parent.find(&name_str).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
-        let Some(child) = folder.find(name_str) else {
-            return reply.error(Errno::ENOENT);
-        };
-
-        let ino = self.inner.insert(child.clone());
-        reply.entry(
-            &TTL,
-            &Entry::Real { entry: child, ino }.attr(),
-            Generation(0),
-        );
+            let ino = state.insert(child.clone()).await;
+            reply.entry(
+                &TTL,
+                &Entry::Real { entry: child, ino }.attr(),
+                Generation(0),
+            );
+        });
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
-        if ino == INodeNo(0) {
-            return reply.error(Errno::ENOENT);
-        }
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let Some(entry) = state.get(ino).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
-        let Some(entry) = self.inner.get(ino) else {
-            return reply.error(Errno::ENOENT);
-        };
-
-        reply.attr(&TTL, &entry.attr())
+            reply.attr(&TTL, &entry.attr());
+        });
     }
 
     fn mkdir(
@@ -484,100 +471,96 @@ impl Filesystem for MtpFuse {
         _umask: u32,
         reply: ReplyEntry,
     ) {
-        let Some(name_str) = name.to_str() else {
+        let Some(name_str) = name.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
 
-        let Some(Entry::Real {
-            entry: FolderEntry::Folder(parent_dir),
-            ..
-        }) = self.inner.get(parent)
-        else {
-            return reply.error(Errno::ENOTDIR);
-        };
+        let session = self.session.clone();
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let Some(Entry::Real {
+                entry: FolderEntry::Folder(parent_dir),
+                ..
+            }) = state.get(parent).await
+            else {
+                return reply.error(Errno::ENOTDIR);
+            };
 
-        let result = futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
-            session
-                .mkdir(Some(parent_dir.as_ref()), name_str.to_string())
-                .await
+            let result = session.mkdir(Some(parent_dir.as_ref()), name_str).await;
+            match result {
+                Ok(folder) => {
+                    let entry = FolderEntry::Folder(Arc::new(folder));
+                    let ino = state.insert(entry.clone()).await;
+                    reply.entry(&TTL, &Entry::Real { entry, ino }.attr(), Generation(0));
+                },
+                Err(e) => reply.error(e.to_errno()),
+            }
         });
-
-        match result {
-            Ok(folder) => {
-                let entry = FolderEntry::Folder(Arc::new(folder));
-                let ino = self.inner.insert(entry.clone());
-                reply.entry(&TTL, &Entry::Real { entry, ino }.attr(), Generation(0));
-            },
-            Err(e) => reply.error(e.to_errno()),
-        }
     }
 
     // TODO: Figure out why the lookups still resolve in rmdir and unlink even after destroy() is called
     fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
-        let Some(name_str) = name.to_str() else {
+        let Some(name_str) = name.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
 
-        let parent = match self.dir(parent) {
-            Ok(parent) => parent,
-            Err(e) => return reply.error(e),
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let parent = match state.dir(parent).await {
+                Ok(parent) => parent,
+                Err(e) => return reply.error(e),
+            };
 
-        let Some(child_entry) = parent.find(name_str) else {
-            return reply.error(Errno::ENOENT);
-        };
+            let Some(child_entry) = parent.find(&name_str).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
-        let FolderEntry::File(child) = child_entry else {
-            return reply.error(Errno::EISDIR);
-        };
+            let FolderEntry::File(child) = child_entry else {
+                return reply.error(Errno::EISDIR);
+            };
 
-        let result = futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
-            parent.remove_child(&mut session, name_str).await
+            let result = parent.remove_child(&name_str).await;
+
+            match result {
+                Ok(_) => {
+                    state.remove(state.handle_to_ino(child.id())).await;
+                    reply.ok();
+                },
+                Err(e) => match e {
+                    FileSystemError::Mtp(e) => reply.error(e.to_errno()),
+                    FileSystemError::Io(e) => reply.error(e.to_errno()),
+                },
+            }
         });
-
-        match result {
-            Ok(_) => {
-                self.inner.remove(self.inner.handle_to_ino(child.id()));
-                reply.ok();
-            },
-            Err(e) => match e {
-                FileSystemError::Mtp(e) => reply.error(e.to_errno()),
-                FileSystemError::Io(e) => reply.error(e.to_errno()),
-            },
-        }
     }
 
     fn rmdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
-        let Some(name_str) = name.to_str() else {
+        let Some(name_str) = name.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
 
-        let parent_dir = match self.dir(parent) {
-            Ok(parent) => parent,
-            Err(e) => return reply.error(e),
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let parent_dir = match state.dir(parent).await {
+                Ok(parent) => parent,
+                Err(e) => return reply.error(e),
+            };
 
-        let Some(FolderEntry::Folder(child)) = parent_dir.find(name_str) else {
-            return reply.error(Errno::ENOENT);
-        };
+            let Some(FolderEntry::Folder(child)) = parent_dir.find(&name_str).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
-        let result = futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
-            parent_dir.remove_child(&mut session, name_str).await
+            match parent_dir.remove_child(&name_str).await {
+                Ok(_) => {
+                    state.remove(state.handle_to_ino(child.id())).await;
+                    reply.ok();
+                },
+                Err(e) => match e {
+                    FileSystemError::Mtp(e) => reply.error(e.to_errno()),
+                    FileSystemError::Io(e) => reply.error(e.to_errno()),
+                },
+            }
         });
-
-        match result {
-            Ok(_) => {
-                self.inner.remove(self.inner.handle_to_ino(child.id()));
-                reply.ok();
-            },
-            Err(e) => match e {
-                FileSystemError::Mtp(e) => reply.error(e.to_errno()),
-                FileSystemError::Io(e) => reply.error(e.to_errno()),
-            },
-        }
     }
 
     fn symlink(
@@ -601,52 +584,54 @@ impl Filesystem for MtpFuse {
         _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
-        let Some(name_str) = name.to_str() else {
+        let Some(name_str) = name.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
-        let Some(new_name_str) = newname.to_str() else {
+        let Some(new_name_str) = newname.to_str().map(String::from) else {
             return reply.error(Errno::EINVAL);
         };
 
-        let original_parent = match self.dir(parent) {
-            Ok(folder) => folder,
-            Err(e) => return reply.error(e),
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let original_parent = match state.dir(parent).await {
+                Ok(folder) => folder,
+                Err(e) => return reply.error(e),
+            };
 
-        let new_parent = match self.dir(newparent) {
-            Ok(folder) => folder,
-            Err(e) => return reply.error(e),
-        };
+            let new_parent = match state.dir(newparent).await {
+                Ok(folder) => folder,
+                Err(e) => return reply.error(e),
+            };
 
-        let Some(child) = original_parent.find(name_str) else {
-            return reply.error(Errno::ENOENT);
-        };
-
-        let result = futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
+            let Some(child) = original_parent.find(&name_str).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
             let mut current_child = child.clone();
             if parent != newparent {
-                current_child = current_child
-                    .move_(&mut *session, new_parent.as_ref())
-                    .await?;
+                current_child = match current_child.move_(new_parent.as_ref()).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        reply.error(e.to_errno());
+                        return;
+                    },
+                };
             }
 
             if name_str != new_name_str {
-                current_child = current_child.rename(&mut *session, new_name_str).await?;
+                current_child = match current_child.rename(new_name_str).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        reply.error(e.to_errno());
+                        return;
+                    },
+                };
             }
 
-            Ok::<FolderEntry, MtpError<_>>(current_child)
+            state.remove(state.handle_to_ino(child.handle())).await;
+            state.insert(current_child).await;
+            reply.ok();
         });
-
-        match result {
-            Ok(updated_entry) => {
-                self.inner.remove(self.inner.handle_to_ino(child.handle()));
-                self.inner.insert(updated_entry);
-                reply.ok();
-            },
-            Err(e) => reply.error(e.to_errno()),
-        }
     }
 
     fn link(
@@ -661,16 +646,17 @@ impl Filesystem for MtpFuse {
     }
 
     fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
-        let file = match self.file(ino) {
-            Ok(file) => file,
-            Err(e) => {
-                reply.error(e);
-                return;
-            },
-        };
+        let session = self.session.clone();
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let file = match state.file(ino).await {
+                Ok(file) => file,
+                Err(e) => {
+                    reply.error(e);
+                    return;
+                },
+            };
 
-        futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
             match session.get_object_info(file.id()).await {
                 Ok(_fd) => reply.opened(
                     FileHandle(0),
@@ -694,17 +680,17 @@ impl Filesystem for MtpFuse {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        let file = match self.file(ino) {
-            Ok(file) => file,
-            Err(e) => {
-                reply.error(e);
-                return;
-            },
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let file = match state.file(ino).await {
+                Ok(file) => file,
+                Err(e) => {
+                    reply.error(e);
+                    return;
+                },
+            };
 
-        futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
-            match file.read_at(&mut *session, offset as u32, size).await {
+            match file.read_at(offset as u32, size).await {
                 Ok(data) => reply.data(&data),
                 Err(e) => reply.error(e.to_errno()),
             }
@@ -723,19 +709,23 @@ impl Filesystem for MtpFuse {
         _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
-        let file = match self.file(ino) {
-            Ok(file) => file,
-            Err(e) => {
-                reply.error(e);
-                return;
-            },
-        };
-
-        futures::executor::block_on(async {
-            let mut session = self.session.lock().await;
+        let session = self.session.clone();
+        let fs = self.fs.clone().expect("fs should be set");
+        let target_storage_id = self.storage.id;
+        let state = self.state.clone();
+        let is_android = self.is_android;
+        let data = data.to_vec();
+        self.runtime.spawn(async move {
+            let file = match state.file(ino).await {
+                Ok(file) => file,
+                Err(e) => {
+                    reply.error(e);
+                    return;
+                },
+            };
 
             // Android has a fast path, where we can actually edit files in-place
-            if self.is_android {
+            if is_android {
                 match session
                     .send_partial_object(file.id(), offset, data.len() as u32, data)
                     .await
@@ -756,7 +746,7 @@ impl Filesystem for MtpFuse {
             // - Delete the old object on the device
             // - Send a new copy of the object to the device
 
-            let mut temp = match file.open(&mut *session).await {
+            let mut temp = match file.open().await {
                 Ok(file) => file,
                 Err(e) => {
                     reply.error(e.to_errno());
@@ -769,7 +759,7 @@ impl Filesystem for MtpFuse {
                 return;
             }
 
-            if let Err(e) = temp.write_all(data) {
+            if let Err(e) = temp.write_all(&data) {
                 reply.error(e.to_errno());
                 return;
             }
@@ -790,16 +780,22 @@ impl Filesystem for MtpFuse {
                 return;
             }
 
-            let storage;
-            let parent;
             let id;
             match session.send_object_info(object_info).await {
                 Ok(response) => {
-                    SendObjectInfo {
-                        storage_id: storage,
-                        parent,
-                        reserved_handle: id,
+                    let SendObjectInfo {
+                        storage_id,
+                        parent: _,
+                        reserved_handle,
                     } = response.data;
+
+                    if storage_id != target_storage_id {
+                        // Well... the device decided not to honor the request
+                        reply.error(Errno::ENOTRECOVERABLE);
+                        return;
+                    }
+
+                    id = reserved_handle;
                 },
                 Err(e) => {
                     reply.error(e.to_errno());
@@ -807,14 +803,23 @@ impl Filesystem for MtpFuse {
                 },
             }
 
-            match session.send_object(object_data).await {
-                Ok(_) => {
+            if let Err(e) = session.send_object(object_data).await {
+                reply.error(e.to_errno());
+                return;
+            }
+
+            match fs.add(id).await {
+                Ok(Some(entry)) => {
+                    state.insert(entry).await;
                     reply.written(data.len() as u32);
-                    return;
+                },
+                Ok(None) => {
+                    // Maybe the device put it on a different storage?
+                    // Nothing we can do
+                    return reply.error(Errno::ENOTRECOVERABLE);
                 },
                 Err(e) => {
-                    reply.error(e.to_errno());
-                    return;
+                    return reply.error(e.to_errno());
                 },
             }
         });
@@ -832,17 +837,31 @@ impl Filesystem for MtpFuse {
     }
 
     fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
-        let Some(entry) = self.inner.get(ino) else {
-            reply.error(Errno::ENOENT);
-            return;
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let Some(entry) = state.get(ino).await else {
+                reply.error(Errno::ENOENT);
+                return;
+            };
 
-        if entry.attr().kind != FileType::Directory {
-            reply.error(Errno::ENOTDIR);
-            return;
-        }
+            if entry.attr().kind != FileType::Directory {
+                reply.error(Errno::ENOTDIR);
+                return;
+            }
 
-        reply.opened(FileHandle(ino.0), FopenFlags::empty());
+            reply.opened(FileHandle(ino.0), FopenFlags::empty());
+        });
+    }
+
+    fn getxattr(
+        &self,
+        _req: &Request,
+        _ino: INodeNo,
+        _name: &OsStr,
+        _size: u32,
+        reply: ReplyXattr,
+    ) {
+        reply.error(Errno::ENOTSUP);
     }
 
     fn readdir(
@@ -871,49 +890,55 @@ impl Filesystem for MtpFuse {
             return;
         }
 
-        let Some(parent_entry) = self.inner.get(ino) else {
-            return reply.error(Errno::ENOENT);
-        };
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            let Some(parent_entry) = state.get(ino).await else {
+                return reply.error(Errno::ENOENT);
+            };
 
-        let Entry::Real {
-            entry: FolderEntry::Folder(folder),
-            ..
-        } = parent_entry
-        else {
-            return reply.error(Errno::ENOTDIR);
-        };
+            let Entry::Real {
+                entry: FolderEntry::Folder(folder),
+                ..
+            } = parent_entry
+            else {
+                return reply.error(Errno::ENOTDIR);
+            };
 
-        if offset == 0 {
-            let _ = reply.add(ino, 1, FileType::Directory, ".");
-        }
-        if offset <= 1 {
-            let parent_ino = self.inner.handle_to_ino(folder.parent());
-            let _ = reply.add(parent_ino, 2, FileType::Directory, "..");
-        }
-
-        let child_offset = if offset < 2 { 0 } else { (offset - 2) as usize };
-
-        folder.with_children(|children| {
-            let mut keys: Vec<&String> = children.keys().collect();
-            keys.sort();
-
-            for (i, key) in keys.into_iter().skip(child_offset).enumerate() {
-                let child = &children[key];
-
-                let child_ino = self.inner.insert(child.clone());
-                let kind = match child {
-                    FolderEntry::Folder(_) => FileType::Directory,
-                    FolderEntry::File(_) => FileType::RegularFile,
-                };
-
-                let reply_offset = child_offset as u64 + i as u64 + 3;
-                if reply.add(child_ino, reply_offset, kind, child.name()) {
-                    break;
-                }
+            if offset == 0 {
+                let _ = reply.add(ino, 1, FileType::Directory, ".");
             }
-        });
+            if offset <= 1 {
+                let parent_ino = state.handle_to_ino(folder.parent());
+                let _ = reply.add(parent_ino, 2, FileType::Directory, "..");
+            }
 
-        reply.ok();
+            let child_offset = if offset < 2 { 0 } else { (offset - 2) as usize };
+
+            folder
+                .with_children(|children| {
+                    let mut children: Vec<FolderEntry<DeviceHandle>> =
+                        children.values().cloned().collect();
+                    children.sort_by_cached_key(|e| e.name().to_string());
+
+                    async move {
+                        for (i, child) in children.into_iter().skip(child_offset).enumerate() {
+                            let child_ino = state.insert(child.clone()).await;
+                            let kind = match child {
+                                FolderEntry::Folder(_) => FileType::Directory,
+                                FolderEntry::File(_) => FileType::RegularFile,
+                            };
+
+                            let reply_offset = child_offset as u64 + i as u64 + 3;
+                            if reply.add(child_ino, reply_offset, kind, child.name()) {
+                                break;
+                            }
+                        }
+
+                        reply.ok();
+                    }
+                })
+                .await;
+        });
     }
 
     fn statfs(&self, _req: &Request, _ino: INodeNo, reply: ReplyStatfs) {

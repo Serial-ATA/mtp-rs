@@ -41,7 +41,7 @@ pub async fn prompt_for_device() -> crate::usb::error::Result<crate::usb::Device
         .collect::<Vec<_>>();
 
     if devices.is_empty() {
-        log::error!("No devices found");
+        tracing::error!("No devices found");
         std::process::exit(1);
     }
 
@@ -64,7 +64,9 @@ async fn get_storages(
     let mut storages = session.storages().await?;
 
     if storages.is_empty() {
-        log::error!("No storages found. Double check that your device has allowed media access.");
+        tracing::error!(
+            "No storages found. Double check that your device has allowed media access."
+        );
         std::process::exit(1);
     }
 
@@ -92,7 +94,7 @@ async fn get_storages(
     if selection == 0 && allow_multiple {
         Ok(storages)
     } else {
-        Ok(vec![storages.remove(selection)])
+        Ok(vec![storages.remove(selection.saturating_sub(1))])
     }
 }
 

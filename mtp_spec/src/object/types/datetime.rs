@@ -467,9 +467,9 @@ impl DekuWriter<Endian> for DateTime {
     }
 }
 
-fn verify_field(field: Option<u8>, limit: u8, parent: Option<u8>) -> bool {
-    if let Some(field) = field {
-        return parent.is_some() && field <= limit;
+fn verify_field(field: Option<u8>, min: u8, max: u8, parent_exists: bool) -> bool {
+    if let Some(val) = field {
+        return parent_exists && val >= min && val <= max;
     }
     true // Field does not exist, so it's valid
 }
@@ -477,15 +477,15 @@ fn verify_field(field: Option<u8>, limit: u8, parent: Option<u8>) -> bool {
 impl DateTime {
     fn validate(self) -> bool {
         if self.year > 9999
-            || !verify_field(self.month, 12, Some(self.year as u8))
-            || !verify_field(self.day, 31, self.month)
-            || !verify_field(self.hour, 23, self.day)
-            || !verify_field(self.minute, 59, self.hour)
-            || !verify_field(self.second, 59, self.minute)
-            || !verify_field(self.decisecond, 9, self.second)
+            || !verify_field(self.month, 1, 12, true)
+            || !verify_field(self.day, 1, 31, self.month.is_some())
+            || !verify_field(self.hour, 0, 23, self.day.is_some())
+            || !verify_field(self.minute, 0, 59, self.hour.is_some())
+            || !verify_field(self.second, 0, 59, self.minute.is_some())
+            || !verify_field(self.decisecond, 0, 9, self.second.is_some())
             || !self
                 .timezone
-                .is_some_and(|tz| self.decisecond.is_some() && tz.validate())
+                .is_none_or(|tz| self.hour.is_some() && tz.validate())
         {
             return false;
         }
