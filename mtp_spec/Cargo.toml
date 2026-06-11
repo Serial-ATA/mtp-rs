@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+keywords.workspace = true
+categories = ["no-std", "parsing"]
 
 [lints]
 workspace = true

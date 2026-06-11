@@ -12,6 +12,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Serial-ATA/mtp-rs"
 readme = "README.md"
+keywords = ["mtp", "usb"]
 
 [workspace.dependencies]
 mtp = { path = "mtp" }
