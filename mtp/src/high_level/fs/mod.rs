@@ -21,17 +21,16 @@ use mtp_spec::device::session::MtpSession;
 use mtp_spec::object::properties::{ObjectPropertyCode, ObjectSize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{ErrorKind, Write};
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::{OnceCell, RwLock, RwLockWriteGuard};
+use tokio::sync::{RwLock, RwLockWriteGuard};
 
 /// Representation of a file on an MTP-compatible device
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `File`.
-#[derive(Debug)]
 pub struct File<D> {
     fs: Weak<FileSystem<D>>,
     storage_id: StorageId,
@@ -43,8 +42,22 @@ pub struct File<D> {
     protection_status: ProtectionStatus,
     date_modified: Option<DateTime>,
     date_created: Option<DateTime>,
+}
 
-    spool: OnceCell<std::fs::File>,
+impl<D> Debug for File<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("File")
+            .field("storage_id", &self.storage_id)
+            .field("id", &self.id)
+            .field("parent_id", &self.parent_id)
+            .field("name", &self.name)
+            .field("size", &self.size)
+            .field("format", &self.format)
+            .field("protection_status", &self.protection_status)
+            .field("date_modified", &self.date_modified)
+            .field("date_created", &self.date_created)
+            .finish()
+    }
 }
 
 // Getters
@@ -175,8 +188,7 @@ where
     ///
     /// # Errors
     ///
-    /// * The device lies about supporting [`GetPartialObject`]
-    /// * See also: [`File::open()`]
+    /// * The device doesn't support [`GetPartialObject`]
     ///
     /// [`GetPartialObject`]: crate::communication::operation::GetPartialObject
     pub async fn read_at(
@@ -193,26 +205,7 @@ where
             return Ok(response.data.data);
         }
 
-        let spool_file = self
-            .spool
-            .get_or_try_init(|| async {
-                let object = fs.session.get_object(self.id).await?;
-
-                let mut tmp = tempfile::tempfile()?;
-
-                tmp.write_all(&object.data.data)?;
-                Ok::<std::fs::File, Error<<D as PtpIo>::TransportError>>(tmp)
-            })
-            .await?;
-
-        let mut file_lock = spool_file.try_clone()?;
-        file_lock.seek(SeekFrom::Start(offset as u64))?;
-
-        let mut buffer = vec![0u8; len as usize];
-        let bytes_read = file_lock.read(&mut buffer)?;
-        buffer.truncate(bytes_read);
-
-        Ok(buffer)
+        Err(MtpError::UnsupportedOperation.into())
     }
 
     /// Attempt to rename this file on the device
@@ -246,7 +239,6 @@ where
                 protection_status: self.protection_status,
                 date_modified: self.date_modified.clone(),
                 date_created: self.date_created.clone(),
-                spool: OnceCell::new(),
             }));
         }
 
@@ -278,7 +270,6 @@ where
             protection_status: self.protection_status,
             date_modified: self.date_modified.clone(),
             date_created: self.date_created.clone(),
-            spool: OnceCell::new(),
         }))
     }
 
@@ -337,7 +328,6 @@ where
             protection_status: self.protection_status,
             date_modified: self.date_modified.clone(),
             date_created: self.date_created.clone(),
-            spool: OnceCell::new(),
         });
 
         let entry = FolderEntry::File(updated_file.clone());
@@ -394,7 +384,6 @@ where
 ///
 /// Note that it is **not** guaranteed that a device will support any or all of the operations available
 /// on `Folder`.
-#[derive(Debug)]
 pub struct Folder<D> {
     fs: Weak<FileSystem<D>>,
     storage_id: StorageId,
@@ -406,6 +395,21 @@ pub struct Folder<D> {
     date_created: Option<DateTime>,
     date_modified: Option<DateTime>,
     children: RwLock<HashMap<String, FolderEntry<D>>>,
+}
+
+impl<D> Debug for Folder<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Folder")
+            .field("storage_id", &self.storage_id)
+            .field("id", &self.id)
+            .field("parent_id", &self.parent_id)
+            .field("name", &self.name)
+            .field("format", &self.format)
+            .field("protection_status", &self.protection_status)
+            .field("date_created", &self.date_created)
+            .field("date_modified", &self.date_modified)
+            .finish()
+    }
 }
 
 // Getters
@@ -668,12 +672,20 @@ where
 }
 
 /// An entry in a [`Folder`]
-#[derive(Debug)]
 pub enum FolderEntry<D> {
     /// A [`File`] entry
     File(Arc<File<D>>),
     /// A [`Folder`] entry
     Folder(Arc<Folder<D>>),
+}
+
+impl<D> Debug for FolderEntry<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FolderEntry::File(file) => f.debug_tuple("File").field(&file).finish(),
+            FolderEntry::Folder(folder) => f.debug_tuple("Folder").field(&folder).finish(),
+        }
+    }
 }
 
 impl<D> Clone for FolderEntry<D> {
@@ -722,7 +734,6 @@ where
                 protection_status: info.protection_status,
                 date_created: info.date_created,
                 date_modified: info.date_modified,
-                spool: OnceCell::new(),
             }))
         }
     }
@@ -1322,7 +1333,7 @@ where
         let entry_clone = entry.clone();
         match prop {
             ObjectPropertyCode::ObjectFileName => {
-                drop(entry);
+                let _ = entry;
                 fs.rename_entry(&mut map, handle, info.filename.to_string())
                     .await;
             },

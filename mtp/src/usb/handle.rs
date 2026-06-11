@@ -44,15 +44,30 @@ bitflags::bitflags! {
     /// USB-specific device flags
     #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
     pub struct UsbDeviceFlags: u32 {
+        /// The device doesn't support getting the status of endpoints and/or releasing the interface
+        /// when closing the device
         const NO_RELEASE_INTERFACE = 1 << BASE_DEVICE_FLAGS_BITS;
+        /// The device may be dual-mode (e.g., both an MTP interface and a USB mass storage interface)
+        ///
+        /// If another app is using the device via its other interface(s), we'll need to remove it.
         const UNLOAD_DRIVER = 1 << (BASE_DEVICE_FLAGS_BITS + 1);
         /// The device requires an explicit USB reset after each connection
         const FORCE_RESET_ON_CLOSE = 3 << (BASE_DEVICE_FLAGS_BITS + 2);
         /// The device needs to *always* have its "OS descriptor" probed
         const ALWAYS_PROBE_DESCRIPTOR = 4 << (BASE_DEVICE_FLAGS_BITS + 3);
+        /// The device doesn't support writing zero-length packets
+        ///
+        /// As a workaround, the device will send 1 extra junk byte at the end of the transfer.
         const NO_ZERO_READS = 5 << (BASE_DEVICE_FLAGS_BITS + 4);
         /// The device provides garbage opcodes and [`TransactionId`]s in its packet headers
         const IGNORE_HEADER_ERRORS = 6 << (BASE_DEVICE_FLAGS_BITS + 5);
+        /// Special flag for partial object reads on Samsung devices
+        ///
+        /// The [`GetPartialObject`] operation, when used to read the last bytes of a file, and the length
+        /// of the last USB packet in the reply equals the USB 2.0 packet size, the device hangs.
+        ///
+        /// [`GetPartialObject`]: crate::communication::operation::GetPartialObject
+        const SAMSUNG_OFFSET_BUG = 7 << (BASE_DEVICE_FLAGS_BITS + 6);
     }
 }
 
@@ -235,7 +250,9 @@ impl DeviceHandle {
                     }
 
                     match interrupt_queue.poll_next_complete(cx) {
-                        Poll::Ready(completion) => {
+                        Poll::Ready(completion)
+                            if completion.buffer.len() >= USB_CONTAINER_HEADER_SIZE as usize =>
+                        {
                             match UsbContainer::from_reader_with_ctx(
                                 &mut Reader::new(Cursor::new(&*completion.buffer)),
                                 self.endian,
@@ -254,7 +271,7 @@ impl DeviceHandle {
                                 Err(e) => Poll::Ready(Some(Err(e.into()))),
                             }
                         },
-                        Poll::Pending => Poll::Pending,
+                        _ => Poll::Pending,
                     }
                 }
             }
@@ -345,7 +362,7 @@ impl PtpIo for DeviceHandle {
     ) -> Response<O, MtpError<Self::TransportError>>
     where
         O: DynOperation,
-        for<'a> SerializedOperation<'a>: From<&'a O>,
+        for<'a> SerializedOperation: From<&'a O>,
     {
         async fn send(
             data: Vec<u8>,
@@ -378,16 +395,16 @@ impl PtpIo for DeviceHandle {
         let command_buf;
         let op = operation.operation.encode();
         {
-            if let Ok(opcode) = Operation::try_from(op.code()) {
+            if let Ok(opcode) = Operation::try_from(op.code) {
                 tracing::debug!(target: "usb", "Sending operation of type: {opcode:?}");
             } else {
-                tracing::debug!(target: "usb", "Sending operation of type: {:#X}", op.code());
+                tracing::debug!(target: "usb", "Sending operation of type: {:#X}", op.code);
             }
 
             let command_container = UsbContainer::new(
                 ContainerType::Command,
-                op.code(),
-                op.transaction_id(),
+                op.code,
+                op.transaction_id,
                 op.encode_parameters(self.endian())?,
             );
 
@@ -409,8 +426,8 @@ impl PtpIo for DeviceHandle {
             Some(DataDirection::InitiatorToResponder) => {
                 let data_container = UsbContainer::new(
                     ContainerType::Data,
-                    op.code(),
-                    op.transaction_id(),
+                    op.code,
+                    op.transaction_id,
                     operation.data.expect("data should exist"),
                 );
 
@@ -450,12 +467,14 @@ impl PtpIo for DeviceHandle {
 
         if response.code != CODE_OK {
             let err = O::decode_err(&response.payload, self.endian(), response.code)?;
+            tracing::trace!(target: "usb", "Received error response: {err}");
             return Err(MtpError::Protocol(err.into()));
         }
 
         match responder_data {
             Some(data) => {
                 let data = O::decode_data(&data, self.endian())?;
+                tracing::trace!(target: "usb", "Received success response");
                 Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,
@@ -465,6 +484,7 @@ impl PtpIo for DeviceHandle {
                 // This case will only ever be hit for `()` anyway. The data we give it will
                 // never be read.
                 let data = O::decode_data(&[], self.endian())?;
+                tracing::trace!(target: "usb", "Received success response with no data");
                 Ok(SuccessResponse {
                     data,
                     transaction_id: response.transaction_id,

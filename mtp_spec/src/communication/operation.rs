@@ -77,50 +77,42 @@ impl DekuWriter<Endian> for Operation {
     }
 }
 
+/// The maximum number of parameters an operation can have
+pub const MAX_PARAMETERS: usize = 5;
+
 /// A prepared operation, ready for transmission
 ///
 /// Every operation type can be converted into this. It cannot be constructed directly.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, DekuWrite)]
-pub struct SerializedOperation<'a> {
-    code: u16,
-    session_id: SessionId,
-    transaction_id: TransactionId,
-    parameters: &'a [Parameter],
+pub struct SerializedOperation {
+    /// The code of the operation
+    pub code: u16,
+    /// The ID of the session this operation is part of
+    pub session_id: SessionId,
+    /// The ID of the transaction this operation is part of
+    pub transaction_id: TransactionId,
+    /// The parameters of the operation
+    pub parameters: [Option<Parameter>; MAX_PARAMETERS],
 }
 
-impl SerializedOperation<'_> {
+impl SerializedOperation {
     /// Encode the operation parameters for transport
     pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>, SerializationError> {
-        let mut buf = Vec::with_capacity(size_of_val(self.parameters));
+        let mut buf = Vec::with_capacity(size_of::<Parameter>() * MAX_PARAMETERS);
 
         let mut writer = Writer::new(Cursor::new(&mut buf));
-        for param in self.parameters {
+        for param in self.parameters.iter().flatten() {
             param.to_writer(&mut writer, endian)?;
         }
 
         Ok(buf)
-    }
-
-    /// The raw operation code
-    pub fn code(&self) -> u16 {
-        self.code
-    }
-
-    /// The session id (may be [`SessionId::NONE`] if not applicable)
-    pub fn session_id(&self) -> SessionId {
-        self.session_id
-    }
-
-    /// The associated transaction id
-    pub fn transaction_id(&self) -> TransactionId {
-        self.transaction_id
     }
 }
 
 /// Common methods for all [`operations`](crate::communication::operation)
 pub trait DynOperation: Send
 where
-    for<'a> SerializedOperation<'a>: From<&'a Self>,
+    for<'a> SerializedOperation: From<&'a Self>,
 {
     /// The direction in which data is transferred in an operation, if applicable
     const DATA_DIRECTION: Option<DataDirection>;
@@ -129,7 +121,7 @@ where
     type Response: Clone + Debug + PartialEq + for<'b> DekuReader<'b, Endian>;
 
     /// Encode the operation for transport
-    fn encode(&self) -> SerializedOperation<'_> {
+    fn encode(&self) -> SerializedOperation {
         self.into()
     }
 

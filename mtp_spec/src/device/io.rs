@@ -20,7 +20,7 @@ pub struct OperationBundle<O> {
 
 impl<O: DynOperation> OperationBundle<O>
 where
-    for<'a> SerializedOperation<'a>: From<&'a O>,
+    for<'a> SerializedOperation: From<&'a O>,
 {
     /// Create a new `OperationBundle`
     ///
@@ -97,5 +97,5 @@ pub trait PtpIo: Send {
     ) -> impl Future<Output = Response<O, MtpError<Self::TransportError>>> + Send
     where
         O: DynOperation,
-        for<'a> SerializedOperation<'a>: From<&'a O>;
+        for<'a> SerializedOperation: From<&'a O>;
 }

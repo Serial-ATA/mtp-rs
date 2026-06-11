@@ -12,7 +12,7 @@ use mtp_spec::object::{
 };
 use std::future::Future;
 use std::sync::Weak;
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::RwLock;
 
 /// Filesystem extension trait for [`Device`]s
 ///
@@ -166,7 +166,6 @@ where
             protection_status: object_info.protection_status,
             date_modified: object_info.date_modified,
             date_created: object_info.date_created,
-            spool: OnceCell::new(),
         })
     }
 }

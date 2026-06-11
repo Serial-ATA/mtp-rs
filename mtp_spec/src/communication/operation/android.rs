@@ -1,7 +1,7 @@
 //! Android-specific operation implementations
 
-use crate::communication::operation::DataDirection;
 use crate::communication::operation::impls::define_operations;
+use crate::communication::operation::{DataDirection, MAX_PARAMETERS};
 use crate::communication::response;
 use crate::object::ObjectHandle;
 

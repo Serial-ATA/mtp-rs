@@ -1,3 +1,4 @@
+use super::MAX_PARAMETERS;
 use crate::communication::{Parameter, SessionId, TransactionId, response};
 use crate::device::properties::DeviceProperty;
 use crate::device::storage::{FilesystemType, StorageId};
@@ -231,13 +232,18 @@ macro_rules! parse_operations {
 			const OPCODE: u16 = $code;
 		}
 
-		impl<'a, $($generic)*> From<&'a $($name_with_generic)*> for $crate::communication::operation::SerializedOperation<'a> $($where_clause)* {
-			fn from(value: &'a $($name_with_generic)*) -> $crate::communication::operation::SerializedOperation<'a> {
+		impl<'a, $($generic)*> From<&'a $($name_with_generic)*> for $crate::communication::operation::SerializedOperation $($where_clause)* {
+			fn from(value: &'a $($name_with_generic)*) -> $crate::communication::operation::SerializedOperation {
+				let mut parameters = [None; MAX_PARAMETERS];
+				for (i, p) in value.parameters.iter().copied().enumerate() {
+					parameters[i] = Some(p);
+				}
+
 				Self {
 					code: <$($name_with_generic)*>::OPCODE,
 					session_id: value.session_id.unwrap_or($crate::communication::SessionId::NONE),
 					transaction_id: value.transaction_id,
-					parameters: value.parameters.as_slice(),
+					parameters,
 				}
 			}
 		}

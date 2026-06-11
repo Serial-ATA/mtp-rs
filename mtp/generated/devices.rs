@@ -452,21 +452,21 @@
 		vendor_id: 0x04e8,
 		product: "Galaxy models (MTP+ADB)",
 		product_id: 0x685c,
-		flags: UsbDeviceFlagSet { base: DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST_ALL | DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST | DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::SAMSUNG_OFFSET_BUG | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER }
+		flags: UsbDeviceFlagSet { base: DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST_ALL | DeviceFlags::BROKEN_MTP_GET_OBJECT_PROP_LIST | DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER | UsbDeviceFlags::SAMSUNG_OFFSET_BUG }
 	},
 	UsbDeviceDescriptor {
 		vendor: "Samsung",
 		vendor_id: 0x04e8,
 		product: "Galaxy models (MTP)",
 		product_id: 0x6860,
-		flags: UsbDeviceFlagSet { base: DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::SAMSUNG_OFFSET_BUG | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER }
+		flags: UsbDeviceFlagSet { base: DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER | UsbDeviceFlags::SAMSUNG_OFFSET_BUG }
 	},
 	UsbDeviceDescriptor {
 		vendor: "Samsung",
 		vendor_id: 0x04e8,
 		product: "Galaxy models Kies mode",
 		product_id: 0x6877,
-		flags: UsbDeviceFlagSet { base: DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::SAMSUNG_OFFSET_BUG | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER }
+		flags: UsbDeviceFlagSet { base: DeviceFlags::LONG_TIMEOUT | DeviceFlags::PROPLIST_OVERRIDES_OI | DeviceFlags::OGG_IS_UNKNOWN | DeviceFlags::FLAC_IS_UNKNOWN, usb: UsbDeviceFlags::UNLOAD_DRIVER | UsbDeviceFlags::SAMSUNG_OFFSET_BUG }
 	},
 	UsbDeviceDescriptor {
 		vendor: "Samsung",
