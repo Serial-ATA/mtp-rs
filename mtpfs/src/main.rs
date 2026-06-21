@@ -4,12 +4,18 @@ mod fuse;
 
 use crate::fuse::MtpFuse;
 
-use std::path::Path;
-use std::sync::Arc;
-
+use clap::Parser;
 use fuser::{Config, MountOption, SessionACL};
 use mtp::example_utils::{prompt_for_device, prompt_for_storages};
 use mtp::usb::error::Error;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+#[derive(Parser)]
+#[command(name = "mtpfs", version, about, long_about = None)]
+struct Args {
+    mount_point: PathBuf,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -17,8 +23,7 @@ async fn main() -> Result<(), Error> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let mount_point = Path::new("/home/alex/mountsss");
-
+    let args = Args::parse();
     let device = prompt_for_device().await?;
 
     let mut session = match device.open().await {
@@ -40,7 +45,7 @@ async fn main() -> Result<(), Error> {
             .map_or_else(|| String::from("Unknown Storage"), ToString::to_string);
         let fs = MtpFuse::new(session.clone(), storage).await?;
 
-        let target = mount_point.join(&name);
+        let target = args.mount_point.join(&name);
         if !target.exists() {
             if let Err(e) = std::fs::create_dir_all(&target) {
                 tracing::error!(

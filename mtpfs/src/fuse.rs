@@ -19,7 +19,7 @@ use mtp::device::extensions::android::AndroidDevice;
 use mtp::device::session::MtpSession;
 use mtp::error::MtpError;
 use mtp::high_level::fs::{
-    File, FileSystem, FileSystemError, Folder, FolderEntry, FsEvent, SessionFsExt,
+    FileSystem, FileSystemError, Folder, FolderEntry, FsEvent, SessionFsExt,
 };
 use mtp::high_level::storages::Storage;
 use mtp::object::{DateTime, ObjectFormatCode, ObjectHandle};
@@ -336,7 +336,7 @@ impl FsState {
 
     async fn find_pending_entry_in(&self, parent: INodeNo, name: &str) -> Option<PendingEntry> {
         let nodes = self.nodes.read().await;
-        nodes.iter().find_map(|(&ino, entry)| {
+        nodes.iter().find_map(|(&_ino, entry)| {
             if let Entry::Pending(p) = entry {
                 if p.parent == parent && &*p.name == name {
                     return Some(p.clone());
@@ -945,7 +945,7 @@ impl Filesystem for MtpFuse {
         let data = data.to_vec();
         self.runtime.spawn(async move {
             match state.get(ino).await {
-                Some(Entry::Pending(PendingEntry { spool, name, .. })) => {
+                Some(Entry::Pending(PendingEntry { spool, .. })) => {
                     {
                         let mut spool = spool.lock().await;
                         if let Err(e) = spool.seek(SeekFrom::Start(offset)) {
@@ -988,7 +988,7 @@ impl Filesystem for MtpFuse {
 
                     // Otherwise, demote to a pending file and accumulate writes till `release()`
 
-                    match dbg!(state.demote_to_pending(ino).await) {
+                    match state.demote_to_pending(ino).await {
                         Ok(_) => {
                             reply.written(data.len() as u32);
                             return;
@@ -1173,7 +1173,7 @@ impl Filesystem for MtpFuse {
                 },
                 Err(e) => {
                     // Will also keep the temp file around, just in case
-                    reply.error(dbg!(e).to_errno());
+                    reply.error(e.to_errno());
                 },
             }
         });
