@@ -1,8 +1,8 @@
 # mtp_spec
 
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Serial-ATA/mtp-rs/ci.yml?branch=master&style=for-the-badge&logo=github)](https://github.com/Serial-ATA/mtp-rs/actions/workflows/ci.yml)
-[![Downloads](https://img.shields.io/crates/d/mtp_spec?style=for-the-badge&logo=rust)](https://crates.io/crates/mtp)
-[![Version](https://img.shields.io/crates/v/mtp_spec?style=for-the-badge&logo=rust)](https://crates.io/crates/mtp)
+[![Downloads](https://img.shields.io/crates/d/mtp_spec?style=for-the-badge&logo=rust)](https://crates.io/crates/mtp_spec)
+[![Version](https://img.shields.io/crates/v/mtp_spec?style=for-the-badge&logo=rust)](https://crates.io/crates/mtp_spec)
 [![Documentation](https://img.shields.io/badge/docs.rs-mtp_spec-informational?style=for-the-badge&logo=read-the-docs)](https://docs.rs/mtp_spec/)
 
 A `#![no_std]`-compatible full implementation of the MTP specification.
