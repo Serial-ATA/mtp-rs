@@ -149,23 +149,38 @@ where
     /// let storage = storages.first().expect("no storages");
     ///
     /// // Load the storage and find the first file
-    /// let fs = FileSystem::load(&mut session, storage.id).await?;
-    /// for child in &fs.root.children {
-    ///     let FolderEntry::File(file) = child else {
-    ///         continue;
-    ///     };
+    /// let (fs, _events) = FileSystem::load(session, storage.id).await?;
+    /// let _ = fs
+    ///     .with_root(|root| {
+    ///         let root = root.clone();
+    ///         async move {
+    ///             let first_file = root
+    ///                 .with_children(|children| {
+    ///                     children.values().find_map(|child| {
+    ///                         if let FolderEntry::File(file) = child {
+    ///                             Some(file.clone())
+    ///                         } else {
+    ///                             None
+    ///                         }
+    ///                     })
+    ///                 })
+    ///                 .await;
     ///
-    ///     // Print out whatever the first file's contents happen to be
-    ///     let mut open_file = file.open(&mut session).await?;
+    ///             if let Some(file) = first_file {
+    ///                 // Print out whatever the first file's contents happen to be
+    ///                 let mut open_file = file.open().await?;
+    ///                 println!("Contents of: {}", file.name());
     ///
-    ///     println!("Contents of: {}", file.name);
+    ///                 let mut contents = Vec::new();
+    ///                 open_file.read_to_end(&mut contents)?;
     ///
-    ///     let mut contents = Vec::new();
-    ///     open_file.read_to_end(&mut contents)?;
+    ///                 println!("{:X?}", contents);
+    ///             }
     ///
-    ///     println!("{:X?}", contents);
-    ///     break;
-    /// }
+    ///             mtp::usb::error::Result::Ok(())
+    ///         }
+    ///     })
+    ///     .await;
     ///
     /// # Ok(()) }
     /// ```
@@ -461,14 +476,12 @@ impl<D> Folder<D> {
     }
 
     /// Call the function `f` with immutable access to this folder's children
-    pub async fn with_children<F, Fut>(&self, f: F) -> Fut::Output
+    pub async fn with_children<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&HashMap<String, FolderEntry<D>>) -> Fut,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        F: FnOnce(&HashMap<String, FolderEntry<D>>) -> R,
     {
         let children = self.children.read().await;
-        f(&*children).await
+        f(&children)
     }
 }
 

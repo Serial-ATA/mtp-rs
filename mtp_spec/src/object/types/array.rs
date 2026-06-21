@@ -124,7 +124,7 @@ impl<T: ArrayEncodable + Debug> Array<T> {
     /// # Examples
     ///
     /// ```
-    /// use mtp_spec::object::types::Array;
+    /// use mtp_spec::object::Array;
     ///
     /// let array = Array::from(vec![1, 2, 3]);
     /// assert_eq!(array.len(), 3);
@@ -138,7 +138,7 @@ impl<T: ArrayEncodable + Debug> Array<T> {
     /// # Examples
     ///
     /// ```
-    /// use mtp_spec::object::types::Array;
+    /// use mtp_spec::object::Array;
     ///
     /// let array = Array::from(vec![1, 2, 3]);
     /// assert!(!array.is_empty());
@@ -155,7 +155,7 @@ impl<T: ArrayEncodable + Debug> Array<T> {
     /// # Examples
     ///
     /// ```
-    /// use mtp_spec::object::types::Array;
+    /// use mtp_spec::object::Array;
     ///
     /// let array = Array::from(vec![1, 2, 3]);
     /// let mut iter = array.iter();
@@ -174,7 +174,7 @@ impl<T: ArrayEncodable + Debug> Array<T> {
     /// # Examples
     ///
     /// ```
-    /// use mtp_spec::object::types::Array;
+    /// use mtp_spec::object::Array;
     ///
     /// let array = Array::from(vec![1, 2, 3]);
     /// assert_eq!(array.as_slice(), &[1, 2, 3]);

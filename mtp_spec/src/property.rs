@@ -76,8 +76,8 @@ pub trait SerializeableProperty<T>: Send {
     /// # Examples
     ///
     /// ```
-    /// use mtp_spec::object::types::properties::{DateCreated, DateModified, ObjectPropList};
-    /// use mtp_spec::object::types::{DateTime, ObjectHandle};
+    /// use mtp_spec::object::properties::{DateCreated, DateModified, ObjectPropList};
+    /// use mtp_spec::object::{DateTime, ObjectHandle};
     /// use mtp_spec::property::SerializeableProperty;
     ///
     /// // Some object handle obtained from the device...

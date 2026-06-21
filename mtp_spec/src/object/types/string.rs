@@ -25,7 +25,7 @@ use deku::{DekuError, DekuRead, DekuReader, DekuWrite, DekuWriter};
 /// ## Usage
 ///
 /// ```rust
-/// use mtp_spec::object::types::PtpString;
+/// use mtp_spec::object::PtpString;
 /// use std::str::FromStr;
 ///
 /// // Converting `str`s to `PtpString`
@@ -130,7 +130,7 @@ impl PtpString {
     /// # Examples
     ///
     /// ```rust
-    /// use mtp_spec::object::types::PtpString;
+    /// use mtp_spec::object::PtpString;
     /// use std::str::FromStr;
     ///
     /// let string = PtpString::from_str("Hello, world!").unwrap();
@@ -145,7 +145,7 @@ impl PtpString {
     /// # Examples
     ///
     /// ```rust
-    /// use mtp_spec::object::types::PtpString;
+    /// use mtp_spec::object::PtpString;
     /// use std::str::FromStr;
     ///
     /// let message = "";

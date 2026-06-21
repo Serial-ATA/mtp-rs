@@ -57,7 +57,7 @@ impl Timezone {
 /// 1. Manually
 ///
 /// ```rust
-/// use mtp_spec::object::types::DateTime;
+/// use mtp_spec::object::DateTime;
 ///
 /// let dt = DateTime {
 ///     year: 1984,
@@ -67,12 +67,13 @@ impl Timezone {
 ///     minute: Some(4),
 ///     second: Some(5),
 ///     decisecond: Some(6),
+///     timezone: None,
 /// };
 /// ```
 ///
 /// 2. From a `str`
 /// ```rust
-/// use mtp_spec::object::types::DateTime;
+/// use mtp_spec::object::DateTime;
 ///
 /// let dt: DateTime = "19840102T030405.6".parse().expect("valid DateTime");
 /// ```
@@ -80,7 +81,7 @@ impl Timezone {
 /// 3. From a [`PtpString`]
 ///
 /// ```rust
-/// use mtp_spec::object::types::{DateTime, PtpString};
+/// use mtp_spec::object::{DateTime, PtpString};
 /// use std::str::FromStr;
 ///
 /// let ptp_string = PtpString::from_str("19840102T030405.6").expect("valid PtpString");
