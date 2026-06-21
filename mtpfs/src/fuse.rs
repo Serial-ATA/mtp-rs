@@ -382,10 +382,7 @@ impl FsState {
 
                 if let FolderEntry::Folder(folder) = entry {
                     let children = folder
-                        .with_children(|children| {
-                            let children = children.values().cloned().collect::<Vec<_>>();
-                            async move { children }
-                        })
+                        .with_children(|children| children.values().cloned().collect::<Vec<_>>())
                         .await;
 
                     stack.extend(children);
@@ -1276,34 +1273,33 @@ impl Filesystem for MtpFuse {
             pending_entries.sort_by(|a, b| a.2.cmp(&b.2));
             entries.extend(pending_entries);
 
-            folder
+            let children = folder
                 .with_children(|children| {
                     let mut children: Vec<FolderEntry<DeviceHandle>> =
                         children.values().cloned().collect();
                     children.sort_by_cached_key(|e| e.name().to_string());
-
-                    async move {
-                        for child in children {
-                            let child_ino = state.insert(child.clone()).await;
-                            let kind = match child {
-                                FolderEntry::Folder(_) => FileType::Directory,
-                                FolderEntry::File(_) => FileType::RegularFile,
-                            };
-                            entries.push((child_ino, kind, child.name().to_string()));
-                        }
-
-                        for (index, (child_ino, kind, name)) in
-                            entries.into_iter().enumerate().skip(offset as usize)
-                        {
-                            if reply.add(child_ino, (index + 1) as u64, kind, name) {
-                                break;
-                            }
-                        }
-
-                        reply.ok();
-                    }
+                    children
                 })
                 .await;
+
+            for child in children {
+                let child_ino = state.insert(child.clone()).await;
+                let kind = match child {
+                    FolderEntry::Folder(_) => FileType::Directory,
+                    FolderEntry::File(_) => FileType::RegularFile,
+                };
+                entries.push((child_ino, kind, child.name().to_string()));
+            }
+
+            for (index, (child_ino, kind, name)) in
+                entries.into_iter().enumerate().skip(offset as usize)
+            {
+                if reply.add(child_ino, (index + 1) as u64, kind, name) {
+                    break;
+                }
+            }
+
+            reply.ok();
         });
     }
 
