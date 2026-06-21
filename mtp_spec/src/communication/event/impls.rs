@@ -780,7 +780,7 @@ define_events! {
 
     /// The [`ObjectInfo`] dataset for a particular object has changed, and it should be requested again.
     ///
-    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
+    /// [`ObjectInfo`]: crate::object::ObjectInfo
     pub struct ObjectInfoChanged {
         code: 0x4007,
         object: ObjectHandle,
@@ -791,7 +791,7 @@ define_events! {
     /// This may be caused by the Responder going into or out of a sleep state, or by the Responder
     /// losing or gaining some functionality.
     ///
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     pub struct DeviceInfoChanged {
         code: 0x4008,
     }
@@ -827,7 +827,7 @@ define_events! {
 
     /// Information in the [`StorageInfo`] dataset for the specified store had changed.
     ///
-    /// [`StorageInfo`]: crate::device::storage::info::StorageInfo
+    /// [`StorageInfo`]: crate::device::storage::StorageInfo
     pub struct StorageInfoChanged {
         code: 0x400C,
         storage_id: StorageId,

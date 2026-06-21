@@ -94,7 +94,7 @@ enum Entry {
     Real {
         /// A virtual inode number derived from the host [`ObjectHandle`].
         ///
-        /// See [`FsState::handle_to_ino()`]
+        /// See [`handle_to_ino()`]
         ino: INodeNo,
         entry: FolderEntry<DeviceHandle>,
     },

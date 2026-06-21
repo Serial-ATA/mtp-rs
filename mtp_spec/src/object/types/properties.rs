@@ -4,7 +4,7 @@
 //!
 //! # Property Descriptions
 //!
-//! Each property comes with a description that can be queried with [`Device::get_object_prop_desc()`].
+//! Each property comes with a description that can be queried with [`MtpSession::get_object_prop_desc()`].
 //! These can specify default values, read/write capability, and as covered in the next section, constraints
 //! on the value.
 //!
@@ -29,7 +29,7 @@
 //! In the case of [`ObjectFileName`], the device may provide a [`RegularExpressionForm`], where it could,
 //! for example, restrict the value to only alphanumeric characters.
 //!
-//! [`Device::get_object_prop_desc()`]: crate::device::Device::get_object_prop_desc
+//! [`MtpSession::get_object_prop_desc()`]: crate::device::session::MtpSession::get_object_prop_desc
 //! [`objects`]: ObjectHandle
 
 use crate::communication::Parameter;
@@ -107,7 +107,7 @@ impl DekuReader<'_, Endian> for ObjectPropList {
     }
 }
 
-/// Get an array of [`ObjectPropertyDesc`] arrays, each describing an allowed collection of ranges
+/// Get an array of object property description arrays, each describing an allowed collection of ranges
 ///
 /// This is used in the [`GetInterdependentPropDesc`] operation.
 ///

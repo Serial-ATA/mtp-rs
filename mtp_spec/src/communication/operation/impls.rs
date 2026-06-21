@@ -398,7 +398,7 @@ define_operations! {
     /// This operation is commonly the first operation called by an initiator upon
     /// connecting to a responder for the first time.
     ///
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     pub struct GetDeviceInfo {
         code: 0x1001,
         visible_parameters: (),
@@ -472,8 +472,7 @@ define_operations! {
     ///
     /// * `storage` - The storage to query.
     ///
-    /// [`StorageInfo`]: crate::device::storage::info::StorageInfo
-    /// [`StorageId`]: crate::device::storage::id::StorageId
+    /// [`StorageInfo`]: crate::device::storage::StorageInfo
     pub struct GetStorageInfo {
         code: 0x1005,
         visible_parameters: (storage: StorageId),
@@ -561,7 +560,7 @@ define_operations! {
     ///
     /// * `object` - The object to query.
     ///
-    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
+    /// [`ObjectInfo`]: crate::object::ObjectInfo
     pub struct GetObjectInfo {
         code: 0x1008,
         visible_parameters: (object: ObjectHandle),
@@ -1105,7 +1104,7 @@ define_operations! {
     /// Get the property description for the given object property code
     ///
     /// The parameter `T` specifies the object property to be returned.
-    /// See [`crate::object::types::properties`] for a list of properties.
+    /// See [`crate::object::properties`] for a list of properties.
     ///
     /// ## Parameters
     ///
@@ -1133,7 +1132,7 @@ define_operations! {
     /// Get the current value for the given object property code
     ///
     /// The parameter `T` specifies the object property to query.
-    /// See [`crate::object::types::properties`] for a list of properties.
+    /// See [`crate::object::properties`] for a list of properties.
     ///
     /// ## Parameters
     ///
@@ -1160,7 +1159,7 @@ define_operations! {
     /// Set the value for the given object property code
     ///
     /// The parameter `T` specifies the object property to set.
-    /// See [`crate::object::types::properties`] for a list of properties.
+    /// See [`crate::object::properties`] for a list of properties.
     ///
     /// ## Parameters
     ///
@@ -1312,7 +1311,7 @@ define_operations! {
 
     /// Update the object properties contained in the given [`ObjectPropList`]
     ///
-    /// [`ObjectPropList`]: crate::object::types::properties::ObjectPropList
+    /// [`ObjectPropList`]: crate::object::properties::ObjectPropList
     pub struct SetObjectPropList {
         code: 0x9806,
         visible_parameters: (),

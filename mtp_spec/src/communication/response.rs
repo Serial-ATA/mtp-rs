@@ -31,7 +31,7 @@ pub enum ErrorCode {
     /// The initiator should only invoke operations contained in the responder’s [`DeviceInfo`] dataset,
     /// so this response should not normally be returned.
     ///
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     OperationNotSupported = 0x2005,
     /// A parameter of an operation contains a non-zero value, but is not supported.
     ///
@@ -44,7 +44,7 @@ pub enum ErrorCode {
     /// One or more [`StorageId`]s sent as parameters of an operation do not refer to
     /// actual [`StorageId`]s on the device.
     ///
-    /// [`StorageId`]: crate::device::storage::id::StorageId
+    /// [`StorageId`]: crate::device::storage::StorageId
     InvalidStorageID = 0x2008,
     /// One or more [`ObjectHandle`]s sent as parameters of an operation do not refer
     /// to actual Objects on the device.
@@ -52,8 +52,8 @@ pub enum ErrorCode {
     /// The list of valid [`ObjectHandle`]s should be requested again, along with any appropriate
     /// [`ObjectInfo`] datasets.
     ///
-    /// [`ObjectHandle`]: crate::object::types::ObjectHandle
-    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
+    /// [`ObjectHandle`]: crate::object::ObjectHandle
+    /// [`ObjectInfo`]: crate::object::ObjectInfo
     InvalidObjectHandle = 0x2009,
     /// A [`DevicePropertyCode`] sent in an operation is not supported by the device.
     ///
@@ -62,11 +62,11 @@ pub enum ErrorCode {
     /// not normally be returned.
     ///
     /// [`DevicePropertyCode`]: crate::device::properties::DevicePropertyCode
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     DevicePropNotSupported = 0x200A,
     /// The device does not support an [`ObjectFormatCode`] supplied in the given context.
     ///
-    /// [`ObjectFormatCode`]: crate::object::types::ObjectFormatCode
+    /// [`ObjectFormatCode`]: crate::object::ObjectFormatCode
     InvalidObjectFormatCode = 0x200B,
     /// A store identified in this operation is full
     StoreFull = 0x200C,
@@ -82,7 +82,7 @@ pub enum ErrorCode {
     /// A data object exists with the specified [`ObjectHandle`], but a thumbnail cannot be provided
     /// for that object.
     ///
-    /// [`ObjectHandle`]: crate::object::types::ObjectHandle
+    /// [`ObjectHandle`]: crate::object::ObjectHandle
     NoThumbnailPresent = 0x2010,
     /// The device failed a device-specific self test.
     SelfTestFailed = 0x2011,
@@ -101,7 +101,7 @@ pub enum ErrorCode {
     /// When this response is sent, it shall indicate that any future attempts to call the same operation
     /// specifying by format will also result in this response.
     ///
-    /// [`ObjectFormatCode`]: crate::object::types::ObjectFormatCode
+    /// [`ObjectFormatCode`]: crate::object::ObjectFormatCode
     SpecificationByFormatUnsupported = 0x2014,
     /// A [`SendObject`] operation has been called without the initiator having previously sent a corresponding [`SendObjectInfo`] successfully.
     ///
@@ -122,7 +122,7 @@ pub enum ErrorCode {
     /// This response will typically not occur, because the Initiator can identify the supported
     /// vendor extensions by examination of the [`DeviceInfo`] dataset.
     ///
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     UnknownVendorCode = 0x2017,
     /// An operation attempted to terminate a capture session, but that the
     /// capture session has already terminated.
@@ -144,8 +144,8 @@ pub enum ErrorCode {
     /// valid objects, but only for [`ObjectHandle`]s which refer to actual objects which are not of
     /// type [`Association`].
     ///
-    /// [`Association`]: crate::object::types::ObjectFormatCode::Association
-    /// [`ObjectHandle`]: crate::object::types::ObjectHandle
+    /// [`Association`]: crate::object::ObjectFormatCode::Association
+    /// [`ObjectHandle`]: crate::object::ObjectHandle
     InvalidParentObject = 0x201A,
     /// An attempt is made to set a [`DeviceProperty`], but the [`DevicePropDesc`] dataset sent is not the correct size or format.
     ///
@@ -182,15 +182,15 @@ pub enum ErrorCode {
     SpecificationOfDestinationUnsupported = 0x2020,
     /// The device does not support the sent [`ObjectPropertyCode`] in this context.
     ///
-    /// [`ObjectPropertyCode`]: crate::object::types::properties::ObjectPropertyCode
+    /// [`ObjectPropertyCode`]: crate::object::properties::ObjectPropertyCode
     InvalidObjectPropCode = 0x2021,
     /// An [`ObjectProperty`] sent to the device is in an unsupported size or type.
     ///
-    /// [`ObjectProperty`]: crate::object::types::properties::ObjectProperty
+    /// [`ObjectProperty`]: crate::object::properties::ObjectProperty
     InvalidObjectPropFormat = 0x2022,
     /// An [`ObjectProperty`] sent to the device is the correct type, but contains a value which is not supported.
     ///
-    /// [`ObjectProperty`]: crate::object::types::properties::ObjectProperty
+    /// [`ObjectProperty`]: crate::object::properties::ObjectProperty
     InvalidObjectPropValue = 0x2023,
     /// A sent Object Reference is invalid.
     ///
@@ -219,7 +219,7 @@ pub enum ErrorCode {
     /// The initiator should only attempt to work with Object Properties identified as supported by
     /// the responder, so this response should not normally be returned.
     ///
-    /// [`ObjectPropertyCode`]: crate::object::types::properties::ObjectPropertyCode
+    /// [`ObjectPropertyCode`]: crate::object::properties::ObjectPropertyCode
     ObjectPropNotSupported = 0x2029,
     /// An Object Property group code sent in an operation is not supported by the device.
     ///

@@ -13,8 +13,8 @@
 //! * `time` - Adds [`DateTime::as_systemtime()`] to convert [`DateTime`] into [`SystemTime`] (*enabled by default*)
 //!     * NOTE: This enables `std`
 //!
-//! [`DateTime::as_systemtime()`]: object::types::DateTime::as_systemtime
-//! [`DateTime`]: object::types::DateTime
+//! [`DateTime::as_systemtime()`]: object::DateTime::as_systemtime
+//! [`DateTime`]: object::DateTime
 //! [`SystemTime`]: std::time::SystemTime
 
 #![cfg_attr(not(feature = "time"), no_std)]

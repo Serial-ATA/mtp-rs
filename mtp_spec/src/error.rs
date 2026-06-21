@@ -20,11 +20,11 @@ pub enum SerializationError {
     NoDataProvided,
     /// Attempting to deserialize a [`PtpString`] containing a null byte
     ///
-    /// [`PtpString`]: crate::object::types::PtpString
+    /// [`PtpString`]: crate::object::PtpString
     StringContainsNull,
     /// Attempting to parse a malformed [`DateTime`]
     ///
-    /// [`DateTime`]: crate::object::types::DateTime
+    /// [`DateTime`]: crate::object::DateTime
     BadDateTime(DateTimeError),
     /// General serialization/deserialization errors
     General(deku::DekuError),

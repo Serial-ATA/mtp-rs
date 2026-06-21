@@ -95,7 +95,7 @@ where
     /// Check the device's battery level
     ///
     /// This should always be `0..=100`, but the device could be doing something weird. The range of
-    /// values can be verified by checking [`Device::get_device_prop_desc()`] with [`BatteryLevel`].
+    /// values can be verified by checking [`MtpSession::get_device_prop_desc()`] with [`BatteryLevel`].
     ///
     /// [`BatteryLevel`]: properties::BatteryLevel
     ///
@@ -161,7 +161,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn close_session(
         &self,
     ) -> Response<CloseSession, MtpError<<D as PtpIo>::TransportError>> {
@@ -178,7 +178,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_storage_ids(
         &self,
     ) -> Response<GetStorageIDs, MtpError<<D as PtpIo>::TransportError>> {
@@ -195,7 +195,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_storage_info(
         &self,
         storage: StorageId,
@@ -213,7 +213,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_num_objects(
         &self,
         storage: StorageId,
@@ -233,7 +233,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_handles(
         &self,
         storage: StorageId,
@@ -253,7 +253,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_info(
         &self,
         object: ObjectHandle,
@@ -271,7 +271,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object(
         &self,
         object: ObjectHandle,
@@ -289,7 +289,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_thumb(
         &self,
         object: ObjectHandle,
@@ -307,7 +307,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn delete_object(
         &self,
         object: ObjectHandle,
@@ -326,7 +326,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn send_object_info(
         &self,
         object_info: ObjectInfo,
@@ -357,7 +357,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn send_object<T>(
         &self,
         object_data: T,
@@ -378,7 +378,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn initiate_capture(
         &self,
         storage: Option<StorageId>,
@@ -397,7 +397,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn format_store(
         &self,
         storage: StorageId,
@@ -416,7 +416,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn reset_device(
         &self,
     ) -> Response<ResetDevice, MtpError<<D as PtpIo>::TransportError>> {
@@ -433,7 +433,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn self_test(
         &self,
         test_type: SelfTestType,
@@ -451,7 +451,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn set_object_protection(
         &self,
         object: ObjectHandle,
@@ -470,7 +470,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn power_down(&self) -> Response<PowerDown, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
@@ -485,7 +485,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_device_prop_desc<T>(
         &self,
     ) -> Response<GetDevicePropDesc<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -505,7 +505,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_device_prop_value<T>(
         &self,
     ) -> Response<GetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -525,7 +525,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn set_device_prop_value<T>(
         &self,
         value: Vec<u8>,
@@ -546,7 +546,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn reset_device_prop_value<T>(
         &self,
     ) -> Response<ResetDevicePropValue<T>, MtpError<<D as PtpIo>::TransportError>>
@@ -566,7 +566,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn terminate_open_capture(
         &self,
         transaction_id: TransactionId,
@@ -584,7 +584,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn move_object(
         &self,
         object: ObjectHandle,
@@ -604,7 +604,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn copy_object(
         &self,
         object: ObjectHandle,
@@ -624,7 +624,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_partial_object(
         &self,
         object: ObjectHandle,
@@ -644,7 +644,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn initiate_open_capture(
         &self,
         storage: Option<StorageId>,
@@ -663,7 +663,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_props_supported(
         &self,
         format: ObjectFormatCode,
@@ -681,7 +681,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_prop_desc<T>(
         &self,
         format: ObjectFormatCode,
@@ -702,7 +702,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_prop_value<T>(
         &self,
         object: ObjectHandle,
@@ -723,7 +723,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn set_object_prop_value<T>(
         &self,
         object: ObjectHandle,
@@ -751,7 +751,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_references(
         &self,
         object: ObjectHandle,
@@ -769,7 +769,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn set_object_references(
         &self,
         object: ObjectHandle,
@@ -794,7 +794,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn skip(&self, skip: u32) -> Response<Skip, MtpError<<D as PtpIo>::TransportError>> {
         let transaction_id = self.next_transaction_id();
         let session_id = self.id;
@@ -813,7 +813,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_object_prop_list(
         &self,
         object: ObjectHandle,
@@ -843,7 +843,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn set_object_prop_list(
         &self,
         props: ObjectPropList,
@@ -865,7 +865,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn get_interdependent_prop_desc(
         &self,
         format: ObjectFormatCode,
@@ -883,7 +883,7 @@ where
     ///
     /// # Errors
     ///
-    /// Depends on the [`Device`], see the implementation of [`Device::send_operation()`].
+    /// Depends on the [`Device`], see the implementation of [`PtpIo::send_operation()`].
     pub async fn send_object_prop_list(
         &self,
         destination: Option<StorageId>,

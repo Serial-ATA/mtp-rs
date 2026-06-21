@@ -168,7 +168,7 @@ define_error_responses! {
     /// initiator should only invoke operations contained in the responder’s [`DeviceInfo`] dataset,
     /// so this response should not normally be returned.
     ///
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     [[error("The operation is not supported by the device")]]
     pub struct OperationNotSupported {
         code: 0x2005,
@@ -204,7 +204,7 @@ define_error_responses! {
     /// The list of valid [`ObjectHandle`]s should be requested again, along with any appropriate
     /// [`ObjectInfo`] datasets.
     ///
-    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
+    /// [`ObjectInfo`]: crate::object::ObjectInfo
     [[error("The object handle is not valid")]]
     pub struct InvalidObjectHandle {
         code: 0x2009,
@@ -216,7 +216,7 @@ define_error_responses! {
     /// Dataset, so this response should not normally be returned.
     ///
     /// [`DevicePropertyCode`]: crate::device::properties::DevicePropertyCode
-    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
+    /// [`DeviceInfo`]: crate::device::DeviceInfo
     [[error("The device property is not supported")]]
     pub struct DevicePropNotSupported {
         code: 0x200A,
@@ -356,7 +356,7 @@ define_error_responses! {
 
     /// The device does not allow setting the specified [`PropertyValue`]
     ///
-    /// [`PropertyValue`]: crate::object::types::PropertyValue
+    /// [`PropertyValue`]: crate::object::PropertyValue
     [[error("The device does not allow setting the specified property value")]]
     pub struct InvalidDevicePropValue {
         code: 0x201C,

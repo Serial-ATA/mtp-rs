@@ -644,7 +644,7 @@ where
     /// * The [`DeleteObject`] operation failed
     ///   * Note that in this case, it is assumed the entry still exists on the device
     ///
-    /// [`DeleteObject`]: crate::operations::object::DeleteObject
+    /// [`DeleteObject`]: crate::communication::operation::DeleteObject
     pub async fn remove_child(&self, name: &str) -> Result<(), FileSystemError<D>> {
         let mut children = self.children.write().await;
         let Some(entry) = children.remove(name) else {

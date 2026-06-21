@@ -18,8 +18,8 @@ pub trait Property:
     /// This is typically types like integers, [`PtpString`], or [`Array`]. But is occasionally used
     /// for custom enums for well-known variants.
     ///
-    /// [`PtpString`]: crate::object::types::PtpString
-    /// [`Array`]: crate::object::types::Array
+    /// [`PtpString`]: crate::object::PtpString
+    /// [`Array`]: crate::object::Array
     type DataType: PropertyDataType + for<'a> DekuReader<'a, Endian> + DekuWriter<Endian> + Send;
 
     /// The read/write status of the property

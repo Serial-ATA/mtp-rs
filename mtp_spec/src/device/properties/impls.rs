@@ -729,7 +729,7 @@ define_device_properties! {
     ///
     /// This is the value used to populate the [`Artist`] object property.
     ///
-    /// [`Artist`]: crate::object::types::properties::Artist
+    /// [`Artist`]: crate::object::properties::Artist
     pub struct Artist {
         properties: {
             data_type: PtpString,
@@ -743,7 +743,7 @@ define_device_properties! {
     ///
     /// This is the value used to populate the [`CopyrightInformation`] object property.
     ///
-    /// [`CopyrightInformation`]: crate::object::types::properties::CopyrightInformation
+    /// [`CopyrightInformation`]: crate::object::properties::CopyrightInformation
     pub struct CopyrightInfo {
         properties: {
             data_type: PtpString,

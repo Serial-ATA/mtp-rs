@@ -33,8 +33,8 @@
 //! * A device can send objects in any order, so parents may come after their children
 //! * Devices (barring any special [vendor extensions]) will only be able to send objects one-by-one
 //!
-//! [`ObjectHandle`]: object::types::ObjectHandle
-//! [`ObjectInfo`]: object::info::ObjectInfo
+//! [`ObjectHandle`]: object::ObjectHandle
+//! [`ObjectInfo`]: object::ObjectInfo
 //!
 //! ### Synchronous Nature
 //!

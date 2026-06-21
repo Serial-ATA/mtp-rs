@@ -10,7 +10,7 @@ define_operations! {
 
     /// 64-bit variant of [`GetPartialObject`]
     ///
-    /// [`GetPartialObject`]: crate::device::info::DeviceInfo
+    /// [`GetPartialObject`]: crate::device::DeviceInfo
     pub struct GetPartialObject64 {
         code: 0x95C1,
         visible_parameters: (object: ObjectHandle, @RAW(true) offset_high: u32, @RAW(true) offset_low: u32, @RAW(true) len: u32),

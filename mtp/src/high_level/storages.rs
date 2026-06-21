@@ -12,8 +12,8 @@ use crate::error::MtpError;
 ///
 /// These are obtained from [`SessionStorageExt::storages()`].
 ///
-/// [`StorageInfo`]: crate::device::storage::info::StorageInfo
-/// [`PtpString`]: crate::object::types::PtpString
+/// [`StorageInfo`]: crate::device::storage::StorageInfo
+/// [`PtpString`]: crate::object::PtpString
 pub struct Storage {
     /// The device-specific ID of the storage
     pub id: StorageId,
