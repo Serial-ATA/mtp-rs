@@ -5,6 +5,7 @@ use crate::communication::{Parameter, SessionId, TransactionId};
 use crate::error::SerializationError;
 use crate::object::ArrayEncodable;
 
+use alloc::format;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use deku::ctx::Endian;

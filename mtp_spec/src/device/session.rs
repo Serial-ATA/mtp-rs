@@ -23,6 +23,7 @@ use crate::object::{
 };
 
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::ops::Deref;
 
 use deku::DekuWriter;

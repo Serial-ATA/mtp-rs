@@ -11,6 +11,8 @@ use crate::communication::response::Response;
 use crate::communication::{SessionId, TransactionId};
 use crate::error::MtpError;
 
+use alloc::string::ToString;
+
 pub mod extensions;
 mod flags;
 pub use flags::*;

@@ -9,6 +9,8 @@ use crate::device::{Device, OperationBundle, PtpIo};
 use crate::error::MtpError;
 use crate::object::ObjectHandle;
 
+use alloc::vec::Vec;
+
 /// Android-specific device operations
 pub trait AndroidDevice<D>
 where

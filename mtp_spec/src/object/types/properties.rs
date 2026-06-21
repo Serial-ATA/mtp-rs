@@ -41,6 +41,7 @@ use crate::property::{Property, SerializedProperty};
 
 use alloc::borrow::Cow;
 use alloc::format;
+use alloc::vec::Vec;
 
 use deku::ctx::Endian;
 use deku::no_std_io::{Read, Seek, Write};
@@ -65,7 +66,7 @@ impl FromIterator<SerializedProperty> for ObjectPropList {
 
 impl IntoIterator for ObjectPropList {
     type Item = SerializedProperty;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()

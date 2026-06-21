@@ -65,3 +65,14 @@ jobs:
                     override: true
             -   run: rustup component add rustfmt
             -   run: cargo fmt -- --check
+    no_std:
+        name: Verify no_std
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/checkout@v4
+            -   uses: dtolnay/rust-toolchain@v1
+                with:
+                    profile: minimal
+                    toolchain: stable
+                    override: true
+            -   run: cargo build -p mtp_spec --no-default-features

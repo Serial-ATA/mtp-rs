@@ -1,11 +1,12 @@
 [package]
 name = "mtp_spec"
 version = "0.1.0"
+description = "A full implementation of the MTP (Media Transfer Protocol) specification"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "README.md"
 keywords.workspace = true
 categories = ["no-std", "parsing"]
 

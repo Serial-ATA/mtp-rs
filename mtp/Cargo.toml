@@ -1,6 +1,7 @@
 [package]
 name = "mtp"
 version = "0.1.0"
+description = "MTP client implementation based on mtp_spec"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
