@@ -29,12 +29,10 @@ pub async fn main() -> mtp::usb::error::Result<()> {
         std::process::exit(1);
     }
 
-    let format = args
-        .src
-        .extension()
-        .and_then(OsStr::to_str)
-        .map(ObjectFormatCode::from_extension)
-        .unwrap_or(ObjectFormatCode::Undefined);
+    let format = args.src.extension().and_then(OsStr::to_str).map_or(
+        ObjectFormatCode::Undefined,
+        ObjectFormatCode::from_extension,
+    );
     if format == ObjectFormatCode::Undefined {
         warn!(
             "Unable to determine the file type by the path, the device may reject unknown file \

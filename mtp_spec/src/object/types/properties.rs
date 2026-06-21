@@ -17,7 +17,7 @@
 //!
 //! * [`RangeForm`]
 //! * [`EnumerationForm`]
-//! * DateTime form (handled as a special case)
+//! * [`DateTime`] form (handled as a special case)
 //!   * Properties expected to be in DateTime form will automatically be parsed as a [`DateTime`]
 //! * [`FixedLengthArrayForm`]
 //! * [`RegularExpressionForm`]

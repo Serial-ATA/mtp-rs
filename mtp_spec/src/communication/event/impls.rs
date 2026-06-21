@@ -749,7 +749,7 @@ define_events! {
     /// A new store object has been added to the device.
     ///
     /// If the new store contains more than one logical store, then the first parameter shall be set
-    /// to [`StorageId::DEFAULT_STORE`] and the initiator should retrieve a new list of StorageIDs using the
+    /// to [`StorageId::DEFAULT_STORE`] and the initiator should retrieve a new list of [`StorageId`]s using the
     /// [`GetStorageIDs`] operation.
     ///
     /// [`GetStorageIDs`]: crate::communication::operation::GetStorageIDs
@@ -778,7 +778,9 @@ define_events! {
         prop_code: DevicePropertyCode,
     }
 
-    /// The ObjectInfo dataset for a particular object has changed, and it should be requested again.
+    /// The [`ObjectInfo`] dataset for a particular object has changed, and it should be requested again.
+    ///
+    /// [`ObjectInfo`]: crate::object::info::ObjectInfo
     pub struct ObjectInfoChanged {
         code: 0x4007,
         object: ObjectHandle,
@@ -841,7 +843,7 @@ define_events! {
 
     /// The initiator must do anything necessary to update its knowledge of the responder.
     ///
-    /// This may include re-obtaining information such as individual datasets or ObjectHandle lists,
+    /// This may include re-obtaining information such as individual datasets or [`ObjectHandle`] lists,
     /// or may even result in the session being closed and re-opened.
     pub struct UnreportedStatus {
         code: 0x400E,

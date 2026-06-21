@@ -128,7 +128,8 @@ impl DateTime {
 
         let time = unsafe { libc::mktime(&raw mut tm) };
 
-        std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(time as u64))
+        std::time::SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_millis(time.cast_unsigned()))
     }
 
     /// Get the current system time as a `DateTime`
@@ -359,20 +360,24 @@ impl FromStr for DateTime {
                     datetime.timezone = Some(Timezone::Offset {
                         hour: parse_int(&mut timezone)?
                             .ok_or(DateTimeError::BadSegmentLength)?
-                            .cast_signed(),
+                            .cast_signed()
+                            .wrapping_neg(),
                         minute: parse_int(&mut timezone)?
                             .ok_or(DateTimeError::BadSegmentLength)?
-                            .cast_signed(),
-                    })
+                            .cast_signed()
+                            .wrapping_neg(),
+                    });
                 },
                 Some('+') => {
                     let mut timezone = remaining_chars.as_str();
                     datetime.timezone = Some(Timezone::Offset {
-                        hour: parse_int(&mut timezone)?.ok_or(DateTimeError::BadSegmentLength)?
-                            as i8,
-                        minute: parse_int(&mut timezone)?.ok_or(DateTimeError::BadSegmentLength)?
-                            as i8,
-                    })
+                        hour: parse_int(&mut timezone)?
+                            .ok_or(DateTimeError::BadSegmentLength)?
+                            .cast_signed(),
+                        minute: parse_int(&mut timezone)?
+                            .ok_or(DateTimeError::BadSegmentLength)?
+                            .cast_signed(),
+                    });
                 },
                 Some(_) => return Err(DateTimeError::MissingTimezone),
                 None => {},
@@ -408,6 +413,16 @@ impl Display for DateTime {
 
                             if let Some(decisecond) = self.decisecond {
                                 write!(f, ".{:01}", decisecond)?;
+
+                                if let Some(timezone) = self.timezone {
+                                    match timezone {
+                                        Timezone::Utc => write!(f, "Z")?,
+                                        Timezone::Offset { hour, minute } => {
+                                            let sign = if hour.is_negative() { '-' } else { '+' };
+                                            write!(f, "{sign}{:02}{:02}", hour, minute)?
+                                        },
+                                    }
+                                }
                             }
                         }
                     }

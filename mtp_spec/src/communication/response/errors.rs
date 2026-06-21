@@ -165,8 +165,10 @@ define_error_responses! {
 
     /// Indicates that an Operation has been called with what appears to be a valid
     /// code, but the responder does not support the operation identified by that code. The
-    /// initiator should only invoke operations contained in the responder’s DeviceInfo dataset,
+    /// initiator should only invoke operations contained in the responder’s [`DeviceInfo`] dataset,
     /// so this response should not normally be returned.
+    ///
+    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
     [[error("The operation is not supported by the device")]]
     pub struct OperationNotSupported {
         code: 0x2005,
@@ -189,8 +191,8 @@ define_error_responses! {
         code: 0x2007,
     }
 
-    /// Indicates that one or more [StorageId]s sent as parameters of an operation do not refer to
-    /// actual StorageIDs on the device.
+    /// Indicates that one or more [`StorageId`]s sent as parameters of an operation do not refer to
+    /// actual [`StorageId`]s on the device.
     [[error("The storage ID is not valid")]]
     pub struct InvalidStorageId {
         code: 0x2008,
@@ -299,8 +301,8 @@ define_error_responses! {
     /// Indicates that a [`SendObject`] operation was received without a corresponding [`SendObjectInfo`]
     /// operation.
     ///
-    /// The initiator must successfully complete a SendObjectInfo operation before attempting another
-    /// SendObject operation.
+    /// The initiator must successfully complete a [`SendObjectInfo`] operation before attempting another
+    /// [`SendObject`] operation.
     ///
     /// [`SendObject`]: crate::communication::operation::SendObject
     /// [`SendObjectInfo`]: crate::communication::operation::SendObjectInfo

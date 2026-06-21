@@ -45,7 +45,7 @@ impl Display for SerializationError {
             SerializationError::NoDataProvided => {
                 write!(f, "Expected data for operation, but none was provided")
             },
-            SerializationError::StringContainsNull => write!(f, "{}", NulError),
+            SerializationError::StringContainsNull => write!(f, "{NulError}"),
             SerializationError::BadDateTime(err) => write!(f, "{err}"),
             SerializationError::General(error) => write!(f, "{error}"),
         }

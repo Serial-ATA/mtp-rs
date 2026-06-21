@@ -28,8 +28,10 @@ pub enum ErrorCode {
     InvalidTransactionID = 0x2004,
     /// An Operation has been called, but the responder does not support it.
     ///
-    /// The initiator should only invoke operations contained in the responder’s DeviceInfo dataset,
+    /// The initiator should only invoke operations contained in the responder’s [`DeviceInfo`] dataset,
     /// so this response should not normally be returned.
+    ///
+    /// [`DeviceInfo`]: crate::device::info::DeviceInfo
     OperationNotSupported = 0x2005,
     /// A parameter of an operation contains a non-zero value, but is not supported.
     ///
@@ -40,7 +42,7 @@ pub enum ErrorCode {
     /// This response shall not be sent if the transfer was cancelled by the Initiator.
     IncompleteTransfer = 0x2007,
     /// One or more [`StorageId`]s sent as parameters of an operation do not refer to
-    /// actual StorageIDs on the device.
+    /// actual [`StorageId`]s on the device.
     ///
     /// [`StorageId`]: crate::device::storage::id::StorageId
     InvalidStorageID = 0x2008,
@@ -136,7 +138,7 @@ pub enum ErrorCode {
     /// right now. This response shall not be used to indicate that a store is physically unavailable.
     DeviceBusy = 0x2019,
     /// An indicated object is not of type [`Association`], but is required to be in the current context, and therefore is not a
-    /// valid ParentObject.
+    /// valid parent object.
     ///
     /// This response is not intended to be used for specified [`ObjectHandle`]s that do not refer to
     /// valid objects, but only for [`ObjectHandle`]s which refer to actual objects which are not of
