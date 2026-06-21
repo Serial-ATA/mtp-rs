@@ -136,7 +136,7 @@ impl Entry {
     fn name(&self) -> &str {
         match self {
             Self::Real { entry, .. } => entry.name(),
-            Self::Virtual { name, .. } => &name,
+            Self::Virtual { name, .. } => name,
             Self::Pending(entry) => &entry.name,
         }
     }
@@ -144,8 +144,7 @@ impl Entry {
     /// Get the virtual inode number for this entry
     fn ino(&self) -> INodeNo {
         match self {
-            Self::Real { ino, .. } => *ino,
-            Self::Virtual { ino, .. } => *ino,
+            Self::Real { ino, .. } | Self::Virtual { ino, .. } => *ino,
             Self::Pending(entry) => entry.ino,
         }
     }
@@ -170,7 +169,7 @@ impl Entry {
                 FolderEntry::File(file) => Ok(FileAttr {
                     ino: *ino,
                     size: file.size(),
-                    blocks: (file.size() + u64::from(BLOCK_SIZE) - 1) / u64::from(BLOCK_SIZE),
+                    blocks: file.size().div_ceil(u64::from(BLOCK_SIZE)),
                     atime: SystemTime::UNIX_EPOCH,
                     mtime: file
                         .date_modified()
@@ -235,7 +234,7 @@ impl Entry {
                 Ok(FileAttr {
                     ino: *ino,
                     size,
-                    blocks: (size + u64::from(BLOCK_SIZE) - 1) / u64::from(BLOCK_SIZE),
+                    blocks: size.div_ceil(u64::from(BLOCK_SIZE)),
                     atime: SystemTime::UNIX_EPOCH,
                     mtime: *mtime,
                     ctime: SystemTime::UNIX_EPOCH,
@@ -263,8 +262,8 @@ struct FsState {
 impl Default for FsState {
     fn default() -> Self {
         Self {
-            nodes: Default::default(),
-            fs: Default::default(),
+            nodes: RwLock::default(),
+            fs: OnceCell::default(),
             next_pending_ino: AtomicU64::new(PENDING_INODE_OFFSET),
         }
     }
@@ -337,10 +336,11 @@ impl FsState {
     async fn find_pending_entry_in(&self, parent: INodeNo, name: &str) -> Option<PendingEntry> {
         let nodes = self.nodes.read().await;
         nodes.iter().find_map(|(&_ino, entry)| {
-            if let Entry::Pending(p) = entry {
-                if p.parent == parent && &*p.name == name {
-                    return Some(p.clone());
-                }
+            if let Entry::Pending(p) = entry
+                && p.parent == parent
+                && &*p.name == name
+            {
+                return Some(p.clone());
             }
             None
         })
@@ -457,11 +457,13 @@ impl MtpFuse {
     }
 
     // TODO
+    #[allow(clippy::unused_self)]
     fn playlists(&self) -> impl Iterator<Item = (String, FileAttr)> {
         iter::empty()
     }
 
     // TODO
+    #[allow(clippy::unused_self)]
     fn lost_and_found(&self) -> impl Iterator<Item = (String, FileAttr)> {
         iter::empty()
     }
@@ -859,7 +861,7 @@ impl Filesystem for MtpFuse {
         self.runtime.spawn(async move {
             if let Err(e) = state.dir(parent).await {
                 return reply.error(e);
-            };
+            }
 
             match state.new_pending(parent, name_str.into()).await {
                 Ok(entry) => match entry.attr().await {
@@ -1029,9 +1031,8 @@ impl Filesystem for MtpFuse {
     ) {
         let state = self.state.clone();
         self.runtime.spawn(async move {
-            let mut entry = match state.get(ino).await {
-                Some(e) => e,
-                None => return reply.error(Errno::ENOENT),
+            let Some(mut entry) = state.get(ino).await else {
+                return reply.error(Errno::ENOENT);
             };
 
             if let Some(size) = size {
@@ -1056,26 +1057,26 @@ impl Filesystem for MtpFuse {
                 }
             }
 
-            if let Some(time) = mtime {
-                if let Entry::Pending(_) = &mut entry {
-                    let mut nodes = state.nodes.write().await;
-                    if let Some(Entry::Pending(p_mut)) = nodes.get_mut(&ino) {
-                        p_mut.mtime = match time {
-                            TimeOrNow::SpecificTime(time) => time,
-                            TimeOrNow::Now => SystemTime::now(),
-                        };
-                        entry = Entry::Pending(p_mut.clone());
-                    }
+            if let Some(time) = mtime
+                && let Entry::Pending(_) = &mut entry
+            {
+                let mut nodes = state.nodes.write().await;
+                if let Some(Entry::Pending(p_mut)) = nodes.get_mut(&ino) {
+                    p_mut.mtime = match time {
+                        TimeOrNow::SpecificTime(time) => time,
+                        TimeOrNow::Now => SystemTime::now(),
+                    };
+                    entry = Entry::Pending(p_mut.clone());
                 }
             }
 
-            if let Some(time) = crtime {
-                if let Entry::Pending(_) = &mut entry {
-                    let mut nodes = state.nodes.write().await;
-                    if let Some(Entry::Pending(p_mut)) = nodes.get_mut(&ino) {
-                        p_mut.crtime = time;
-                        entry = Entry::Pending(p_mut.clone());
-                    }
+            if let Some(time) = crtime
+                && let Entry::Pending(_) = &mut entry
+            {
+                let mut nodes = state.nodes.write().await;
+                if let Some(Entry::Pending(p_mut)) = nodes.get_mut(&ino) {
+                    p_mut.crtime = time;
+                    entry = Entry::Pending(p_mut.clone());
                 }
             }
 
@@ -1137,7 +1138,7 @@ impl Filesystem for MtpFuse {
 
                 // Don't commit empty files to the device. Android, at the very least, gets
                 // tripped up and hangs forever waiting for data. Sad...
-                let size = spool.metadata().map(|m| m.len()).unwrap_or(0);
+                let size = spool.metadata().map_or(0, |m| m.len());
                 if size == 0 {
                     return reply.ok();
                 }
@@ -1330,13 +1331,12 @@ trait ToErrno {
 
 impl ToErrno for MtpError<Arc<UsbError>> {
     fn to_errno(&self) -> Errno {
-        if let MtpError::Transport(e) = self {
-            if let UsbError::Native(e) = &**e {
-                return e
-                    .os_error()
-                    .map(|e| Errno::from_i32(e as i32))
-                    .unwrap_or(Errno::EIO);
-            }
+        if let MtpError::Transport(e) = self
+            && let UsbError::Native(e) = &**e
+        {
+            return e
+                .os_error()
+                .map_or(Errno::EIO, |e| Errno::from_i32(e as i32));
         }
 
         Errno::EIO
@@ -1345,9 +1345,7 @@ impl ToErrno for MtpError<Arc<UsbError>> {
 
 impl ToErrno for std::io::Error {
     fn to_errno(&self) -> Errno {
-        self.raw_os_error()
-            .map(|e| Errno::from_i32(e))
-            .unwrap_or(Errno::EIO)
+        self.raw_os_error().map_or(Errno::EIO, Errno::from_i32)
     }
 }
 

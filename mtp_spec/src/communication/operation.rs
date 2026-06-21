@@ -97,6 +97,7 @@ pub struct SerializedOperation {
 
 impl SerializedOperation {
     /// Encode the operation parameters for transport
+    #[allow(clippy::missing_errors_doc)]
     pub fn encode_parameters(&self, endian: Endian) -> Result<Vec<u8>, SerializationError> {
         let mut buf = Vec::with_capacity(size_of::<Parameter>() * MAX_PARAMETERS);
 

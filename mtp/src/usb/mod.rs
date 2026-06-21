@@ -56,6 +56,7 @@ use std::sync::LazyLock;
 
 use mtp_spec::device::DeviceFlags;
 
+#[allow(clippy::mixed_case_hex_literals)]
 static WELL_KNOWN_DEVICE_DESCRIPTORS: LazyLock<HashSet<UsbDeviceDescriptor>> =
     LazyLock::new(|| HashSet::from_iter(include!("../../generated/devices.rs")));
 

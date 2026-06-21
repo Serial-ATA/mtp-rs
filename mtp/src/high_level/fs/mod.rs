@@ -56,7 +56,7 @@ impl<D> Debug for File<D> {
             .field("protection_status", &self.protection_status)
             .field("date_modified", &self.date_modified)
             .field("date_created", &self.date_created)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -237,8 +237,8 @@ where
                 size: self.size,
                 format: self.format,
                 protection_status: self.protection_status,
-                date_modified: self.date_modified.clone(),
-                date_created: self.date_created.clone(),
+                date_modified: self.date_modified,
+                date_created: self.date_created,
             }));
         }
 
@@ -248,7 +248,7 @@ where
             .object_property_can_be_modified::<ObjectFileName>(self.format)
             .await?
         {
-            return Err(MtpError::UnsupportedOperation.into());
+            return Err(MtpError::UnsupportedOperation);
         }
 
         let name_ptp = PtpString::from_str(name_str)
@@ -268,8 +268,8 @@ where
             size: self.size,
             format: self.format,
             protection_status: self.protection_status,
-            date_modified: self.date_modified.clone(),
-            date_created: self.date_created.clone(),
+            date_modified: self.date_modified,
+            date_created: self.date_created,
         }))
     }
 
@@ -326,8 +326,8 @@ where
             size: self.size,
             format: self.format,
             protection_status: self.protection_status,
-            date_modified: self.date_modified.clone(),
-            date_created: self.date_created.clone(),
+            date_modified: self.date_modified,
+            date_created: self.date_created,
         });
 
         let entry = FolderEntry::File(updated_file.clone());
@@ -371,7 +371,7 @@ where
             filename,
             date_created: self.date_created,
             date_modified: self.date_modified,
-            keywords: Default::default(),
+            keywords: PtpString::default(),
         })
     }
 
@@ -408,7 +408,7 @@ impl<D> Debug for Folder<D> {
             .field("protection_status", &self.protection_status)
             .field("date_created", &self.date_created)
             .field("date_modified", &self.date_modified)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -461,16 +461,14 @@ impl<D> Folder<D> {
     }
 
     /// Call the function `f` with immutable access to this folder's children
-    pub fn with_children<F, Fut>(&self, f: F) -> impl Future<Output = Fut::Output>
+    pub async fn with_children<F, Fut>(&self, f: F) -> Fut::Output
     where
         F: FnOnce(&HashMap<String, FolderEntry<D>>) -> Fut,
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
-        async move {
-            let children = self.children.read().await;
-            f(&*children).await
-        }
+        let children = self.children.read().await;
+        f(&*children).await
     }
 }
 
@@ -510,8 +508,8 @@ where
             name: name_str.to_string(),
             format: self.format,
             protection_status: self.protection_status,
-            date_created: self.date_created.clone(),
-            date_modified: self.date_modified.clone(),
+            date_created: self.date_created,
+            date_modified: self.date_modified,
             children: RwLock::new(self.children.read().await.clone()),
         });
 
@@ -582,8 +580,8 @@ where
             name: self.name.clone(),
             format: self.format,
             protection_status: self.protection_status,
-            date_created: self.date_created.clone(),
-            date_modified: self.date_modified.clone(),
+            date_created: self.date_created,
+            date_modified: self.date_modified,
             children: RwLock::new(self.children.read().await.clone()),
         });
 
@@ -609,6 +607,10 @@ where
     }
 
     /// Create a new file within this `Folder`
+    ///
+    /// # Errors
+    ///
+    /// See [`SessionFsExt::create()`]
     pub async fn create_file<N>(
         &self,
         name: N,
@@ -705,7 +707,7 @@ where
         fs: Weak<FileSystem<D>>,
         handle: ObjectHandle,
         storage_id: StorageId,
-        info: ObjectInfo,
+        info: &ObjectInfo,
     ) -> Self {
         let name = info.filename.to_string();
         let parent_id = info.parent_object.unwrap_or(ObjectHandle::NONE);
@@ -729,7 +731,7 @@ where
                 storage_id,
                 parent_id,
                 name,
-                size: info.compressed_size as u64,
+                size: u64::from(info.compressed_size),
                 format: info.object_format,
                 protection_status: info.protection_status,
                 date_created: info.date_created,
@@ -765,7 +767,7 @@ where
                 break;
             }
 
-            cur = map.get(&parent).map(|e| e.clone());
+            cur = map.get(&parent).cloned();
         }
         components.reverse();
         components.join("/")
@@ -1087,16 +1089,15 @@ where
     }
 
     /// Call the function `f` with immutable access to the [`FileSystem`] root
-    pub fn with_root<F, Fut>(&self, f: F) -> impl Future<Output = Fut::Output>
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn with_root<F, Fut>(&self, f: F) -> Fut::Output
     where
         F: FnOnce(Arc<Folder<D>>) -> Fut,
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
-        async move {
-            let guard = self.root.read().await;
-            f((&*guard).as_ref().cloned().expect("root should exist")).await
-        }
+        let guard = self.root.read().await;
+        f((*guard).clone().expect("root should exist")).await
     }
 
     /// Load a `FileSystem` from the given `storage_id`
@@ -1105,6 +1106,13 @@ where
     /// See [Performance Considerations].
     ///
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
+    ///
+    /// This will also spawn a background process to update the filesystem based on the notifications
+    /// the device sends (if any).
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::load_with_callback()`]
     pub async fn load(
         session: MtpSession<D>,
         storage_id: StorageId,
@@ -1127,6 +1135,21 @@ where
     /// See [Performance Considerations].
     ///
     /// [Performance Considerations]: https://docs.rs/mtp/latest/mtp/#performance-considerations
+    ///
+    /// This will also spawn a background process to update the filesystem based on the notifications
+    /// the device sends (if any).
+    ///
+    /// # Errors
+    ///
+    /// This will fail if, at any point, the device fails any of the following operations:
+    ///
+    /// * [`GetDeviceInfo`]
+    /// * [`GetObjectHandles`]
+    /// * [`GetObjectInfo`]
+    ///
+    /// [`GetDeviceInfo`]: crate::communication::operation::GetDeviceInfo
+    /// [`GetObjectHandles`]: crate::communication::operation::GetObjectHandles
+    /// [`GetObjectInfo`]: crate::communication::operation::GetObjectInfo
     pub async fn load_with_callback<F>(
         session: MtpSession<D>,
         storage_id: StorageId,
@@ -1231,7 +1254,7 @@ where
             callback(handle);
 
             let info = session.get_object_info(handle).await?.data.data;
-            let entry = FolderEntry::new(fs.clone(), handle, storage_id, info);
+            let entry = FolderEntry::new(fs.clone(), handle, storage_id, &info);
             flat_map.insert(handle, entry);
         }
         Ok(())
@@ -1253,10 +1276,7 @@ where
     ) {
         let mut events = session.event_stream();
         while let Some(event_res) = events.next().await {
-            let fs = match fs_weak.upgrade() {
-                Some(arc) => arc,
-                None => break,
-            };
+            let Some(fs) = fs_weak.upgrade() else { break };
 
             // It seems that, more often than not, devices will simply `ObjectRemoved` + `ObjectAdded`
             // for any property modifications.
@@ -1370,7 +1390,7 @@ where
             return Ok(None);
         }
 
-        let entry = FolderEntry::new(Arc::downgrade(&fs), handle, fs.storage_id, info);
+        let entry = FolderEntry::new(Arc::downgrade(&fs), handle, fs.storage_id, &info);
 
         let mut map = fs.inode_map.write().await;
 
@@ -1405,10 +1425,7 @@ where
 
     async fn remove_entry(&self, handle: ObjectHandle) -> Option<FolderEntry<D>> {
         let mut map = self.inode_map.write().await;
-
-        let Some(entry) = map.remove(&handle) else {
-            return None;
-        };
+        let entry = map.remove(&handle)?;
 
         tracing::debug!(
             "Removing entry `{}` (handle: {:#X})",
@@ -1419,10 +1436,10 @@ where
         let parent = entry.parent();
         if let Some(FolderEntry::Folder(parent)) = map.get(&parent) {
             parent.children.write().await.remove(entry.name());
-        } else if parent == ObjectHandle::NONE {
-            if let Some(root) = self.root.read().await.as_ref() {
-                root.children.write().await.remove(entry.name());
-            }
+        } else if parent == ObjectHandle::NONE
+            && let Some(root) = self.root.read().await.as_ref()
+        {
+            root.children.write().await.remove(entry.name());
         }
 
         Some(entry)

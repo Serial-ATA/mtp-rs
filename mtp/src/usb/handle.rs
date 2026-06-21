@@ -203,9 +203,9 @@ impl DeviceHandle {
         endpoints: Endpoints,
     ) -> Result<Self, Error> {
         let timeout = if flags.base.contains(DeviceFlags::LONG_TIMEOUT) {
-            Duration::from_millis(60000)
+            Duration::from_mins(1)
         } else {
-            Duration::from_millis(20000)
+            Duration::from_secs(20)
         };
 
         let out_queue = interface
@@ -283,11 +283,8 @@ impl DeviceHandle {
             };
 
             loop {
-                match event_stream.next().await {
-                    Some(event) => {
-                        let _ = event_tx_clone.send(event);
-                    },
-                    None => {},
+                if let Some(event) = event_stream.next().await {
+                    let _ = event_tx_clone.send(event);
                 }
             }
         });
@@ -446,7 +443,7 @@ impl PtpIo for DeviceHandle {
                 // Error was returned
                 if data_phase.type_ == ContainerType::Response {
                     let err = O::decode_err(&data_phase.payload, self.endian(), data_phase.code)?;
-                    return Err(MtpError::Protocol(err.into()));
+                    return Err(MtpError::Protocol(err));
                 }
 
                 responder_data = Some(data_phase.payload);
@@ -468,7 +465,7 @@ impl PtpIo for DeviceHandle {
         if response.code != CODE_OK {
             let err = O::decode_err(&response.payload, self.endian(), response.code)?;
             tracing::trace!(target: "usb", "Received error response: {err}");
-            return Err(MtpError::Protocol(err.into()));
+            return Err(MtpError::Protocol(err));
         }
 
         match responder_data {

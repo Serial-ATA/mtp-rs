@@ -46,14 +46,14 @@ async fn main() -> Result<(), Error> {
         let fs = MtpFuse::new(session.clone(), storage).await?;
 
         let target = args.mount_point.join(&name);
-        if !target.exists() {
-            if let Err(e) = std::fs::create_dir_all(&target) {
-                tracing::error!(
-                    "Failed to create mountpoint for storage `{name}` at {}: {e}",
-                    target.display()
-                );
-                return Err(Error::Io(Arc::new(e)));
-            }
+        if !target.exists()
+            && let Err(e) = std::fs::create_dir_all(&target)
+        {
+            tracing::error!(
+                "Failed to create mountpoint for storage `{name}` at {}: {e}",
+                target.display()
+            );
+            return Err(Error::Io(Arc::new(e)));
         }
 
         storage_paths.push(target.clone());
@@ -71,20 +71,14 @@ async fn main() -> Result<(), Error> {
         }
     }
 
-    loop {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Shutting down");
-                sessions.clear();
+    let _ = tokio::signal::ctrl_c().await;
 
-                for path in &storage_paths {
-                    if let Err(e) = std::fs::remove_dir(path) {
-                        tracing::error!("Failed to remove mountpoint `{}`: {e}", path.display());
-                    }
-                }
+    tracing::info!("Shutting down");
+    sessions.clear();
 
-                break;
-            }
+    for path in &storage_paths {
+        if let Err(e) = std::fs::remove_dir(path) {
+            tracing::error!("Failed to remove mountpoint `{}`: {e}", path.display());
         }
     }
 

@@ -72,7 +72,6 @@ impl From<deku::DekuError> for SerializationError {
     }
 }
 
-// TODO: Better comment
 /// Errors that can occur during serialization and transport
 #[derive(Clone, Debug)]
 pub enum MtpError<E> {

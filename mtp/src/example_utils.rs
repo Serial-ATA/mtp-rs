@@ -1,5 +1,7 @@
 //! Utilities used in the examples
 
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+
 use crate::high_level::storages::{SessionStorageExt, Storage};
 
 use dialoguer::Select;

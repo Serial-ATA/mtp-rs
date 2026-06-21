@@ -379,10 +379,6 @@ impl FromStr for DateTime {
             }
         }
 
-        // TODO: This string can optionally be appended with a constant character “Z” to indicate UTC, or
-        //       +/-hhmm to indicate that the time is relative to a time zone. Appending neither indicates
-        //       that the time zone is unspecified.
-
         if !datetime.validate() {
             return Err(DateTimeError::FailedValidation);
         }

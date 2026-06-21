@@ -57,7 +57,7 @@ where
     {
         let storage = parent.map(|p| p.storage_id);
         let parent_object = parent.map(|p| p.id);
-        let fs_context = parent.map(|p| p.fs.clone()).unwrap_or_else(Weak::new);
+        let fs_context = parent.map_or_else(Weak::new, |p| p.fs.clone());
 
         // TODO: Getting invalid parameter when trying to create within a directory and InvalidObjectHandle when trying to create at root.
         //       Maybe samsung issue?
@@ -90,7 +90,7 @@ where
             fs: fs_context,
             storage_id,
             id: reserved_handle,
-            parent_id: parent.map(|p| p.id).unwrap_or(ObjectHandle::NONE),
+            parent_id: parent.map_or(ObjectHandle::NONE, |p| p.id),
             name: object_info.filename.to_string(),
             format: ObjectFormatCode::Association,
             protection_status: ProtectionStatus::NoProtection,
@@ -118,7 +118,7 @@ where
         let parent_object = parent.map(|p| p.id);
 
         // Grab the filesystem context from the parent, or create a detached one if root
-        let fs_context = parent.map(|p| p.fs.clone()).unwrap_or_else(Weak::new);
+        let fs_context = parent.map(|p| p.fs.clone()).unwrap_or_default();
 
         let name_ptp = PtpString::try_from(name.as_ref())?;
         let response = self
@@ -137,7 +137,7 @@ where
                 sequence_number: 0,
                 date_created: None,
                 date_modified: None,
-                keywords: Default::default(),
+                keywords: PtpString::default(),
             })
             .await?;
 
@@ -159,7 +159,7 @@ where
             fs: fs_context,
             storage_id,
             id: reserved_handle,
-            parent_id: parent.map(|p| p.id).unwrap_or(ObjectHandle::NONE),
+            parent_id: parent.map_or(ObjectHandle::NONE, |p| p.id),
             name: object_info.filename.to_string(),
             size: size_response.data.data,
             format: object_info.object_format,
