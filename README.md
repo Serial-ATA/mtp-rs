@@ -5,6 +5,11 @@
 [![Version](https://img.shields.io/crates/v/mtp?style=for-the-badge&logo=rust)](https://crates.io/crates/mtp)
 [![Documentation](https://img.shields.io/badge/docs.rs-mtp-informational?style=for-the-badge&logo=read-the-docs)](https://docs.rs/mtp/)
 
+## Acknowledgements
+
+Huge thanks to the [libmtp](https://sourceforge.net/projects/libmtp/) project, whose `devices.h` (which is used in [`fetch-devices.py`](mtp/fetch-devices.py))
+was used to understand the terrible world of non-conformance that is MTP.
+
 ## License
 
 Licensed under either of
